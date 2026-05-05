@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rapport Heure — CHOK BÉTON</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #F2EFE9;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      color: #0A0A0A;
+      background-image: repeating-linear-gradient(0deg, transparent 0, transparent 39px, rgba(10,10,10,0.025) 39px, rgba(10,10,10,0.025) 40px);
+      min-height: 100vh;
+    }
+    input, select, button { font-family: inherit; }
+    table { border-collapse: collapse; width: 100%; }
+    button { cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ============================================================
+//  CONSTANTES
+// ============================================================
+const AGENCES = [
+  { id: "AG-01", nom: "ARPEL", couleur: "#1B4F72" },
+  { id: "AG-02", nom: "DEFI",  couleur: "#B7410E" },
+];
+const POSTES = ["Chef d'équipe","Maçon","Coffreur","Ferrailleur","Conducteur d'engin","Manœuvre"];
+const TODAY = new Date().toISOString().slice(0,10);
+
+const COULEURS_CHANTIER = ["#F5C518","#E55934","#3D5A80","#2A9D8F","#9B5DE5","#E67E22"];
+
+const calcHeures = (p) => {
+  const [h1,m1] = p.debut.split(":").map(Number);
+  const [h2,m2] = p.fin.split(":").map(Number);
+  const min = (h2*60+m2)-(h1*60+m1)-(p.pause||0);
+  return Math.max(0, Math.round((min/60)*100)/100);
+};
+const fmtH = (n) => `${Math.floor(n)}h${String(Math.round((n%1)*60)).padStart(2,"0")}`;
+const initiales = (nom) => nom.trim().split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
+const genId = (p) => `${p}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2,5).toUpperCase()}`;
+const dateFr = () => new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}).toUpperCase();
+const heureFr = () => new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+
+// ============================================================
+//  COULEURS & TYPO
+// ============================================================
+const C = {
+  fond:"#F2EFE9", encre:"#0A0A0A", jaune:"#F5C518", orange:"#E55934",
+  vert:"#2A9D8F", gris:"#8A857A", ligne:"#D8D2C3", papier:"#FBFAF6", bleu:"#1B4F72",
+};
+const FT = "'Bricolage Grotesque', system-ui, sans-serif";
+const FM = "'JetBrains Mono', ui-monospace, monospace";
+
+// ============================================================
+//  PERSISTANCE localStorage
+// ============================================================
+function load(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch { return fallback; }
+}
+function save(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+}
+function usePersist(key, init) {
+  const [val, setVal] = useState(() => load(key, init));
+  const setter = (v) => {
+    const next = typeof v === "function" ? v(val) : v;
+    setVal(next);
+    save(key, next);
+  };
+  return [val, setter];
+}
+
+// ============================================================
+//  APP
+// ============================================================
+function App() {
+  const [vue, setVue]                       = useState("admin");
+  const [salaries, setSalaries]             = usePersist("chok_salaries", []);
+  const [interimaires, setInterimaires]     = usePersist("chok_interimaires", []);
+  const [chantiers, setChantiers]           = usePersist("chok_chantiers", []);
+  const [pointages, setPointages]           = usePersist("chok_pointages", []);
+
+  return (
+    <div>
+      <Header vue={vue} setVue={setVue} />
+      {vue === "admin"
+        ? <VueAdmin {...{pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires}} />
+        : <VueMobile {...{chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages}} />
+      }
+      <Footer />
+    </div>
+  );
+}
+
+// ============================================================
+//  HEADER
+// ============================================================
+function Header({vue, setVue}) {
+  const [heure, setHeure] = useState(heureFr());
+  useEffect(() => { const t = setInterval(()=>setHeure(heureFr()),30000); return ()=>clearInterval(t); },[]);
+
+  const s = {
+    header:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 32px",borderBottom:`2px solid ${C.encre}`,background:C.papier},
+    logo:{display:"flex",alignItems:"center",gap:12},
+    mark:{width:40,height:40,background:C.encre,display:"flex",alignItems:"center",justifyContent:"center"},
+    t1:{fontFamily:FT,fontWeight:800,fontSize:16,letterSpacing:"0.02em",lineHeight:1},
+    t2:{fontFamily:FM,fontSize:10,color:C.gris,letterSpacing:"0.15em",marginTop:3},
+    switcher:{display:"flex",border:`2px solid ${C.encre}`},
+    btn:{fontFamily:FM,fontSize:11,fontWeight:500,padding:"10px 18px",border:"none",background:"transparent",cursor:"pointer",letterSpacing:"0.1em",color:C.encre,borderRight:`1px solid ${C.ligne}`},
+    btnA:{background:C.encre,color:C.jaune},
+    pill:{fontFamily:FM,fontSize:11,padding:"8px 14px",background:C.encre,color:C.papier,letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:8},
+    dot:{width:8,height:8,background:C.vert,borderRadius:"50%",boxShadow:`0 0 0 3px rgba(42,157,143,0.3)`},
+  };
+  return (
+    <header style={s.header}>
+      <div style={{flex:1}}>
+        <div style={s.logo}>
+          <div style={s.mark}>
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <path d="M2 18 L11 4 L20 18 Z" stroke="#0A0A0A" strokeWidth="2" fill="#F5C518"/>
+              <circle cx="11" cy="14" r="1.5" fill="#0A0A0A"/>
+            </svg>
+          </div>
+          <div>
+            <div style={s.t1}>RAPPORT HEURE</div>
+            <div style={s.t2}>CHOK BÉTON</div>
+          </div>
+        </div>
+      </div>
+      <div style={s.switcher}>
+        <button onClick={()=>setVue("admin")} style={{...s.btn,...(vue==="admin"?s.btnA:{})}}>
+          <span style={{color:C.orange,marginRight:6,fontSize:8}}>●</span> ADMIN / RH
+        </button>
+        <button onClick={()=>setVue("mobile")} style={{...s.btn,...(vue==="mobile"?s.btnA:{})}}>
+          <span style={{color:C.orange,marginRight:6,fontSize:8}}>●</span> CHEF D'ÉQUIPE
+        </button>
+      </div>
+      <div style={{flex:1,display:"flex",justifyContent:"flex-end"}}>
+        <div style={s.pill}><span style={s.dot}></span>{heure}</div>
+      </div>
+    </header>
+  );
+}
+
+// ============================================================
+//  VUE ADMIN
+// ============================================================
+function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires}) {
+  const [onglet, setOnglet] = useState("pointages");
+  const auj = pointages.filter(p=>p.date===TODAY);
+  const totalH = auj.reduce((s,p)=>s+calcHeures(p),0);
+  const aValider = auj.filter(p=>!p.valide).length;
+  const intJour = auj.filter(p=>p.interim).length;
+
+  const trouver = (id) => salaries.find(s=>s.id===id) || interimaires.find(i=>i.id===id);
+  const valider = (id) => setPointages(pointages.map(p=>p.id===id?{...p,valide:true}:p));
+  const validerTout = () => setPointages(pointages.map(p=>p.date===TODAY?{...p,valide:true}:p));
+  const supprPointage = (id) => setPointages(pointages.filter(p=>p.id!==id));
+
+  const tabs = [["pointages","Pointages"],["salaries","Salariés"],["interim","Intérimaires"],["chantiers","Chantiers"],["paie","Paie"]];
+
+  return (
+    <main style={{padding:"28px 32px",maxWidth:1500,margin:"0 auto"}}>
+      {/* Bandeau date */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",paddingBottom:20,borderBottom:`1px solid ${C.ligne}`,marginBottom:24}}>
+        <div>
+          <div style={{fontSize:11,color:C.gris,letterSpacing:"0.2em",marginBottom:6}}>JOURNÉE EN COURS</div>
+          <div style={{fontFamily:FT,fontSize:32,fontWeight:800,letterSpacing:"-0.02em"}}>{dateFr()}</div>
+        </div>
+        <Btn variant="export" onClick={()=>alert("Export Silae — à connecter en production")}>↓ EXPORT SILAE</Btn>
+      </div>
+
+      {/* KPI */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:28}}>
+        <Kpi label="Pointages du jour" val={auj.length} sub="entrées" accent={C.jaune}/>
+        <Kpi label="Heures totales" val={fmtH(totalH)} sub={`${chantiers.filter(c=>c.actif).length} chantier(s)`} accent="#3D5A80"/>
+        <Kpi label="Salariés" val={salaries.length} sub="enregistrés" accent={C.vert}/>
+        <Kpi label="Intérimaires" val={intJour} sub={`/ ${interimaires.length} fichés`} accent={C.bleu}/>
+        <Kpi label="À valider" val={aValider} sub="en attente" accent={C.encre} alert={aValider>0}/>
+      </div>
+
+      {/* Onglets */}
+      <div style={{display:"flex",borderBottom:`2px solid ${C.encre}`,marginBottom:24,flexWrap:"wrap"}}>
+        {tabs.map(([k,l])=>(
+          <button key={k} onClick={()=>setOnglet(k)} style={{fontFamily:FM,fontSize:12,fontWeight:onglet===k?700:500,padding:"12px 20px",background:"transparent",border:"none",cursor:"pointer",letterSpacing:"0.1em",color:onglet===k?C.encre:C.gris,borderBottom:onglet===k?`3px solid ${C.jaune}`:"3px solid transparent",marginBottom:-2}}>
+            {l.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {onglet==="pointages" && <OngletPointages auj={auj} chantiers={chantiers} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
+      {onglet==="salaries" && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages}/>}
+      {onglet==="interim" && <OngletInterim interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} chantiers={chantiers}/>}
+      {onglet==="chantiers" && <OngletChantiers chantiers={chantiers} setChantiers={setChantiers} pointages={pointages}/>}
+      {onglet==="paie" && <OngletPaie pointages={pointages} salaries={salaries}/>}
+    </main>
+  );
+}
+
+// ---- Onglet Pointages ----
+function OngletPointages({auj,chantiers,trouver,aValider,valider,validerTout,supprPointage}) {
+  const [filtre,setFiltre] = useState("tous");
+  const liste = filtre==="tous" ? auj : auj.filter(p=>p.chantier===filtre);
+  return (
+    <Section titre="Pointages du jour" actions={
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+        <select value={filtre} onChange={e=>setFiltre(e.target.value)} style={selectStyle}>
+          <option value="tous">Tous les chantiers</option>
+          {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+        </select>
+        {aValider>0 && <Btn onClick={validerTout}>✓ TOUT VALIDER ({aValider})</Btn>}
+      </div>
+    }>
+      {liste.length===0
+        ? <EmptyState>Aucun pointage aujourd'hui.<br/><small style={{color:C.gris}}>Les rapports arrivent depuis l'onglet Chef d'équipe.</small></EmptyState>
+        : <TableWrap>
+            <thead><tr>
+              <Th>Personne</Th><Th>Statut</Th><Th>Chantier</Th>
+              <Th r>Début</Th><Th r>Fin</Th><Th r>Pause</Th><Th r>Total</Th>
+              <Th>Géoloc.</Th><Th>État</Th><Th></Th>
+            </tr></thead>
+            <tbody>
+              {liste.map(p=>{
+                const pers = trouver(p.salarie);
+                const ch = chantiers.find(c=>c.id===p.chantier);
+                const ag = p.interim ? AGENCES.find(a=>a.id===pers?.agence) : null;
+                return (
+                  <tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
+                    <Td><b style={{fontSize:13}}>{pers?.nom||p.salarie}</b><br/><span style={{fontSize:11,color:C.gris}}>{pers?.poste||"—"}</span></Td>
+                    <Td>{p.interim
+                      ? <span style={{fontSize:10,padding:"3px 8px",color:"#fff",fontWeight:700,background:ag?.couleur}}>{ag?.nom||"INTÉRIM"}</span>
+                      : <span style={{fontSize:10,padding:"3px 8px",fontWeight:700,border:`1px solid ${C.encre}`}}>INTERNE</span>}
+                    </Td>
+                    <Td>{ch ? <span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span> : "—"}</Td>
+                    <Td r>{p.debut}</Td><Td r>{p.fin}</Td><Td r>{p.pause}min</Td>
+                    <Td r><b>{fmtH(calcHeures(p))}</b></Td>
+                    <Td>{p.geo==="OK"?<span style={{color:C.vert,fontSize:11,fontWeight:500}}>📍 OK</span>:<span style={{color:C.orange,fontSize:11,fontWeight:700}}>⚠ HORS ZONE</span>}</Td>
+                    <Td>{p.valide?<span style={{color:C.vert,fontSize:11,fontWeight:700}}>● VALIDÉ</span>:<span style={{color:C.orange,fontSize:11,fontWeight:700}}>● ATTENTE</span>}</Td>
+                    <Td>
+                      <div style={{display:"flex",gap:6}}>
+                        {!p.valide && <Btn variant="mini" onClick={()=>valider(p.id)}>VALIDER</Btn>}
+                        <Btn variant="danger-mini" onClick={()=>supprPointage(p.id)}>✕</Btn>
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </TableWrap>
+      }
+    </Section>
+  );
+}
+
+// ---- Onglet Salariés ----
+function OngletSalaries({salaries,setSalaries,pointages}) {
+  const [open,setOpen] = useState(false);
+  const [nom,setNom]   = useState("");
+  const [poste,setPoste] = useState(POSTES[0]);
+  const [err,setErr]   = useState("");
+
+  const ajouter = () => {
+    if(nom.trim().length<2){setErr("Nom trop court."); return;}
+    if(salaries.some(s=>s.nom.toLowerCase()===nom.trim().toLowerCase())){setErr("Déjà enregistré."); return;}
+    setSalaries([...salaries,{id:genId("S"),nom:nom.trim(),poste,equipe:"—",interne:true}]);
+    setNom(""); setPoste(POSTES[0]); setOpen(false); setErr("");
+  };
+  const supprimer = (id) => {
+    if(pointages.some(p=>p.salarie===id) && !window.confirm("Ce salarié a des pointages. Supprimer quand même ?")) return;
+    setSalaries(salaries.filter(s=>s.id!==id));
+  };
+
+  return (
+    <Section titre={`Salariés CHOK BÉTON — ${salaries.length}`} actions={
+      <Btn onClick={()=>{setOpen(!open);setErr("");}}>{open?"✕ Annuler":"+ AJOUTER UN SALARIÉ"}</Btn>
+    }>
+      {open && <FormInline>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <Champ label="NOM COMPLET"><input value={nom} onChange={e=>{setNom(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&ajouter()} placeholder="Prénom Nom" style={inputStyle}/></Champ>
+          <Champ label="POSTE"><select value={poste} onChange={e=>setPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Champ>
+          <Btn onClick={ajouter}>AJOUTER</Btn>
+        </div>
+        {err && <ErrBox>{err}</ErrBox>}
+      </FormInline>}
+
+      {salaries.length===0
+        ? <EmptyState>Aucun salarié. Cliquez sur "+ AJOUTER UN SALARIÉ".</EmptyState>
+        : <TableWrap>
+            <thead><tr><Th>Nom</Th><Th>Poste</Th><Th>ID</Th><Th r>Jours pointés</Th><Th></Th></tr></thead>
+            <tbody>{salaries.map(s=>{
+              const jours = pointages.filter(p=>p.salarie===s.id).length;
+              return <tr key={s.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
+                <Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={s.nom}/><b>{s.nom}</b></div></Td>
+                <Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,border:`1px solid ${C.encre}`}}>{s.poste}</span></Td>
+                <Td><span style={{fontSize:10,padding:"3px 8px",color:C.gris,border:`1px solid ${C.ligne}`}}>{s.id}</span></Td>
+                <Td r>{jours}</Td>
+                <Td><Btn variant="danger" onClick={()=>supprimer(s.id)}>SUPPRIMER</Btn></Td>
+              </tr>;
+            })}</tbody>
+          </TableWrap>
+      }
+    </Section>
+  );
+}
+
+// ---- Onglet Intérimaires ----
+function OngletInterim({interimaires,setInterimaires,pointages,chantiers}) {
+  const [open,setOpen]   = useState(false);
+  const [nom,setNom]     = useState("");
+  const [poste,setPoste] = useState("Manœuvre");
+  const [agence,setAgence] = useState(AGENCES[0].id);
+  const [err,setErr]     = useState("");
+
+  const ajouter = () => {
+    if(nom.trim().length<2){setErr("Nom trop court."); return;}
+    if(interimaires.some(i=>i.nom.toLowerCase()===nom.trim().toLowerCase())){setErr("Déjà enregistré."); return;}
+    setInterimaires([...interimaires,{id:genId("I"),nom:nom.trim(),poste,agence}]);
+    setNom(""); setPoste("Manœuvre"); setAgence(AGENCES[0].id); setOpen(false); setErr("");
+  };
+  const supprimer = (id) => {
+    if(pointages.some(p=>p.salarie===id) && !window.confirm("Cet intérimaire a des pointages. Supprimer ?")) return;
+    setInterimaires(interimaires.filter(i=>i.id!==id));
+  };
+  const stats = (id) => { const ps=pointages.filter(p=>p.salarie===id); return {j:ps.length, h:ps.reduce((s,p)=>s+calcHeures(p),0)}; };
+
+  return (
+    <Section titre={`Intérimaires — ${interimaires.length}`} actions={
+      <Btn onClick={()=>{setOpen(!open);setErr("");}}>{open?"✕ Annuler":"+ AJOUTER UN INTÉRIMAIRE"}</Btn>
+    }>
+      {open && <FormInline>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <Champ label="NOM COMPLET"><input value={nom} onChange={e=>{setNom(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&ajouter()} placeholder="Prénom Nom" style={inputStyle}/></Champ>
+          <Champ label="POSTE"><select value={poste} onChange={e=>setPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Champ>
+          <Champ label="AGENCE"><select value={agence} onChange={e=>setAgence(e.target.value)} style={selectStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Champ>
+          <Btn onClick={ajouter}>AJOUTER</Btn>
+        </div>
+        {err && <ErrBox>{err}</ErrBox>}
+      </FormInline>}
+
+      {interimaires.length===0
+        ? <EmptyState>Aucun intérimaire. Ajoutez-les ici ou depuis l'app chef d'équipe.</EmptyState>
+        : <TableWrap>
+            <thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Agence</Th><Th r>Jours</Th><Th r>Heures</Th><Th></Th></tr></thead>
+            <tbody>{interimaires.map(i=>{
+              const ag=AGENCES.find(a=>a.id===i.agence); const s=stats(i.id);
+              return <tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
+                <Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={i.nom} bg={ag?.couleur} light/><b>{i.nom}</b></div></Td>
+                <Td>{i.poste}</Td>
+                <Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span></Td>
+                <Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td>
+                <Td><Btn variant="danger" onClick={()=>supprimer(i.id)}>SUPPRIMER</Btn></Td>
+              </tr>;
+            })}</tbody>
+          </TableWrap>
+      }
+    </Section>
+  );
+}
+
+// ---- Onglet Chantiers ----
+function OngletChantiers({chantiers,setChantiers,pointages}) {
+  const [open,setOpen] = useState(false);
+  const [nom,setNom]   = useState("");
+  const [ville,setVille] = useState("");
+  const [client,setClient] = useState("");
+  const [couleur,setCouleur] = useState(COULEURS_CHANTIER[0]);
+
+  const ajouter = () => {
+    if(nom.trim().length<2) return;
+    setChantiers([...chantiers,{id:genId("C"),nom:nom.trim(),ville:ville||"—",client:client||"—",couleur,actif:true}]);
+    setNom(""); setVille(""); setClient(""); setCouleur(COULEURS_CHANTIER[0]); setOpen(false);
+  };
+  const toggle = (id) => setChantiers(chantiers.map(c=>c.id===id?{...c,actif:!c.actif}:c));
+  const suppr  = (id) => { if(window.confirm("Supprimer ce chantier ?")) setChantiers(chantiers.filter(c=>c.id!==id)); };
+
+  return (
+    <Section titre={`Chantiers — ${chantiers.length}`} actions={
+      <Btn onClick={()=>setOpen(!open)}>{open?"✕ Annuler":"+ NOUVEAU CHANTIER"}</Btn>
+    }>
+      {open && <FormInline>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <Champ label="NOM"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="Résidence Les Pins" style={inputStyle}/></Champ>
+          <Champ label="VILLE"><input value={ville} onChange={e=>setVille(e.target.value)} placeholder="Lyon 3e" style={inputStyle}/></Champ>
+          <Champ label="CLIENT"><input value={client} onChange={e=>setClient(e.target.value)} placeholder="Vinci" style={inputStyle}/></Champ>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10}}>
+          <span style={{fontSize:10,color:C.gris,letterSpacing:"0.18em",fontWeight:700}}>COULEUR</span>
+          {COULEURS_CHANTIER.map(c=>(
+            <button key={c} onClick={()=>setCouleur(c)} style={{width:30,height:30,background:c,border:"none",cursor:"pointer",outline:couleur===c?"3px solid #0A0A0A":"none",outlineOffset:2}}/>
+          ))}
+          <Btn onClick={ajouter} style={{marginLeft:"auto"}}>CRÉER</Btn>
+        </div>
+      </FormInline>}
+
+      {chantiers.length===0
+        ? <EmptyState>Aucun chantier. Créez-en un ci-dessus ou depuis l'app chef d'équipe.</EmptyState>
+        : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+            {chantiers.map(c=>{
+              const nb=pointages.filter(p=>p.chantier===c.id&&p.date===TODAY).length;
+              return (
+                <div key={c.id} style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflow:"hidden"}}>
+                  <div style={{height:7,background:c.couleur}}/>
+                  <div style={{padding:"14px 16px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                      <span style={{fontSize:10,color:C.gris,fontWeight:700,letterSpacing:"0.1em"}}>{c.id}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:c.actif?C.vert:C.gris}}>{c.actif?"● ACTIF":"○ FERMÉ"}</span>
+                    </div>
+                    <div style={{fontFamily:FT,fontSize:17,fontWeight:700,marginBottom:4}}>{c.nom}</div>
+                    <div style={{fontSize:12,color:C.gris,marginBottom:4}}>📍 {c.ville}</div>
+                    <div style={{fontSize:11,color:C.gris,fontStyle:"italic",marginBottom:14}}>Client : {c.client}</div>
+                    <div style={{paddingTop:10,borderTop:`1px solid ${C.ligne}`,marginBottom:12}}>
+                      <span style={{fontFamily:FT,fontSize:20,fontWeight:800}}>{nb}</span>
+                      <span style={{fontSize:10,color:C.gris,marginLeft:6}}>pointage(s) aujourd'hui</span>
+                    </div>
+                    <div style={{display:"flex",gap:8}}>
+                      <Btn variant="ghost" onClick={()=>toggle(c.id)}>{c.actif?"FERMER":"RÉACTIVER"}</Btn>
+                      <Btn variant="danger" onClick={()=>suppr(c.id)}>SUPPR.</Btn>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+      }
+    </Section>
+  );
+}
+
+// ---- Onglet Paie ----
+function OngletPaie({pointages,salaries}) {
+  const semaine = (() => {
+    const d=new Date(), day=d.getDay()||7;
+    const lundi=new Date(d); lundi.setDate(d.getDate()-day+1);
+    return Array.from({length:5},(_,i)=>{ const x=new Date(lundi); x.setDate(lundi.getDate()+i); return x.toISOString().slice(0,10); });
+  })();
+
+  const recap = salaries.map(s=>{
+    const ps=pointages.filter(p=>p.salarie===s.id);
+    const semPs=ps.filter(p=>semaine.includes(p.date));
+    return {...s, totalSem:semPs.reduce((a,p)=>a+calcHeures(p),0), jours:ps.length};
+  });
+
+  return (
+    <Section titre="Récapitulatif paie — semaine en cours" actions={
+      <div style={{display:"flex",gap:8}}>
+        <Btn variant="ghost" onClick={()=>alert("Export CSV — à connecter")}>↓ CSV</Btn>
+        <Btn variant="export" onClick={()=>alert("Export Silae — à connecter")}>↓ SILAE</Btn>
+      </div>
+    }>
+      <div style={{background:"#FFF8E1",padding:"12px 16px",border:`1.5px solid ${C.encre}`,marginBottom:16,fontSize:12,lineHeight:1.6}}>
+        <b>35h</b> par semaine · Lundi → vendredi · Au-delà de 35h = heures supplémentaires.
+      </div>
+      {recap.length===0
+        ? <EmptyState>Aucun salarié enregistré. Ajoutez des salariés dans l'onglet Salariés.</EmptyState>
+        : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+            {recap.map(s=>{
+              const sup=Math.max(0,s.totalSem-35);
+              const manque=Math.max(0,35-s.totalSem);
+              return (
+                <div key={s.id} style={{background:C.papier,border:`1.5px solid ${C.encre}`,padding:18}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12,paddingBottom:14,borderBottom:`1px solid ${C.ligne}`,marginBottom:14}}>
+                    <div style={{width:40,height:40,background:C.jaune,color:C.encre,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{initiales(s.nom)}</div>
+                    <div><div style={{fontWeight:700,fontSize:14}}>{s.nom}</div><div style={{fontSize:11,color:C.gris}}>{s.poste}</div></div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+                    {[["SEMAINE",fmtH(s.totalSem),"#0A0A0A"],["JOURS",s.jours,"#0A0A0A"],["H. SUP",sup>0?`+${fmtH(sup)}`:"—",sup>0?C.orange:C.gris],
+                      [manque>0?"MANQUE":"COMPLET",manque>0?fmtH(manque):"✓",manque>0?C.orange:C.vert]
+                    ].map(([l,v,col])=>(
+                      <div key={l}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>{l}</div><div style={{fontFamily:FT,fontSize:18,fontWeight:800,color:col}}>{v}</div></div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+      }
+    </Section>
+  );
+}
+
+// ============================================================
+//  VUE MOBILE
+// ============================================================
+function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages}) {
+  const [etape,setEtape]       = useState("accueil");
+  const [chantierSel,setCh]    = useState(null);
+  const [chefSel,setChef]      = useState(null);
+  const [equipe,setEquipe]      = useState([]); // [{id,type,debut,fin,pause}]
+
+  const reset = () => { setEtape("accueil"); setCh(null); setChef(null); setEquipe([]); };
+
+  return (
+    <main style={{padding:"40px 32px",display:"flex",gap:48,justifyContent:"center",alignItems:"flex-start",flexWrap:"wrap"}}>
+      {/* Téléphone */}
+      <div style={{width:360,height:760,background:C.encre,borderRadius:48,padding:14,position:"relative",boxShadow:"0 30px 80px rgba(0,0,0,0.25)",flexShrink:0}}>
+        <div style={{position:"absolute",top:22,left:"50%",transform:"translateX(-50%)",width:110,height:28,background:C.encre,borderRadius:16,zIndex:2}}/>
+        <div style={{background:C.papier,height:"100%",borderRadius:36,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+          {/* Status bar */}
+          <div style={{display:"flex",justifyContent:"space-between",padding:"16px 28px 6px",fontSize:12,fontWeight:700}}>
+            <Clock/><span>📶 · 🔋</span>
+          </div>
+          {/* Header mobile */}
+          <div style={{padding:"6px 28px 14px"}}>
+            <div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em"}}>RAPPORT HEURE</div>
+            <div style={{fontFamily:FT,fontSize:22,fontWeight:800,letterSpacing:"-0.02em",lineHeight:1.1,marginTop:4}}>CHOK BÉTON</div>
+            <div style={{fontSize:10,color:C.gris,letterSpacing:"0.08em",marginTop:4}}>
+              {new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}).toUpperCase()}
+            </div>
+          </div>
+
+          {etape==="accueil"     && <MAccueil chantiers={chantiers} salaries={salaries} onNouveau={()=>setEtape("nouveau-chantier")} onSuite={(ch,chef)=>{setCh(ch);setChef(chef);setEtape("equipe");}}/>}
+          {etape==="nouveau-chantier" && <MNouveauChantier onAnnuler={()=>setEtape("accueil")} onCreer={c=>{setChantiers([...chantiers,c]);setEtape("accueil");}}/>}
+          {etape==="equipe"      && <MEquipe chantier={chantierSel} chef={chefSel} salaries={salaries} interimaires={interimaires} equipe={equipe} setEquipe={setEquipe} onRetour={()=>setEtape("accueil")} onSuite={()=>setEtape("pointage")} onAjoutInt={()=>setEtape("nouveau-interim")}/>}
+          {etape==="nouveau-interim" && <MNouvelInt onAnnuler={()=>setEtape("equipe")} onCreer={i=>{setInterimaires([...interimaires,i]);setEquipe([...equipe,{id:i.id,type:"interim",debut:"08:00",fin:"16:00",pause:60}]);setEtape("equipe");}}/>}
+          {etape==="pointage"    && <MPointage chantier={chantierSel} chef={chefSel} equipe={equipe} setEquipe={setEquipe} salaries={salaries} interimaires={interimaires} onRetour={()=>setEtape("equipe")} onValider={()=>{
+            const nouveaux = equipe.map(m=>({id:genId("P"),salarie:m.id,chantier:chantierSel.id,date:TODAY,debut:m.debut,fin:m.fin,pause:m.pause,hsup:0,nuit:0,valide:false,geo:"OK",interim:m.type==="interim"}));
+            setPointages([...pointages,...nouveaux]);
+            setEtape("confirm");
+          }}/>}
+          {etape==="confirm"     && <MConfirm chantier={chantierSel} equipe={equipe} onReset={reset}/>}
+        </div>
+        <div style={{position:"absolute",bottom:24,left:"50%",transform:"translateX(-50%)",width:130,height:4,background:"#fff",borderRadius:2,opacity:0.5}}/>
+      </div>
+
+      {/* Aside */}
+      <aside style={{maxWidth:380,padding:"8px 0"}}>
+        <div style={{display:"inline-block",fontSize:10,letterSpacing:"0.2em",background:C.encre,color:C.jaune,padding:"5px 10px",fontWeight:700,marginBottom:16}}>VUE CHEF D'ÉQUIPE</div>
+        <h3 style={{fontFamily:FT,fontSize:30,fontWeight:800,letterSpacing:"-0.02em",lineHeight:1.1,margin:"0 0 16px"}}>Rapport des heures du jour</h3>
+        <p style={{fontSize:14,lineHeight:1.65,marginBottom:24}}>
+          Sélectionne le chantier, compose l'équipe, et saisis les horaires <b>de chaque personne séparément</b> — si l'intérimaire arrive en retard, ses heures sont distinctes des tiennes.
+        </p>
+        {[["1","Choisir le chantier du jour"],["2","Sélectionner son équipe"],["3","Saisir les horaires par personne"],["4","Envoyer pour validation RH"]].map(([n,l])=>(
+          <div key={n} style={{fontSize:13,lineHeight:1.6,display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+            <span style={{width:22,height:22,background:C.encre,color:C.jaune,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{n}</span>{l}
+          </div>
+        ))}
+        <div style={{marginTop:24,padding:"14px 18px",background:C.jaune,fontSize:12,lineHeight:1.6,border:`1.5px solid ${C.encre}`}}>
+          💡 Horaires par défaut : <b>08:00 → 16:00</b>, pause 60 min. Modifiable par personne.
+        </div>
+      </aside>
+    </main>
+  );
+}
+
+// ---- Écrans mobile ----
+function MAccueil({chantiers,salaries,onNouveau,onSuite}) {
+  const [chSel,setChSel] = useState(null);
+  const [chefId,setChefId] = useState("");
+  const actifs = chantiers.filter(c=>c.actif);
+  const ok = chSel && chefId;
+  return (
+    <>
+      <div style={{padding:"0 24px 14px"}}>
+        <div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em",marginBottom:10}}>CHANTIER DU JOUR</div>
+        {actifs.length===0
+          ? <div style={{padding:"10px 12px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11,lineHeight:1.5}}>Aucun chantier actif. Créez-en un ci-dessous ou dans l'onglet Admin.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {actifs.map(c=>(
+                <button key={c.id} onClick={()=>setChSel(c)} style={{background:chSel?.id===c.id?C.papier:C.fond,border:`1.5px solid ${chSel?.id===c.id?C.encre:C.ligne}`,borderLeft:`5px solid ${c.couleur}`,padding:"10px 12px",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:FM}}>
+                  <div><div style={{fontSize:12,fontWeight:700}}>{c.nom}</div><div style={{fontSize:10,color:C.gris,marginTop:2}}>{c.ville}</div></div>
+                  {chSel?.id===c.id && <span style={{color:C.vert,fontWeight:700}}>✓</span>}
+                </button>
+              ))}
+            </div>
+        }
+      </div>
+      <div style={{padding:"0 24px 14px"}}>
+        <div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em",marginBottom:10}}>CHEF D'ÉQUIPE</div>
+        {salaries.length===0
+          ? <div style={{padding:"10px 12px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11}}>Aucun salarié. Ajoutez-en depuis l'onglet Admin.</div>
+          : <select value={chefId} onChange={e=>setChefId(e.target.value)} style={{...selectStyle,width:"100%"}}>
+              <option value="" disabled>— Qui est le chef aujourd'hui ? —</option>
+              {salaries.map(s=><option key={s.id} value={s.id}>{s.nom} · {s.poste}</option>)}
+            </select>
+        }
+      </div>
+      <div style={{flex:1}}/>
+      <MBtn variant="alt" onClick={onNouveau}>+ NOUVEAU CHANTIER</MBtn>
+      <MBtn disabled={!ok} onClick={()=>ok&&onSuite(chSel,salaries.find(s=>s.id===chefId))}>→ COMPOSER L'ÉQUIPE</MBtn>
+    </>
+  );
+}
+
+function MNouveauChantier({onAnnuler,onCreer}) {
+  const [nom,setNom]     = useState("");
+  const [ville,setVille] = useState("");
+  const [client,setClient] = useState("");
+  const [couleur,setCouleur] = useState(COULEURS_CHANTIER[0]);
+  const ok = nom.length>2;
+  return (
+    <MFormWrap titre="NOUVEAU CHANTIER" onRetour={onAnnuler}>
+      <MChamp label="NOM DU CHANTIER"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="Résidence Belle Vue" style={mInputStyle}/></MChamp>
+      <MChamp label="VILLE"><input value={ville} onChange={e=>setVille(e.target.value)} placeholder="Ex : Villeurbanne" style={mInputStyle}/></MChamp>
+      <MChamp label="CLIENT (OPTIONNEL)"><input value={client} onChange={e=>setClient(e.target.value)} placeholder="Ex : Vinci" style={mInputStyle}/></MChamp>
+      <MChamp label="COULEUR">
+        <div style={{display:"flex",gap:8}}>
+          {COULEURS_CHANTIER.map(c=><button key={c} onClick={()=>setCouleur(c)} style={{width:32,height:32,background:c,border:"none",cursor:"pointer",outline:couleur===c?"3px solid #0A0A0A":"none",outlineOffset:2}}/>)}
+        </div>
+      </MChamp>
+      <MBtn disabled={!ok} onClick={()=>ok&&onCreer({id:genId("C"),nom,ville:ville||"—",client:client||"—",couleur,actif:true})}>✓ CRÉER LE CHANTIER</MBtn>
+    </MFormWrap>
+  );
+}
+
+function MEquipe({chantier,chef,salaries,interimaires,equipe,setEquipe,onRetour,onSuite,onAjoutInt}) {
+  useEffect(()=>{
+    if(chef && !equipe.find(m=>m.id===chef.id))
+      setEquipe([{id:chef.id,type:"interne",debut:"08:00",fin:"16:00",pause:60}]);
+  },[chef]);
+
+  const add = (id,type) => { if(!equipe.find(m=>m.id===id)) setEquipe([...equipe,{id,type,debut:"08:00",fin:"16:00",pause:60}]); };
+  const del = (id) => { if(id!==chef?.id) setEquipe(equipe.filter(m=>m.id!==id)); };
+
+  const getNom = (id) => { const s=salaries.find(x=>x.id===id); if(s) return s.nom; const i=interimaires.find(x=>x.id===id); return i?i.nom:id; };
+  const getAg = (id) => { const i=interimaires.find(x=>x.id===id); return i?AGENCES.find(a=>a.id===i.agence):null; };
+
+  const autreSal = salaries.filter(s=>s.id!==chef?.id&&!equipe.find(m=>m.id===s.id));
+  const autreInt = interimaires.filter(i=>!equipe.find(m=>m.id===i.id));
+
+  return (
+    <MFormWrap titre="ÉQUIPE DU JOUR" onRetour={onRetour}>
+      <ChantierBandeau chantier={chantier}/>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {equipe.map(m=>{
+          const ag=m.type==="interim"?getAg(m.id):null;
+          return (
+            <div key={m.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",background:C.fond,border:`1.5px solid ${C.ligne}`}}>
+              <div style={{width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0,background:m.id===chef?.id?"#0A0A0A":ag?.couleur||"#3D5A80",color:"#fff"}}>{initiales(getNom(m.id))}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700}}>{getNom(m.id)}</div>
+                <div style={{fontSize:10,color:C.gris,marginTop:1}}>{m.id===chef?.id?"Chef d'équipe · TOI":m.type==="interim"?`INTÉRIM · ${ag?.nom||""}`:"Salarié interne"}</div>
+              </div>
+              {m.id!==chef?.id && <button onClick={()=>del(m.id)} style={{background:"transparent",border:`1px solid ${C.gris}`,color:C.gris,width:26,height:26,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>}
+            </div>
+          );
+        })}
+
+        {autreSal.length>0 && <select defaultValue="" onChange={e=>{if(e.target.value){add(e.target.value,"interne");e.target.value="";}}} style={{...mInputStyle,marginTop:4}}>
+          <option value="" disabled>+ Ajouter un salarié CHOK BÉTON</option>
+          {autreSal.map(s=><option key={s.id} value={s.id}>{s.nom} · {s.poste}</option>)}
+        </select>}
+
+        {autreInt.length>0 && <select defaultValue="" onChange={e=>{if(e.target.value){add(e.target.value,"interim");e.target.value="";}}} style={mInputStyle}>
+          <option value="" disabled>+ Ajouter un intérimaire</option>
+          {autreInt.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);return <option key={i.id} value={i.id}>{i.nom} · {ag?.nom}</option>;})}
+        </select>}
+
+        <button onClick={onAjoutInt} style={{padding:"11px",background:"transparent",border:`1.5px dashed ${C.encre}`,fontFamily:FM,fontSize:11,fontWeight:700,color:C.encre,cursor:"pointer"}}>
+          + NOUVEL INTÉRIMAIRE (pas encore fiché)
+        </button>
+      </div>
+      <MBtn disabled={equipe.length===0} onClick={()=>equipe.length>0&&onSuite()}>→ SAISIR LES HORAIRES</MBtn>
+    </MFormWrap>
+  );
+}
+
+function MNouvelInt({onAnnuler,onCreer}) {
+  const [nom,setNom]     = useState("");
+  const [poste,setPoste] = useState("Manœuvre");
+  const [agence,setAgence] = useState(AGENCES[0].id);
+  const ok = nom.trim().length>2;
+  return (
+    <MFormWrap titre="NOUVEL INTÉRIMAIRE" onRetour={onAnnuler}>
+      <MChamp label="NOM COMPLET"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="Prénom Nom" style={mInputStyle}/></MChamp>
+      <MChamp label="POSTE"><select value={poste} onChange={e=>setPoste(e.target.value)} style={mInputStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></MChamp>
+      <MChamp label="AGENCE"><select value={agence} onChange={e=>setAgence(e.target.value)} style={mInputStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></MChamp>
+      <div style={{padding:"10px 12px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11,lineHeight:1.5}}>💡 Il sera ajouté à la base RH pour les prochaines fois.</div>
+      <MBtn disabled={!ok} onClick={()=>ok&&onCreer({id:genId("I"),nom:nom.trim(),poste,agence})}>✓ AJOUTER À L'ÉQUIPE</MBtn>
+    </MFormWrap>
+  );
+}
+
+function MPointage({chantier,chef,equipe,setEquipe,salaries,interimaires,onRetour,onValider}) {
+  const getNom = (id) => { const s=salaries.find(x=>x.id===id); if(s) return s.nom; const i=interimaires.find(x=>x.id===id); return i?i.nom:id; };
+  const getAg  = (id) => { const i=interimaires.find(x=>x.id===id); return i?AGENCES.find(a=>a.id===i.agence):null; };
+  const upd = (id,k,v) => setEquipe(equipe.map(m=>m.id===id?{...m,[k]:k==="pause"?parseInt(v)||0:v}:m));
+
+  return (
+    <MFormWrap titre="HORAIRES PAR PERSONNE" onRetour={onRetour}>
+      <ChantierBandeau chantier={chantier}/>
+      <div style={{padding:"0 0 4px",background:"#E8F5E9",border:`1.5px solid ${C.vert}`,marginBottom:12,display:"flex",alignItems:"center",gap:10,padding:"10px 12px",flexShrink:0}}>
+        <span style={{fontSize:20}}>📍</span>
+        <div><div style={{fontSize:11,fontWeight:700,letterSpacing:"0.1em"}}>POSITION VALIDÉE</div><div style={{fontSize:10,color:C.gris,marginTop:2}}>Géolocalisation active</div></div>
+      </div>
+
+      <div style={{overflowY:"auto",flex:1,padding:"0 0 8px"}}>
+        {equipe.map(m=>{
+          const isChef=m.id===chef?.id;
+          const ag=m.type==="interim"?getAg(m.id):null;
+          const total=calcHeures(m);
+          return (
+            <div key={m.id} style={{marginBottom:12,padding:"12px",background:C.fond,border:`1.5px solid ${C.ligne}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <div style={{width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0,background:isChef?"#0A0A0A":ag?.couleur||"#3D5A80",color:"#fff"}}>{initiales(getNom(m.id))}</div>
+                <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{getNom(m.id)}</div><div style={{fontSize:10,color:C.gris}}>{isChef?"CHEF D'ÉQUIPE":m.type==="interim"?`INTÉRIM · ${ag?.nom}`:"SALARIÉ"}</div></div>
+                <div style={{fontFamily:FT,fontSize:16,fontWeight:800,background:C.encre,color:C.jaune,padding:"3px 10px"}}>{fmtH(total)}</div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                {[["DÉBUT","time","debut","08:00"],["FIN","time","fin","16:00"],["PAUSE (min)","number","pause",60]].map(([l,t,k,ph])=>(
+                  <div key={k}>
+                    <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>{l}</div>
+                    <input type={t} value={m[k]} onChange={e=>upd(m.id,k,e.target.value)} style={{width:"100%",padding:"10px 8px",background:C.papier,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:13,outline:"none",textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <MBtn onClick={onValider}>✓ ENVOYER LE RAPPORT</MBtn>
+    </MFormWrap>
+  );
+}
+
+function MConfirm({chantier,equipe,onReset}) {
+  return (
+    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",padding:"28px 24px 8px"}}>
+      <div style={{width:68,height:68,background:C.vert,color:C.papier,display:"flex",alignItems:"center",justifyContent:"center",fontSize:34,fontWeight:700,marginBottom:18}}>✓</div>
+      <div style={{fontFamily:FT,fontSize:20,fontWeight:800,letterSpacing:"-0.02em",textAlign:"center"}}>RAPPORT ENVOYÉ</div>
+      <div style={{fontSize:12,color:C.gris,textAlign:"center",marginTop:8,lineHeight:1.6}}>{equipe.length} pointage(s) transmis<br/>en attente de validation RH.</div>
+      <div style={{width:"100%",marginTop:18,padding:14,background:C.fond,fontSize:11}}>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}><span>Chantier</span><b>{chantier?.nom}</b></div>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}><span>Équipe</span><b>{equipe.length} pers.</b></div>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}><span>État</span><b style={{color:C.orange}}>EN ATTENTE VALIDATION</b></div>
+      </div>
+      <MBtn onClick={onReset}>RETOUR ACCUEIL</MBtn>
+    </div>
+  );
+}
+
+// ============================================================
+//  COMPOSANTS UTILITAIRES
+// ============================================================
+function Clock() {
+  const [h,setH] = useState(heureFr());
+  useEffect(()=>{ const t=setInterval(()=>setH(heureFr()),30000); return()=>clearInterval(t); },[]);
+  return <span>{h}</span>;
+}
+
+function Kpi({label,val,sub,accent,alert}) {
+  return (
+    <div style={{background:alert?"#FFF8E1":C.papier,padding:"18px 16px 20px",position:"relative",border:`1.5px solid ${C.encre}`,overflow:"hidden"}}>
+      <div style={{position:"absolute",top:0,left:0,right:0,height:5,background:accent}}/>
+      <div style={{fontSize:10,color:C.gris,letterSpacing:"0.18em",marginTop:5,marginBottom:12}}>{label.toUpperCase()}</div>
+      <div style={{fontFamily:FT,fontSize:30,fontWeight:800,lineHeight:1,letterSpacing:"-0.03em"}}>{val}</div>
+      <div style={{fontSize:10,color:C.gris,marginTop:8}}>{sub}</div>
+    </div>
+  );
+}
+
+function Avatar({nom,bg,light}) {
+  return <div style={{width:32,height:32,background:bg||C.encre,color:light?"#fff":C.jaune,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{initiales(nom)}</div>;
+}
+
+function Section({titre,actions,children}) {
+  return (
+    <section style={{marginBottom:32}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:12}}>
+        <h2 style={{fontFamily:FT,fontSize:22,fontWeight:700,letterSpacing:"-0.01em",margin:0}}>{titre}</h2>
+        {actions}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function TableWrap({children}) {
+  return <div style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflowX:"auto"}}><table>{children}</table></div>;
+}
+function Th({children,r}) { return <th style={{textAlign:r?"right":"left",padding:"11px 14px",fontSize:10,letterSpacing:"0.15em",color:C.gris,fontWeight:500,borderBottom:`1px solid ${C.ligne}`,background:C.fond,textTransform:"uppercase",whiteSpace:"nowrap"}}>{children}</th>; }
+function Td({children,r}) { return <td style={{padding:"12px 14px",verticalAlign:"middle",textAlign:r?"right":"left"}}>{children}</td>; }
+
+function EmptyState({children}) {
+  return <div style={{padding:"48px 24px",textAlign:"center",background:C.papier,border:`1.5px dashed ${C.ligne}`,fontSize:14,lineHeight:1.8}}>{children}</div>;
+}
+
+function FormInline({children}) {
+  return <div style={{background:C.papier,border:`1.5px solid ${C.encre}`,padding:"16px 20px",marginBottom:20}}>{children}</div>;
+}
+
+function Champ({label,children}) {
+  return <div style={{display:"flex",flexDirection:"column",gap:6,flex:1,minWidth:180}}>
+    <label style={{fontSize:10,color:C.gris,letterSpacing:"0.18em",fontWeight:700}}>{label}</label>
+    {children}
+  </div>;
+}
+
+function ErrBox({children}) {
+  return <div style={{marginTop:10,padding:"8px 12px",background:"#FFF0F0",border:`1px solid ${C.orange}`,color:C.orange,fontSize:12}}>{children}</div>;
+}
+
+function Btn({children,onClick,variant,disabled,style}) {
+  const base = {fontFamily:FM,cursor:disabled?"not-allowed":"pointer",letterSpacing:"0.05em",fontWeight:700,border:"none"};
+  const variants = {
+    default:{...base,fontSize:12,padding:"9px 16px",background:C.jaune,border:`1.5px solid ${C.encre}`,color:C.encre},
+    ghost:{...base,fontSize:12,padding:"9px 14px",background:"transparent",border:`1.5px solid ${C.encre}`,color:C.encre},
+    export:{...base,fontSize:12,padding:"10px 18px",background:C.encre,border:`1.5px solid ${C.encre}`,color:C.jaune},
+    danger:{...base,fontSize:10,padding:"6px 12px",background:"transparent",border:`1.5px solid ${C.orange}`,color:C.orange},
+    mini:{...base,fontSize:10,padding:"5px 10px",background:C.encre,color:C.jaune},
+    "danger-mini":{...base,fontSize:10,padding:"5px 8px",background:"transparent",border:`1px solid ${C.orange}`,color:C.orange},
+  };
+  const v = variants[variant||"default"];
+  return <button onClick={disabled?undefined:onClick} style={{...v,opacity:disabled?0.4:1,...(style||{})}}>{children}</button>;
+}
+
+// Mobile helpers
+function MBtn({children,onClick,variant,disabled}) {
+  const base = {margin:"6px 24px 8px",padding:"17px",border:"none",fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:disabled?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10};
+  if(disabled) return <button style={{...base,background:C.ligne,color:C.gris}} disabled>{children}</button>;
+  if(variant==="alt") return <button onClick={onClick} style={{...base,background:"transparent",color:C.encre,border:`2px solid ${C.encre}`,padding:"15px 24px"}}>{children}</button>;
+  return <button onClick={onClick} style={{...base,background:C.encre,color:C.jaune}}>{children}</button>;
+}
+
+function MFormWrap({titre,onRetour,children}) {
+  return (
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"0 24px 12px",display:"flex",alignItems:"center",gap:14,borderBottom:`1px solid ${C.ligne}`,marginBottom:14,flexShrink:0}}>
+        <button onClick={onRetour} style={{background:"transparent",border:"none",color:C.encre,fontFamily:FM,fontSize:12,cursor:"pointer",padding:0}}>← Annuler</button>
+        <span style={{fontFamily:FM,fontSize:11,letterSpacing:"0.2em",color:C.gris,fontWeight:700}}>{titre}</span>
+      </div>
+      <div style={{padding:"0 24px",display:"flex",flexDirection:"column",gap:14,overflowY:"auto",flex:1}}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MChamp({label,children}) {
+  return <div><div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em",marginBottom:6,fontWeight:700}}>{label}</div>{children}</div>;
+}
+
+function ChantierBandeau({chantier}) {
+  return (
+    <div style={{padding:"10px 12px",background:C.fond,borderLeft:`5px solid ${chantier?.couleur||C.gris}`,flexShrink:0}}>
+      <div style={{fontSize:9,color:C.gris,letterSpacing:"0.2em"}}>CHANTIER</div>
+      <div style={{fontFamily:FT,fontSize:15,fontWeight:700,marginTop:3}}>{chantier?.nom}</div>
+      <div style={{fontSize:10,color:C.gris,marginTop:3}}>{chantier?.ville}</div>
+    </div>
+  );
+}
+
+// Styles partagés
+const inputStyle = {padding:"10px 12px",background:"#F2EFE9",border:`1.5px solid #D8D2C3`,fontFamily:FM,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box"};
+const selectStyle = {padding:"10px 12px",background:"#F2EFE9",border:`1.5px solid #D8D2C3`,fontFamily:FM,fontSize:13,outline:"none",width:"100%",boxSizing:"border-box"};
+const mInputStyle = {width:"100%",padding:"11px 12px",background:"#F2EFE9",border:`1.5px solid #D8D2C3`,fontFamily:FM,fontSize:13,outline:"none",boxSizing:"border-box"};
+
+// ============================================================
+//  FOOTER
+// ============================================================
+function Footer() {
+  const reset = () => {
+    if (!window.confirm("Effacer toutes les données ? Cette action est irréversible.")) return;
+    ["chok_salaries","chok_interimaires","chok_chantiers","chok_pointages"].forEach(k => localStorage.removeItem(k));
+    window.location.reload();
+  };
+  return (
+    <footer style={{borderTop:`2px solid #0A0A0A`,padding:"18px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:C.gris,letterSpacing:"0.05em",flexWrap:"wrap",gap:12}}>
+      <span style={{fontWeight:700,color:C.encre}}>RAPPORT HEURE CHOK BÉTON — v0.8</span>
+      <button onClick={reset} style={{fontFamily:FM,fontSize:10,padding:"5px 12px",background:"transparent",border:`1px solid ${C.ligne}`,color:C.gris,cursor:"pointer",letterSpacing:"0.05em"}}>⚠ Réinitialiser les données</button>
+    </footer>
+  );
+}
+
+// ============================================================
+//  MOUNT
+// ============================================================
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
