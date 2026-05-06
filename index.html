@@ -85,72 +85,250 @@ function usePersist(key, init) {
 }
 
 // ============================================================
-//  APP
+//  CODES D'ACCÈS — modifiez ces valeurs selon vos besoins
+// ============================================================
+const PIN_RH   = "1234";   // Accès RH / Admin complet
+const PIN_CHEF = "0000";   // Accès Chef d'équipe (saisie rapports)
+
+// ============================================================
+//  APP — gestion de session et routage par rôle
 // ============================================================
 function App() {
-  const [vue, setVue]                       = useState("admin");
-  const [salaries, setSalaries]             = usePersist("chok_salaries", []);
-  const [interimaires, setInterimaires]     = usePersist("chok_interimaires", []);
-  const [chantiers, setChantiers]           = usePersist("chok_chantiers", []);
-  const [pointages, setPointages]           = usePersist("chok_pointages", []);
+  const [salaries, setSalaries]         = usePersist("chok_salaries", []);
+  const [interimaires, setInterimaires] = usePersist("chok_interimaires", []);
+  const [chantiers, setChantiers]       = usePersist("chok_chantiers", []);
+  const [pointages, setPointages]       = usePersist("chok_pointages", []);
+
+  // session : { role: "rh"|"chef"|"salarie", personneId: null|"S-01"|"I-101" }
+  const [session, setSession] = useState(null);
+
+  const seDeconnecter = () => setSession(null);
+
+  const donnees = {salaries,setSalaries,interimaires,setInterimaires,chantiers,setChantiers,pointages,setPointages};
+
+  if (!session) return <EcranConnexion salaries={salaries} interimaires={interimaires} onConnexion={setSession} />;
 
   return (
     <div>
-      <Header vue={vue} setVue={setVue} />
-      {vue === "admin"
-        ? <VueAdmin {...{pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires}} />
-        : <VueMobile {...{chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages}} />
-      }
+      <Header session={session} onDeconnexion={seDeconnecter} />
+      {session.role === "rh" && <VueAdmin {...donnees} />}
+      {session.role === "chef" && <VueMobile {...donnees} />}
+      {session.role === "salarie" && <VueSalarie session={session} pointages={pointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} />}
       <Footer />
     </div>
   );
 }
 
 // ============================================================
-//  HEADER
+//  ÉCRAN DE CONNEXION
 // ============================================================
-function Header({vue, setVue}) {
+function EcranConnexion({salaries, interimaires, onConnexion}) {
+  const [mode, setMode]     = useState(null); // "rh" | "chef" | "salarie"
+  const [pin, setPin]       = useState("");
+  const [personneId, setPersonneId] = useState("");
+  const [erreur, setErreur] = useState("");
+
+  const toutesPersonnes = [
+    ...salaries.map(s=>({...s,_type:"interne"})),
+    ...interimaires.map(i=>({...i,_type:"interim"})),
+  ];
+
+  const validerPin = (attendu, role) => {
+    if (pin === attendu) {
+      onConnexion({ role });
+    } else {
+      setErreur("Code incorrect. Réessayez.");
+      setPin("");
+    }
+  };
+
+  const validerSalarie = () => {
+    if (!personneId) { setErreur("Sélectionnez votre nom."); return; }
+    onConnexion({ role: "salarie", personneId });
+  };
+
+  const reset = () => { setMode(null); setPin(""); setPersonneId(""); setErreur(""); };
+
+  return (
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+      {/* Logo */}
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:48}}>
+        <div style={{width:56,height:56,background:C.encre,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="30" height="30" viewBox="0 0 22 22" fill="none">
+            <path d="M2 18 L11 4 L20 18 Z" stroke="#0A0A0A" strokeWidth="2" fill="#F5C518"/>
+            <circle cx="11" cy="14" r="1.5" fill="#0A0A0A"/>
+          </svg>
+        </div>
+        <div>
+          <div style={{fontFamily:FT,fontWeight:800,fontSize:28,letterSpacing:"-0.02em",lineHeight:1}}>RAPPORT HEURE</div>
+          <div style={{fontFamily:FM,fontSize:12,color:C.gris,letterSpacing:"0.2em",marginTop:4}}>CHOK BÉTON</div>
+        </div>
+      </div>
+
+      {/* Choix du profil */}
+      {!mode && (
+        <div style={{width:"100%",maxWidth:420}}>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>QUI ÊTES-VOUS ?</div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+            <button onClick={()=>setMode("rh")} style={{padding:"20px 24px",background:C.encre,border:"none",color:C.papier,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer",display:"flex",alignItems:"center",gap:16,textAlign:"left"}}>
+              <span style={{fontSize:28}}>🏢</span>
+              <div>
+                <div>RH / ADMIN</div>
+                <div style={{fontSize:10,fontWeight:400,color:C.gris,marginTop:3}}>Accès complet — lecture et modification</div>
+              </div>
+            </button>
+
+            <button onClick={()=>setMode("chef")} style={{padding:"20px 24px",background:C.jaune,border:`2px solid ${C.encre}`,color:C.encre,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer",display:"flex",alignItems:"center",gap:16,textAlign:"left"}}>
+              <span style={{fontSize:28}}>👷</span>
+              <div>
+                <div>CHEF D'ÉQUIPE</div>
+                <div style={{fontSize:10,fontWeight:400,color:"#555",marginTop:3}}>Saisie des rapports d'heures</div>
+              </div>
+            </button>
+
+            <button onClick={()=>setMode("salarie")} style={{padding:"20px 24px",background:C.papier,border:`2px solid ${C.encre}`,color:C.encre,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer",display:"flex",alignItems:"center",gap:16,textAlign:"left"}}>
+              <span style={{fontSize:28}}>👤</span>
+              <div>
+                <div>SALARIÉ / INTÉRIMAIRE</div>
+                <div style={{fontSize:10,fontWeight:400,color:C.gris,marginTop:3}}>Consulter mes propres heures</div>
+              </div>
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* Saisie PIN — RH */}
+      {mode === "rh" && (
+        <div style={{width:"100%",maxWidth:360}}>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>CODE RH / ADMIN</div>
+          <PinPad pin={pin} setPin={setPin} onValider={()=>validerPin(PIN_RH,"rh")} erreur={erreur} setErreur={setErreur}/>
+          <button onClick={reset} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
+        </div>
+      )}
+
+      {/* Saisie PIN — Chef */}
+      {mode === "chef" && (
+        <div style={{width:"100%",maxWidth:360}}>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>CODE CHEF D'ÉQUIPE</div>
+          <PinPad pin={pin} setPin={setPin} onValider={()=>validerPin(PIN_CHEF,"chef")} erreur={erreur} setErreur={setErreur}/>
+          <button onClick={reset} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
+        </div>
+      )}
+
+      {/* Sélection nom — Salarié */}
+      {mode === "salarie" && (
+        <div style={{width:"100%",maxWidth:360}}>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>MON NOM</div>
+          {toutesPersonnes.length === 0
+            ? <div style={{padding:"20px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:12,textAlign:"center",lineHeight:1.6}}>
+                Aucun salarié enregistré.<br/>Demandez à la RH d'ajouter votre nom.
+              </div>
+            : <>
+                <select value={personneId} onChange={e=>{setPersonneId(e.target.value);setErreur("");}}
+                  style={{width:"100%",padding:"16px",background:C.papier,border:`2px solid ${C.encre}`,fontFamily:FM,fontSize:14,outline:"none",marginBottom:12}}>
+                  <option value="" disabled>— Sélectionnez votre nom —</option>
+                  {salaries.length>0 && <optgroup label="── Salariés CHOK BÉTON">
+                    {salaries.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}
+                  </optgroup>}
+                  {interimaires.length>0 && <optgroup label="── Intérimaires">
+                    {interimaires.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);return <option key={i.id} value={i.id}>{i.nom} ({ag?.nom})</option>;})}
+                  </optgroup>}
+                </select>
+                {erreur && <div style={{padding:"8px 12px",background:"#FFF0F0",border:`1px solid ${C.orange}`,color:C.orange,fontSize:12,marginBottom:12}}>{erreur}</div>}
+                <button onClick={validerSalarie} style={{width:"100%",padding:"16px",background:C.encre,border:"none",color:C.jaune,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer"}}>
+                  ACCÉDER À MES HEURES →
+                </button>
+              </>
+          }
+          <button onClick={reset} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+//  CLAVIER PIN
+// ============================================================
+function PinPad({pin, setPin, onValider, erreur, setErreur}) {
+  const ajouter = (c) => {
+    if (pin.length >= 6) return;
+    setErreur("");
+    const nouveau = pin + c;
+    setPin(nouveau);
+  };
+  const effacer = () => { setPin(pin.slice(0,-1)); setErreur(""); };
+
+  return (
+    <div>
+      {/* Affichage du PIN masqué */}
+      <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:20}}>
+        {[0,1,2,3,4,5].map(i=>(
+          <div key={i} style={{width:40,height:40,border:`2px solid ${pin.length>i?C.encre:C.ligne}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,background:pin.length>i?C.encre:C.papier,color:C.jaune}}>
+            {pin.length>i?"●":""}
+          </div>
+        ))}
+      </div>
+
+      {erreur && <div style={{padding:"8px 12px",background:"#FFF0F0",border:`1px solid ${C.orange}`,color:C.orange,fontSize:12,marginBottom:12,textAlign:"center"}}>{erreur}</div>}
+
+      {/* Touches */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
+        {["1","2","3","4","5","6","7","8","9"].map(c=>(
+          <button key={c} onClick={()=>ajouter(c)} style={{padding:"18px",fontFamily:FT,fontSize:22,fontWeight:700,background:C.papier,border:`1.5px solid ${C.ligne}`,cursor:"pointer"}}>
+            {c}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+        <button onClick={effacer} style={{padding:"18px",fontFamily:FM,fontSize:12,fontWeight:700,background:"transparent",border:`1.5px solid ${C.ligne}`,cursor:"pointer",color:C.gris}}>⌫</button>
+        <button onClick={()=>ajouter("0")} style={{padding:"18px",fontFamily:FT,fontSize:22,fontWeight:700,background:C.papier,border:`1.5px solid ${C.ligne}`,cursor:"pointer"}}>0</button>
+        <button onClick={onValider} style={{padding:"18px",fontFamily:FM,fontSize:12,fontWeight:700,background:C.encre,border:"none",color:C.jaune,cursor:"pointer"}}>OK ✓</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  HEADER — affiche le rôle connecté et bouton déconnexion
+// ============================================================
+function Header({session, onDeconnexion}) {
   const [heure, setHeure] = useState(heureFr());
   useEffect(() => { const t = setInterval(()=>setHeure(heureFr()),30000); return ()=>clearInterval(t); },[]);
 
-  const s = {
-    header:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 32px",borderBottom:`2px solid ${C.encre}`,background:C.papier},
-    logo:{display:"flex",alignItems:"center",gap:12},
-    mark:{width:40,height:40,background:C.encre,display:"flex",alignItems:"center",justifyContent:"center"},
-    t1:{fontFamily:FT,fontWeight:800,fontSize:16,letterSpacing:"0.02em",lineHeight:1},
-    t2:{fontFamily:FM,fontSize:10,color:C.gris,letterSpacing:"0.15em",marginTop:3},
-    switcher:{display:"flex",border:`2px solid ${C.encre}`},
-    btn:{fontFamily:FM,fontSize:11,fontWeight:500,padding:"10px 18px",border:"none",background:"transparent",cursor:"pointer",letterSpacing:"0.1em",color:C.encre,borderRight:`1px solid ${C.ligne}`},
-    btnA:{background:C.encre,color:C.jaune},
-    pill:{fontFamily:FM,fontSize:11,padding:"8px 14px",background:C.encre,color:C.papier,letterSpacing:"0.1em",display:"flex",alignItems:"center",gap:8},
-    dot:{width:8,height:8,background:C.vert,borderRadius:"50%",boxShadow:`0 0 0 3px rgba(42,157,143,0.3)`},
-  };
+  const roleLabel = {rh:"RH / ADMIN", chef:"CHEF D'ÉQUIPE", salarie:"MON ESPACE"}[session.role];
+  const roleColor = {rh:C.vert, chef:C.jaune, salarie:C.ardoise}[session.role] || C.vert;
+
   return (
-    <header style={s.header}>
+    <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 32px",borderBottom:`2px solid ${C.encre}`,background:C.papier}}>
       <div style={{flex:1}}>
-        <div style={s.logo}>
-          <div style={s.mark}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:40,height:40,background:C.encre,display:"flex",alignItems:"center",justifyContent:"center"}}>
             <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
               <path d="M2 18 L11 4 L20 18 Z" stroke="#0A0A0A" strokeWidth="2" fill="#F5C518"/>
               <circle cx="11" cy="14" r="1.5" fill="#0A0A0A"/>
             </svg>
           </div>
           <div>
-            <div style={s.t1}>RAPPORT HEURE</div>
-            <div style={s.t2}>CHOK BÉTON</div>
+            <div style={{fontFamily:FT,fontWeight:800,fontSize:16,letterSpacing:"0.02em",lineHeight:1}}>RAPPORT HEURE</div>
+            <div style={{fontFamily:FM,fontSize:10,color:C.gris,letterSpacing:"0.15em",marginTop:3}}>CHOK BÉTON</div>
           </div>
         </div>
       </div>
-      <div style={s.switcher}>
-        <button onClick={()=>setVue("admin")} style={{...s.btn,...(vue==="admin"?s.btnA:{})}}>
-          <span style={{color:C.orange,marginRight:6,fontSize:8}}>●</span> ADMIN / RH
-        </button>
-        <button onClick={()=>setVue("mobile")} style={{...s.btn,...(vue==="mobile"?s.btnA:{})}}>
-          <span style={{color:C.orange,marginRight:6,fontSize:8}}>●</span> CHEF D'ÉQUIPE
-        </button>
+
+      {/* Rôle actif */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",background:C.fond,border:`1.5px solid ${C.encre}`}}>
+        <div style={{width:8,height:8,borderRadius:"50%",background:roleColor,boxShadow:`0 0 0 3px ${roleColor}44`}}/>
+        <span style={{fontFamily:FM,fontSize:11,fontWeight:700,letterSpacing:"0.1em"}}>{roleLabel}</span>
       </div>
-      <div style={{flex:1,display:"flex",justifyContent:"flex-end"}}>
-        <div style={s.pill}><span style={s.dot}></span>{heure}</div>
+
+      <div style={{flex:1,display:"flex",justifyContent:"flex-end",gap:12,alignItems:"center"}}>
+        <span style={{fontFamily:FM,fontSize:11,color:C.gris}}>{heure}</span>
+        <button onClick={onDeconnexion} style={{fontFamily:FM,fontSize:11,padding:"8px 14px",background:"transparent",border:`1.5px solid ${C.encre}`,color:C.encre,cursor:"pointer",letterSpacing:"0.05em",fontWeight:700}}>
+          DÉCONNEXION →
+        </button>
       </div>
     </header>
   );
@@ -633,6 +811,130 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
 }
 
 // ============================================================
+//  VUE SALARIÉ — lecture seule, uniquement ses propres heures
+// ============================================================
+function VueSalarie({session, pointages, chantiers, salaries, interimaires}) {
+  const personne = salaries.find(s=>s.id===session.personneId) || interimaires.find(i=>i.id===session.personneId);
+  const ag = personne && interimaires.find(i=>i.id===personne.id) ? AGENCES.find(a=>a.id===personne.agence) : null;
+  const mesPtg = pointages.filter(p=>p.salarie===session.personneId).sort((a,b)=>b.date.localeCompare(a.date));
+
+  const totalTout = mesPtg.reduce((s,p)=>s+calcHeures(p),0);
+
+  // Semaine courante
+  const semaine = (() => {
+    const d=new Date(), day=d.getDay()||7;
+    const lundi=new Date(d); lundi.setDate(d.getDate()-day+1);
+    return Array.from({length:5},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});
+  })();
+  const totalSem = mesPtg.filter(p=>semaine.includes(p.date)).reduce((s,p)=>s+calcHeures(p),0);
+  const hSup = Math.max(0, totalSem - 35);
+
+  const fmtDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}).toUpperCase();
+
+  if (!personne) return <div style={{padding:48,textAlign:"center",color:C.gris}}>Profil introuvable.</div>;
+
+  return (
+    <main style={{padding:"28px 32px",maxWidth:900,margin:"0 auto"}}>
+      {/* En-tête personne */}
+      <div style={{display:"flex",alignItems:"center",gap:20,padding:"24px",background:C.papier,border:`2px solid ${C.encre}`,marginBottom:24}}>
+        <div style={{width:64,height:64,background:ag?ag.couleur:C.encre,color:ag?"#fff":C.jaune,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FT,fontWeight:800,fontSize:22,flexShrink:0}}>
+          {initiales(personne.nom)}
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:FT,fontSize:28,fontWeight:800,letterSpacing:"-0.02em"}}>{personne.nom}</div>
+          <div style={{fontSize:12,color:C.gris,marginTop:4,display:"flex",alignItems:"center",gap:10}}>
+            <span>{personne.poste}</span>
+            {ag && <span style={{fontSize:10,padding:"2px 8px",fontWeight:700,color:"#fff",background:ag.couleur}}>{ag.nom}</span>}
+          </div>
+        </div>
+        {/* KPI rapides */}
+        <div style={{display:"flex",gap:24}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>CETTE SEMAINE</div>
+            <div style={{fontFamily:FT,fontSize:28,fontWeight:800}}>{fmtH(totalSem)}</div>
+          </div>
+          {hSup > 0 && <div style={{textAlign:"center"}}>
+            <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>H. SUP</div>
+            <div style={{fontFamily:FT,fontSize:28,fontWeight:800,color:C.orange}}>+{fmtH(hSup)}</div>
+          </div>}
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>TOTAL</div>
+            <div style={{fontFamily:FT,fontSize:28,fontWeight:800}}>{fmtH(totalTout)}</div>
+          </div>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>JOURS</div>
+            <div style={{fontFamily:FT,fontSize:28,fontWeight:800}}>{mesPtg.length}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tableau de mes pointages */}
+      <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",marginBottom:12}}>MES RAPPORTS D'HEURES</div>
+
+      {mesPtg.length === 0
+        ? <div style={{padding:"48px",textAlign:"center",background:C.papier,border:`1.5px dashed ${C.ligne}`,fontSize:14,color:C.gris}}>
+            Aucun rapport d'heures enregistré pour le moment.
+          </div>
+        : <div style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:C.fond}}>
+                  {["Date","Chantier","Lieu","Début","Fin","Pause","Total","État"].map((h,i)=>(
+                    <th key={h} style={{padding:"11px 16px",textAlign:i>2?"right":"left",fontSize:9,letterSpacing:"0.15em",color:C.gris,fontWeight:500,borderBottom:`1px solid ${C.ligne}`,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {mesPtg.map((p,idx)=>{
+                  const ch = chantiers.find(c=>c.id===p.chantier);
+                  const h = calcHeures(p);
+                  const estAujourd = p.date === TODAY;
+                  return (
+                    <tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`,background:estAujourd?"#FFFDE7":idx%2===0?C.papier:"#F8F6F0"}}>
+                      <td style={{padding:"12px 16px",whiteSpace:"nowrap"}}>
+                        <div style={{fontWeight:estAujourd?700:500,fontSize:12}}>{fmtDate(p.date)}</div>
+                        {estAujourd && <div style={{fontSize:10,color:C.vert,fontWeight:700,marginTop:2}}>AUJOURD'HUI</div>}
+                      </td>
+                      <td style={{padding:"12px 16px"}}>
+                        {ch
+                          ? <span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span>
+                          : <span style={{color:C.gris}}>—</span>}
+                      </td>
+                      <td style={{padding:"12px 16px",fontSize:11,color:C.gris}}>{ch?`📍 ${ch.ville}`:"—"}</td>
+                      <td style={{padding:"12px 16px",textAlign:"right",fontWeight:500}}>{p.debut}</td>
+                      <td style={{padding:"12px 16px",textAlign:"right",fontWeight:500}}>{p.fin}</td>
+                      <td style={{padding:"12px 16px",textAlign:"right",color:C.gris}}>{p.pause}min</td>
+                      <td style={{padding:"12px 16px",textAlign:"right"}}>
+                        <b style={{fontFamily:FT,fontSize:16}}>{fmtH(h)}</b>
+                      </td>
+                      <td style={{padding:"12px 16px",textAlign:"right"}}>
+                        {p.valide
+                          ? <span style={{fontSize:10,color:C.vert,fontWeight:700}}>✓ VALIDÉ</span>
+                          : <span style={{fontSize:10,color:C.orange,fontWeight:700}}>⏳ EN ATTENTE</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{borderTop:`2px solid ${C.encre}`,background:C.fond}}>
+                  <td colSpan={6} style={{padding:"12px 16px",fontWeight:700,fontSize:11,letterSpacing:"0.05em"}}>TOTAL</td>
+                  <td style={{padding:"12px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:20,fontWeight:800}}>{fmtH(totalTout)}</b></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+      }
+
+      <div style={{marginTop:16,padding:"12px 16px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11,color:C.gris,lineHeight:1.6}}>
+        🔒 Vous consultez uniquement vos propres heures. Pour toute modification, contactez la RH.
+      </div>
+    </main>
+  );
+}
+
+// ============================================================
 //  VUE MOBILE
 // ============================================================
 function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages}) {
@@ -1013,15 +1315,10 @@ const mInputStyle = {width:"100%",padding:"11px 12px",background:"#F2EFE9",borde
 //  FOOTER
 // ============================================================
 function Footer() {
-  const reset = () => {
-    if (!window.confirm("Effacer toutes les données ? Cette action est irréversible.")) return;
-    ["chok_salaries","chok_interimaires","chok_chantiers","chok_pointages"].forEach(k => localStorage.removeItem(k));
-    window.location.reload();
-  };
   return (
-    <footer style={{borderTop:`2px solid #0A0A0A`,padding:"18px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:C.gris,letterSpacing:"0.05em",flexWrap:"wrap",gap:12}}>
-      <span style={{fontWeight:700,color:C.encre}}>RAPPORT HEURE CHOK BÉTON — v0.8</span>
-      <button onClick={reset} style={{fontFamily:FM,fontSize:10,padding:"5px 12px",background:"transparent",border:`1px solid ${C.ligne}`,color:C.gris,cursor:"pointer",letterSpacing:"0.05em"}}>⚠ Réinitialiser les données</button>
+    <footer style={{borderTop:`2px solid #0A0A0A`,padding:"14px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:C.gris,letterSpacing:"0.05em",flexWrap:"wrap",gap:12}}>
+      <span style={{fontWeight:700,color:C.encre}}>RAPPORT HEURE CHOK BÉTON — v0.9</span>
+      <span style={{fontStyle:"italic",fontSize:10}}>Données stockées localement · Prochaine étape : Supabase</span>
     </footer>
   );
 }
