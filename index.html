@@ -88,7 +88,7 @@ const FT = "'Bricolage Grotesque', system-ui, sans-serif";
 const FM = "'JetBrains Mono', ui-monospace, monospace";
 
 // ============================================================
-//  PERSISTANCE localStorage
+//  PERSISTANCE localStorage — conservation intégrale
 // ============================================================
 function load(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
@@ -105,6 +105,53 @@ function usePersist(key, init) {
     save(key, next);
   };
   return [val, setter];
+}
+
+// ============================================================
+//  UTILITAIRES SEMAINE ISO
+// ============================================================
+// Retourne { annee, semaine, cle } pour une date ISO
+function infoSemaine(iso) {
+  const d = new Date(iso + "T00:00:00");
+  const j = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = j.getUTCDay() || 7;
+  j.setUTCDate(j.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(j.getUTCFullYear(), 0, 1));
+  const numSem = Math.ceil((((j - yearStart) / 86400000) + 1) / 7);
+  const annee = j.getUTCFullYear();
+  const sem = String(numSem).padStart(2, "0");
+  // Lundi de la semaine
+  const lundiD = new Date(iso + "T00:00:00");
+  lundiD.setDate(lundiD.getDate() - (lundiD.getDay() || 7) + 1);
+  const vendrediD = new Date(lundiD); vendrediD.setDate(lundiD.getDate() + 4);
+  const fmt = (x) => x.toLocaleDateString("fr-FR", {day:"numeric", month:"short"});
+  return {
+    annee,
+    semaine: numSem,
+    cle: `${annee}-S${sem}`,
+    label: `S${sem} — ${fmt(lundiD)} au ${fmt(vendrediD)} ${annee}`,
+    labelCourt: `S${sem}`,
+    moisNum: lundiD.getMonth() + 1,
+    moisLabel: lundiD.toLocaleDateString("fr-FR", {month:"long", year:"numeric"}),
+    lundi: lundiD.toISOString().slice(0,10),
+    vendredi: vendrediD.toISOString().slice(0,10),
+  };
+}
+
+// Semaine courante
+function semaineCouranteCle() {
+  return infoSemaine(new Date().toISOString().slice(0,10)).cle;
+}
+
+// Grouper des pointages par semaine → { "2026-S18": [...], ... }
+function grouperParSemaine(pointages) {
+  const map = {};
+  pointages.forEach(p => {
+    const { cle } = infoSemaine(p.date);
+    if (!map[cle]) map[cle] = [];
+    map[cle].push(p);
+  });
+  return map;
 }
 
 // ============================================================
@@ -366,14 +413,24 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
   const auj = pointages.filter(p=>p.date===TODAY);
   const totalH = auj.reduce((s,p)=>s+calcHeures(p),0);
   const aValider = auj.filter(p=>!p.valide).length;
-  const intJour = auj.filter(p=>p.interim).length;
+
+  // Compteurs intérimaires
+  const intJour = [...new Set(auj.filter(p=>p.interim).map(p=>p.salarie))].length;
+
+  const semaineCourante = (() => {
+    const d=new Date(), day=d.getDay()||7;
+    const lundi=new Date(d); lundi.setDate(d.getDate()-day+1);
+    return Array.from({length:7},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});
+  })();
+  const ptgSemaine = pointages.filter(p=>semaineCourante.includes(p.date));
+  const intSemaine = [...new Set(ptgSemaine.filter(p=>p.interim).map(p=>p.salarie))].length;
 
   const trouver = (id) => salaries.find(s=>s.id===id) || interimaires.find(i=>i.id===id);
   const valider = (id) => setPointages(pointages.map(p=>p.id===id?{...p,valide:true}:p));
   const validerTout = () => setPointages(pointages.map(p=>p.date===TODAY?{...p,valide:true}:p));
   const supprPointage = (id) => setPointages(pointages.filter(p=>p.id!==id));
 
-  const tabs = [["pointages","Pointages"],["salaries","Salariés"],["interim","Intérimaires"],["chantiers","Chantiers"],["paie","Paie"]];
+  const tabs = [["pointages","Pointages"],["salaries","Salariés"],["interim","Intérimaires"],["chantiers","Chantiers"],["paie","Rapport"],["archives","Archives 📁"]];
 
   return (
     <main style={{padding:"28px 32px",maxWidth:1500,margin:"0 auto"}}>
@@ -387,12 +444,13 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
       </div>
 
       {/* KPI */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:28}}>
-        <Kpi label="Pointages du jour" val={auj.length} sub="entrées" accent={C.jaune}/>
-        <Kpi label="Heures totales" val={fmtH(totalH)} sub={`${chantiers.filter(c=>c.actif).length} chantier(s)`} accent="#3D5A80"/>
-        <Kpi label="Salariés" val={salaries.length} sub="enregistrés" accent={C.vert}/>
-        <Kpi label="Intérimaires" val={intJour} sub={`/ ${interimaires.length} fichés`} accent={C.bleu}/>
-        <Kpi label="À valider" val={aValider} sub="en attente" accent={C.encre} alert={aValider>0}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:14,marginBottom:28}}>
+        <Kpi label="Pointages du jour" val={auj.length} sub="entrées aujourd'hui" accent={C.jaune}/>
+        <Kpi label="Heures totales" val={fmtH(totalH)} sub={`${chantiers.filter(c=>c.actif).length} chantier(s) actif(s)`} accent="#3D5A80"/>
+        <Kpi label="Salariés" val={salaries.length} sub="CHOK BÉTON enregistrés" accent={C.vert}/>
+        <Kpi label="Intérimaires / jour" val={intJour} sub={`personnes différentes aujourd'hui`} accent={C.bleu}/>
+        <Kpi label="Intérimaires / semaine" val={intSemaine} sub={`personnes différentes cette semaine`} accent="#6C3483"/>
+        <Kpi label="À valider" val={aValider} sub="pointages en attente RH" accent={C.encre} alert={aValider>0}/>
       </div>
 
       {/* Onglets */}
@@ -409,6 +467,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
       {onglet==="interim" && <OngletInterim interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} chantiers={chantiers}/>}
       {onglet==="chantiers" && <OngletChantiers chantiers={chantiers} setChantiers={setChantiers} pointages={pointages}/>}
       {onglet==="paie" && <OngletPaie pointages={pointages} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
+      {onglet==="archives" && <OngletArchives pointages={pointages} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
     </main>
   );
 }
@@ -688,8 +747,11 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
   const personnesFiltrees = personneId==="tous" ? tousLesPersonnes : tousLesPersonnes.filter(p=>p.id===personneId);
   const ptgPlage = pointages.filter(p=>plage.includes(p.date));
 
-  const exportPDF = () => {
+  const exportPDF = (cible) => {
+    // On stocke la cible dans un attribut temporaire sur le body pour que le CSS print puisse l'utiliser
+    document.body.setAttribute("data-print", cible);
     window.print();
+    setTimeout(()=>document.body.removeAttribute("data-print"), 1000);
   };
 
   const th9 = {padding:"9px 16px",fontSize:9,letterSpacing:"0.15em",color:C.gris,fontWeight:500,borderBottom:`1px solid ${C.ligne}`,textTransform:"uppercase",whiteSpace:"nowrap"};
@@ -711,11 +773,12 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
             {{semaine:"SEMAINE",mois:"MOIS",tout:"TOUT"}[m]}
           </button>
         ))}
-        <Btn variant="export" onClick={exportPDF}>↓ EXPORTER PDF</Btn>
+        <Btn variant="ghost" onClick={()=>exportPDF("interne")}>↓ PDF Salariés</Btn>
+        <Btn variant="export" onClick={()=>exportPDF("interim")}>↓ PDF Intérimaires</Btn>
       </div>
     }>
 
-      {/* Styles d'impression injectés une seule fois */}
+      {/* Styles d'impression avec filtrage par type */}
       <style>{`
         @media print {
           header, footer, .no-print { display: none !important; }
@@ -723,15 +786,23 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
           main { padding: 0 !important; max-width: 100% !important; }
           .print-break { page-break-after: always; }
           @page { margin: 15mm; size: A4 landscape; }
+
+          /* Masquer le groupe non sélectionné */
+          body[data-print="interne"] .bloc-interim { display: none !important; }
+          body[data-print="interim"] .bloc-interne { display: none !important; }
+
+          /* En-tête PDF visible uniquement à l'impression */
+          .print-header { display: block !important; margin-bottom: 20px; border-bottom: 2px solid #0A0A0A; padding-bottom: 12px; }
         }
+        .print-header { display: none; }
       `}</style>
 
-      {/* En-tête imprimable */}
-      <div className="no-print" style={{display:"none"}}/>
-      <div id="print-header" style={{display:"none"}}>
-        <div style={{fontFamily:FT,fontSize:20,fontWeight:800}}>RAPPORT HEURE — CHOK BÉTON</div>
-        <div style={{fontSize:12,color:C.gris}}>
-          Généré le {new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})} · Période : {modeVue.toUpperCase()}
+      {/* En-tête PDF */}
+      <div className="print-header">
+        <div style={{fontFamily:"sans-serif",fontSize:20,fontWeight:800}}>RAPPORT HEURE — CHOK BÉTON</div>
+        <div style={{fontSize:12,color:"#888",marginTop:4}}>
+          Généré le {new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}
+          {" · "}Période : {modeVue.toUpperCase()}
         </div>
       </div>
 
@@ -744,21 +815,12 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
             const totalNuit = ptgPersonne.reduce((s,x)=>s+calcHNuit(x),0);
 
             // Heures sup calculées semaine par semaine (>35h/semaine)
-            // On groupe les pointages par numéro de semaine ISO
-            const getNumSemaine = (iso) => {
-              const d = new Date(iso+"T00:00:00");
-              const j = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-              const dayNum = j.getUTCDay() || 7;
-              j.setUTCDate(j.getUTCDate() + 4 - dayNum);
-              const yearStart = new Date(Date.UTC(j.getUTCFullYear(),0,1));
-              return `${j.getUTCFullYear()}-S${Math.ceil((((j-yearStart)/86400000)+1)/7).toString().padStart(2,"0")}`;
-            };
             const parSemaine = {};
-            ptgPersonne.forEach(x=>{ const s=getNumSemaine(x.date); if(!parSemaine[s]) parSemaine[s]=[]; parSemaine[s].push(x); });
+            ptgPersonne.forEach(x=>{ const {cle}=infoSemaine(x.date); if(!parSemaine[cle]) parSemaine[cle]=[]; parSemaine[cle].push(x); });
             const totalSup = Object.values(parSemaine).reduce((acc,ptgs)=>acc+calcHSupSemaine(ptgs),0);
 
-            // Semaine courante pour l'affichage "cette semaine"
-            const semCle = getNumSemaine(TODAY);
+            // Semaine courante
+            const semCle = semaineCouranteCle();
             const ptgSemCourante = parSemaine[semCle] || [];
             const totalSem35 = ptgSemCourante.reduce((s,x)=>s+calcHeures(x),0);
             const hSupSem = calcHSupSemaine(ptgSemCourante);
@@ -767,7 +829,7 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
             ptgPersonne.forEach(x=>{ if(!parDate[x.date]) parDate[x.date]=[]; parDate[x.date].push(x); });
 
             return (
-              <div key={p.id} className="print-break" style={{background:C.papier,border:`1.5px solid ${C.encre}`,marginBottom:20,overflow:"hidden"}}>
+              <div key={p.id} className={`print-break ${p._type==="interim"?"bloc-interim":"bloc-interne"}`} style={{background:C.papier,border:`1.5px solid ${C.encre}`,marginBottom:20,overflow:"hidden"}}>
                 {/* En-tête personne */}
                 <div style={{display:"flex",alignItems:"center",gap:14,padding:"14px 20px",borderBottom:`2px solid ${C.encre}`,background:C.fond,flexWrap:"wrap"}}>
                   <div style={{width:44,height:44,background:p._type==="interim"?ag?.couleur:C.encre,color:p._type==="interim"?"#fff":C.jaune,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,flexShrink:0}}>
@@ -778,6 +840,9 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
                     <div style={{fontSize:11,color:C.gris,marginTop:2}}>
                       {p.poste}
                       {p._type==="interim" && <span style={{marginLeft:8,fontSize:10,padding:"2px 7px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span>}
+                      <span style={{marginLeft:12,fontSize:10,padding:"2px 8px",background:C.fond,border:`1px solid ${C.ligne}`,color:C.gris,fontWeight:700}}>
+                        {modeVue==="semaine" ? infoSemaine(TODAY).label : modeVue==="mois" ? new Date().toLocaleDateString("fr-FR",{month:"long",year:"numeric"}).toUpperCase() : "TOUTES SEMAINES"}
+                      </span>
                     </div>
                   </div>
                   {/* KPI totaux */}
@@ -863,7 +928,7 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
                             rows.push(
                               <tr key={`sem-${semCle}`} style={{borderTop:`1.5px solid ${C.encre}`,background:"#F0F4F8"}}>
                                 <td colSpan={6} style={{padding:"8px 16px",fontSize:10,fontWeight:700,color:C.gris,letterSpacing:"0.1em"}}>
-                                  SEMAINE {semCle.split("-S")[1]} · {semCle.split("-S")[0]}
+                                  {infoSemaine(ptgsSem[0].date).label}
                                 </td>
                                 <td style={{padding:"8px 16px",textAlign:"right"}}>
                                   <b style={{fontFamily:FT,fontSize:15}}>{fmtH(totalSemH)}</b>
@@ -909,6 +974,291 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
           })
       }
     </Section>
+  );
+}
+
+// ============================================================
+//  ONGLET ARCHIVES — navigation Année > Mois > Semaine
+// ============================================================
+function OngletArchives({pointages, salaries, interimaires, chantiers}) {
+  const semCourante = semaineCouranteCle();
+
+  // Construire l'arborescence complète des semaines passées
+  const parSemaine = grouperParSemaine(pointages);
+
+  // Toutes les semaines sauf la courante, triées du plus récent au plus ancien
+  const semainesPassees = Object.keys(parSemaine)
+    .filter(cle => cle < semCourante)
+    .sort((a,b) => b.localeCompare(a));
+
+  // Grouper par année puis par mois
+  const arbre = {};
+  semainesPassees.forEach(cle => {
+    const info = infoSemaine(parSemaine[cle][0].date);
+    if (!arbre[info.annee]) arbre[info.annee] = {};
+    const moisKey = `${String(info.moisNum).padStart(2,"0")}-${info.moisLabel}`;
+    if (!arbre[info.annee][moisKey]) arbre[info.annee][moisKey] = [];
+    arbre[info.annee][moisKey].push(cle);
+  });
+
+  const [anneeOuverte, setAnneeOuverte] = useState(null);
+  const [moisOuvert, setMoisOuvert] = useState(null);
+  const [semSel, setSemSel] = useState(null);
+  const [typePDF, setTypePDF] = useState(null); // "interne"|"interim"|null
+
+  // Initialiser sur l'année la plus récente
+  useEffect(() => {
+    const annees = Object.keys(arbre).sort((a,b)=>b-a);
+    if (annees.length && !anneeOuverte) setAnneeOuverte(annees[0]);
+  }, [pointages.length]);
+
+  const annees = Object.keys(arbre).sort((a,b) => b-a);
+
+  // Calculs récap d'une semaine
+  const recapSemaine = (cle) => {
+    const ptgs = parSemaine[cle] || [];
+    const nbInterne = [...new Set(ptgs.filter(p=>!p.interim).map(p=>p.salarie))].length;
+    const nbInterim = [...new Set(ptgs.filter(p=>p.interim).map(p=>p.salarie))].length;
+    const totalH = ptgs.reduce((s,p)=>s+calcHeures(p),0);
+    const totalSup = calcHSupSemaine(ptgs);
+    return {ptgs, nbInterne, nbInterim, totalH, totalSup};
+  };
+
+  const exportSemaine = (cle, cible) => {
+    setSemSel(cle);
+    setTypePDF(cible);
+    setTimeout(()=>{ document.body.setAttribute("data-print", cible); window.print(); setTimeout(()=>{ document.body.removeAttribute("data-print"); setSemSel(null); setTypePDF(null); },500); },100);
+  };
+
+  const th9 = {padding:"8px 14px",fontSize:9,letterSpacing:"0.15em",color:C.gris,fontWeight:500,borderBottom:`1px solid ${C.ligne}`,textTransform:"uppercase",whiteSpace:"nowrap"};
+
+  if (semainesPassees.length === 0) {
+    return (
+      <Section titre="Archives — Semaines passées">
+        <EmptyState>Aucune semaine archivée pour le moment.<br/><span style={{color:C.gris,fontSize:12}}>Les semaines terminées apparaîtront ici automatiquement.</span></EmptyState>
+      </Section>
+    );
+  }
+
+  return (
+    <Section titre="Archives — Semaines passées">
+      <style>{`
+        @media print {
+          header, footer, .no-print { display: none !important; }
+          body { background: white !important; background-image: none !important; }
+          main { padding: 0 !important; max-width: 100% !important; }
+          .print-break { page-break-after: always; }
+          @page { margin: 15mm; size: A4 landscape; }
+          body[data-print="interne"] .bloc-interim { display: none !important; }
+          body[data-print="interim"] .bloc-interne { display: none !important; }
+          .print-header-arch { display: block !important; margin-bottom: 16px; border-bottom: 2px solid #0A0A0A; padding-bottom: 10px; }
+        }
+        .print-header-arch { display: none; }
+      `}</style>
+
+      <div style={{display:"flex",gap:20,alignItems:"flex-start",flexWrap:"wrap"}}>
+
+        {/* Panneau navigation gauche */}
+        <div style={{width:280,flexShrink:0}}>
+          {annees.map(annee => (
+            <div key={annee} style={{marginBottom:8}}>
+              {/* En-tête année */}
+              <button onClick={()=>{ setAnneeOuverte(anneeOuverte===annee?null:annee); setMoisOuvert(null); setSemSel(null); }}
+                style={{width:"100%",padding:"12px 16px",background:anneeOuverte===annee?C.encre:C.papier,border:`1.5px solid ${C.encre}`,color:anneeOuverte===annee?C.jaune:C.encre,fontFamily:FM,fontSize:13,fontWeight:700,cursor:"pointer",textAlign:"left",letterSpacing:"0.05em",display:"flex",justifyContent:"space-between"}}>
+                <span>📅 {annee}</span>
+                <span>{anneeOuverte===annee?"▲":"▼"}</span>
+              </button>
+
+              {anneeOuverte===annee && (
+                <div style={{borderLeft:`3px solid ${C.jaune}`,marginLeft:12,paddingLeft:8}}>
+                  {Object.keys(arbre[annee]).sort((a,b)=>b.localeCompare(a)).map(moisKey => {
+                    const moisLabel = moisKey.split("-").slice(1).join("-");
+                    const semsDuMois = arbre[annee][moisKey];
+                    const ouvert = moisOuvert === moisKey;
+                    return (
+                      <div key={moisKey} style={{marginTop:4}}>
+                        {/* En-tête mois */}
+                        <button onClick={()=>{ setMoisOuvert(ouvert?null:moisKey); setSemSel(null); }}
+                          style={{width:"100%",padding:"9px 14px",background:ouvert?"#F0F4F8":C.fond,border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,fontWeight:700,cursor:"pointer",textAlign:"left",color:C.encre,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <span style={{textTransform:"capitalize"}}>{moisLabel}</span>
+                          <span style={{fontSize:10,color:C.gris}}>{semsDuMois.length} sem. {ouvert?"▲":"▼"}</span>
+                        </button>
+
+                        {ouvert && semsDuMois.map(cle => {
+                          const info = infoSemaine(parSemaine[cle][0].date);
+                          const r = recapSemaine(cle);
+                          return (
+                            <button key={cle} onClick={()=>setSemSel(semSel===cle?null:cle)}
+                              style={{width:"100%",padding:"10px 14px",background:semSel===cle?C.jaune:C.papier,border:`1px solid ${semSel===cle?C.encre:C.ligne}`,fontFamily:FM,fontSize:11,cursor:"pointer",textAlign:"left",marginTop:2,borderLeft:semSel===cle?`4px solid ${C.encre}`:"4px solid transparent"}}>
+                              <div style={{fontWeight:700,color:C.encre}}>{info.labelCourt} — {info.label.split("—")[1]?.trim()}</div>
+                              <div style={{fontSize:9,color:C.gris,marginTop:3}}>
+                                {r.ptgs.length} pointages · {fmtH(r.totalH)}
+                                {r.nbInterim>0?` · ${r.nbInterim} intér.`:""}
+                                {r.totalSup>0?<span style={{color:C.orange}}> · +{fmtH(r.totalSup)} sup</span>:""}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Contenu droite — détail semaine sélectionnée */}
+        <div style={{flex:1,minWidth:0}}>
+          {!semSel ? (
+            <div style={{padding:"48px 24px",textAlign:"center",background:C.papier,border:`1.5px dashed ${C.ligne}`,color:C.gris,fontSize:13}}>
+              ← Sélectionnez une semaine dans le panneau gauche pour afficher le détail.
+            </div>
+          ) : (
+            <SemaineArchive
+              cle={semSel}
+              ptgs={parSemaine[semSel]||[]}
+              salaries={salaries}
+              interimaires={interimaires}
+              chantiers={chantiers}
+              onExport={exportSemaine}
+            />
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+// Composant détail d'une semaine archivée
+function SemaineArchive({cle, ptgs, salaries, interimaires, chantiers, onExport}) {
+  const info = infoSemaine(ptgs[0]?.date || TODAY);
+  const tousLesPersonnes = [
+    ...salaries.map(s=>({...s,_type:"interne"})),
+    ...interimaires.map(i=>({...i,_type:"interim"})),
+  ];
+  const personnesPresentes = tousLesPersonnes.filter(p=>ptgs.some(x=>x.salarie===p.id));
+  const totalH = ptgs.reduce((s,p)=>s+calcHeures(p),0);
+  const totalSup = calcHSupSemaine(ptgs);
+  const totalNuit = ptgs.reduce((s,p)=>s+calcHNuit(p),0);
+  const nbInterim = [...new Set(ptgs.filter(p=>p.interim).map(p=>p.salarie))].length;
+  const th9 = {padding:"8px 14px",fontSize:9,letterSpacing:"0.15em",color:C.gris,fontWeight:500,borderBottom:`1px solid ${C.ligne}`,textTransform:"uppercase",whiteSpace:"nowrap"};
+
+  return (
+    <div>
+      {/* En-tête PDF */}
+      <div className="print-header-arch">
+        <div style={{fontFamily:"sans-serif",fontSize:18,fontWeight:800}}>RAPPORT HEURE — CHOK BÉTON</div>
+        <div style={{fontSize:11,color:"#888",marginTop:4}}>{info.label} · Généré le {new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</div>
+      </div>
+
+      {/* En-tête semaine */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontFamily:FT,fontSize:24,fontWeight:800,letterSpacing:"-0.02em"}}>{info.label}</div>
+          <div style={{fontSize:11,color:C.gris,marginTop:4}}>
+            {personnesPresentes.length} personnes · {ptgs.length} pointages
+            {nbInterim>0 && <span> · <b>{nbInterim}</b> intérimaire(s)</span>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn variant="ghost" onClick={()=>onExport(cle,"interne")}>↓ PDF Salariés</Btn>
+          <Btn variant="export" onClick={()=>onExport(cle,"interim")}>↓ PDF Intérimaires</Btn>
+        </div>
+      </div>
+
+      {/* KPI semaine */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
+        {[
+          ["TOTAL HEURES",fmtH(totalH),C.encre],
+          ["H. SUPP. (>35h)",totalSup>0?"+"+fmtH(totalSup):"—",totalSup>0?C.orange:C.gris],
+          ["H. NUIT (>20h)",totalNuit>0?fmtH(totalNuit):"—",totalNuit>0?"#6C3483":C.gris],
+          ["INTÉRIMAIRES",nbInterim+" pers.",C.bleu],
+        ].map(([l,v,col])=>(
+          <div key={l} style={{background:C.papier,border:`1.5px solid ${C.encre}`,padding:"14px 16px"}}>
+            <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:6}}>{l}</div>
+            <div style={{fontFamily:FT,fontSize:22,fontWeight:800,color:col}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tableau par personne */}
+      {personnesPresentes.map(p => {
+        const ag = p._type==="interim" ? AGENCES.find(a=>a.id===p.agence) : null;
+        const mesP = ptgs.filter(x=>x.salarie===p.id).sort((a,b)=>a.date.localeCompare(b.date));
+        const totalPH = mesP.reduce((s,x)=>s+calcHeures(x),0);
+        const totalPNuit = mesP.reduce((s,x)=>s+calcHNuit(x),0);
+        return (
+          <div key={p.id} className={`print-break ${p._type==="interim"?"bloc-interim":"bloc-interne"}`}
+            style={{background:C.papier,border:`1.5px solid ${C.encre}`,marginBottom:16,overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderBottom:`1.5px solid ${C.encre}`,background:C.fond,flexWrap:"wrap"}}>
+              <div style={{width:38,height:38,background:p._type==="interim"?ag?.couleur:C.encre,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,flexShrink:0}}>
+                {initiales(p.nom)}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:15}}>{p.nom}</div>
+                <div style={{fontSize:10,color:C.gris,marginTop:2}}>
+                  {p.poste}
+                  {p._type==="interim" && <span style={{marginLeft:8,fontSize:9,padding:"2px 6px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span>}
+                  <span style={{marginLeft:8,fontSize:9,padding:"2px 6px",background:"#E8EEF4",color:C.gris,fontWeight:700}}>{info.labelCourt}</span>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:16}}>
+                <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,marginBottom:2}}>TOTAL</div><div style={{fontFamily:FT,fontSize:18,fontWeight:800}}>{fmtH(totalPH)}</div></div>
+                {totalPNuit>0 && <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,marginBottom:2}}>NUIT</div><div style={{fontFamily:FT,fontSize:18,fontWeight:800,color:"#6C3483"}}>{fmtH(totalPNuit)}</div></div>}
+              </div>
+            </div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead>
+                <tr style={{background:C.fond}}>
+                  <th style={{...th9,textAlign:"left"}}>Date</th>
+                  <th style={{...th9,textAlign:"left"}}>Chantier</th>
+                  <th style={{...th9,textAlign:"left"}}>Lieu</th>
+                  <th style={{...th9,textAlign:"right"}}>Début</th>
+                  <th style={{...th9,textAlign:"right"}}>Fin</th>
+                  <th style={{...th9,textAlign:"right"}}>Pause</th>
+                  <th style={{...th9,textAlign:"right"}}>Total</th>
+                  <th style={{...th9,textAlign:"right",color:"#6C3483"}}>H.Nuit</th>
+                  <th style={{...th9,textAlign:"center"}}>État</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mesP.map((x,idx)=>{
+                  const ch=chantiers.find(c=>c.id===x.chantier);
+                  const h=calcHeures(x); const hN=calcHNuit(x);
+                  const isWE=[0,6].includes(new Date(x.date+"T00:00:00").getDay());
+                  const fmtD=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"}).toUpperCase();
+                  return (
+                    <tr key={x.id} style={{borderBottom:`1px solid ${C.ligne}`,background:isWE?"#FFF8E1":idx%2===0?C.papier:"#F8F6F0"}}>
+                      <td style={{padding:"9px 14px",fontSize:11,fontWeight:500,whiteSpace:"nowrap"}}>{fmtD(x.date)}</td>
+                      <td style={{padding:"9px 14px"}}>{ch?<span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span>:<span style={{color:C.gris}}>—</span>}</td>
+                      <td style={{padding:"9px 14px",fontSize:11,color:C.gris}}>{ch?`📍 ${ch.ville}`:"—"}</td>
+                      <td style={{padding:"9px 14px",textAlign:"right",fontWeight:500}}>{x.debut}</td>
+                      <td style={{padding:"9px 14px",textAlign:"right",fontWeight:500}}>{x.fin}</td>
+                      <td style={{padding:"9px 14px",textAlign:"right",color:C.gris}}>{x.pause}min</td>
+                      <td style={{padding:"9px 14px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:14}}>{fmtH(h)}</b></td>
+                      <td style={{padding:"9px 14px",textAlign:"right"}}>{hN>0?<b style={{color:"#6C3483"}}>{fmtH(hN)}</b>:<span style={{color:C.ligne}}>—</span>}</td>
+                      <td style={{padding:"9px 14px",textAlign:"center"}}>{x.valide?<span style={{fontSize:10,color:C.vert,fontWeight:700}}>✓</span>:<span style={{fontSize:10,color:C.orange,fontWeight:700}}>⏳</span>}</td>
+                    </tr>
+                  );
+                })}
+                <tr style={{borderTop:`2px solid ${C.encre}`,background:C.fond}}>
+                  <td colSpan={6} style={{padding:"8px 14px",fontSize:10,fontWeight:700}}>TOTAL SEMAINE {info.labelCourt}</td>
+                  <td style={{padding:"8px 14px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:16,fontWeight:800}}>{fmtH(totalPH)}</b></td>
+                  <td style={{padding:"8px 14px",textAlign:"right"}}>{totalPNuit>0?<b style={{color:"#6C3483"}}>{fmtH(totalPNuit)}</b>:"—"}</td>
+                  <td></td>
+                </tr>
+                {p._type==="interim" && (
+                  <tr><td colSpan={9} style={{padding:"8px 14px",fontSize:9,color:C.gris,fontStyle:"italic",borderTop:`1px solid ${C.ligne}`}}>
+                    Relevé de mission — {p.nom} · {ag?.nom} · {info.label} · Généré le {new Date().toLocaleDateString("fr-FR")}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
