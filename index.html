@@ -39,8 +39,19 @@ const AGENCES = [
 ];
 const POSTES = ["Chef d'équipe","Manœuvre"];
 const TODAY = new Date().toISOString().slice(0,10);
-
 const COULEURS_CHANTIER = ["#F5C518","#E55934","#3D5A80","#2A9D8F","#9B5DE5","#E67E22"];
+
+// Types d'absence avec couleur et code paie
+const TYPES_ABSENCE = [
+  { code: "CP",   label: "Congés payés",          couleur: "#2A9D8F", icone: "🌴" },
+  { code: "RTT",  label: "RTT",                   couleur: "#3D5A80", icone: "📅" },
+  { code: "MAL",  label: "Maladie",               couleur: "#E55934", icone: "🏥" },
+  { code: "ACC",  label: "Accident du travail",   couleur: "#C0392B", icone: "⚠️" },
+  { code: "ABS",  label: "Absence injustifiée",   couleur: "#7F8C8D", icone: "❓" },
+  { code: "FER",  label: "Jour férié",            couleur: "#F5C518", icone: "🎉" },
+  { code: "FOR",  label: "Formation",             couleur: "#9B5DE5", icone: "📚" },
+  { code: "AUT",  label: "Autre absence",         couleur: "#95A5A6", icone: "📋" },
+];
 
 const calcHeures = (p) => {
   const [h1,m1] = p.debut.split(":").map(Number);
@@ -168,13 +179,14 @@ function App() {
   const [interimaires, setInterimaires] = usePersist("chok_interimaires", []);
   const [chantiers, setChantiers]       = usePersist("chok_chantiers", []);
   const [pointages, setPointages]       = usePersist("chok_pointages", []);
+  const [absences, setAbsences]         = usePersist("chok_absences", []);
 
   // session : { role: "rh"|"chef"|"salarie", personneId: null|"S-01"|"I-101" }
   const [session, setSession] = useState(null);
 
   const seDeconnecter = () => setSession(null);
 
-  const donnees = {salaries,setSalaries,interimaires,setInterimaires,chantiers,setChantiers,pointages,setPointages};
+  const donnees = {salaries,setSalaries,interimaires,setInterimaires,chantiers,setChantiers,pointages,setPointages,absences,setAbsences};
 
   if (!session) return <EcranConnexion salaries={salaries} interimaires={interimaires} onConnexion={setSession} />;
 
@@ -183,7 +195,7 @@ function App() {
       <Header session={session} onDeconnexion={seDeconnecter} />
       {session.role === "rh" && <VueAdmin {...donnees} />}
       {session.role === "chef" && <VueMobile {...donnees} />}
-      {session.role === "salarie" && <VueSalarie session={session} pointages={pointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} />}
+      {session.role === "salarie" && <VueSalarie session={session} pointages={pointages} absences={absences} chantiers={chantiers} salaries={salaries} interimaires={interimaires} />}
       <Footer />
     </div>
   );
@@ -408,7 +420,7 @@ function Header({session, onDeconnexion}) {
 // ============================================================
 //  VUE ADMIN
 // ============================================================
-function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires}) {
+function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires,absences,setAbsences}) {
   const [onglet, setOnglet] = useState("pointages");
   const auj = pointages.filter(p=>p.date===TODAY);
   const totalH = auj.reduce((s,p)=>s+calcHeures(p),0);
@@ -430,7 +442,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
   const validerTout = () => setPointages(pointages.map(p=>p.date===TODAY?{...p,valide:true}:p));
   const supprPointage = (id) => setPointages(pointages.filter(p=>p.id!==id));
 
-  const tabs = [["pointages","Pointages"],["salaries","Salariés"],["interim","Intérimaires"],["chantiers","Chantiers"],["paie","Rapport"],["archives","Archives 📁"]];
+  const tabs = [["pointages","Pointages"],["absences","Absences / Congés"],["salaries","Salariés"],["interim","Intérimaires"],["chantiers","Chantiers"],["paie","Rapport"],["archives","Archives 📁"]];
 
   return (
     <main style={{padding:"28px 32px",maxWidth:1500,margin:"0 auto"}}>
@@ -462,20 +474,66 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
         ))}
       </div>
 
-      {onglet==="pointages" && <OngletPointages auj={auj} chantiers={chantiers} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
+      {onglet==="pointages" && <OngletPointages auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
+      {onglet==="absences" && <OngletAbsences absences={absences} setAbsences={setAbsences} salaries={salaries} interimaires={interimaires} pointages={pointages}/>}
       {onglet==="salaries" && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages}/>}
       {onglet==="interim" && <OngletInterim interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} chantiers={chantiers}/>}
       {onglet==="chantiers" && <OngletChantiers chantiers={chantiers} setChantiers={setChantiers} pointages={pointages}/>}
-      {onglet==="paie" && <OngletPaie pointages={pointages} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
-      {onglet==="archives" && <OngletArchives pointages={pointages} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
+      {onglet==="paie" && <OngletPaie pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
+      {onglet==="archives" && <OngletArchives pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
     </main>
   );
 }
 
 // ---- Onglet Pointages ----
-function OngletPointages({auj,chantiers,trouver,aValider,valider,validerTout,supprPointage}) {
-  const [filtre,setFiltre] = useState("tous");
+function OngletPointages({auj, pointagesTous, setPointages, chantiers, salaries, interimaires, trouver, aValider, valider, validerTout, supprPointage}) {
+  const [filtre, setFiltre]   = useState("tous");
+  const [editId, setEditId]   = useState(null); // id du pointage en cours d'édition
+  const [editData, setEditData] = useState({});  // {debut, fin, pause, chantier}
+
   const liste = filtre==="tous" ? auj : auj.filter(p=>p.chantier===filtre);
+
+  // ---- Alertes légales BTP ----
+  // Durée max journalière : 10h effectives
+  const alertesJour = auj.filter(p => calcHeures(p) > 10).map(p => ({
+    id: p.id, niveau: "danger",
+    msg: `${trouver(p.salarie)?.nom||p.salarie} — ${fmtH(calcHeures(p))}/jour (max légal : 10h)`
+  }));
+
+  // Durée hebdo : on prend toute la semaine courante
+  const semaineCourante = (() => {
+    const d=new Date(), day=d.getDay()||7;
+    const lundi=new Date(d); lundi.setDate(d.getDate()-day+1);
+    return Array.from({length:7},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});
+  })();
+  const ptgSem = pointagesTous.filter(p=>semaineCourante.includes(p.date));
+  const personnesSem = [...new Set(ptgSem.map(p=>p.salarie))];
+  const alertesSemaine = personnesSem.flatMap(id => {
+    const total = ptgSem.filter(p=>p.salarie===id).reduce((s,p)=>s+calcHeures(p),0);
+    if (total > 48) return [{ id, niveau:"danger", msg:`${trouver(id)?.nom||id} — ${fmtH(total)}/semaine (max légal absolu : 48h)` }];
+    if (total > 44) return [{ id, niveau:"warn", msg:`${trouver(id)?.nom||id} — ${fmtH(total)}/semaine (seuil d'alerte : 44h)` }];
+    return [];
+  });
+
+  const toutesAlertes = [...alertesJour, ...alertesSemaine];
+
+  // ---- Edition inline ----
+  const ouvrirEdit = (p) => {
+    setEditId(p.id);
+    setEditData({ debut: p.debut, fin: p.fin, pause: p.pause, chantier: p.chantier, commentaire: p.commentaire||"" });
+  };
+  const annulerEdit = () => { setEditId(null); setEditData({}); };
+  const sauvegarderEdit = (id) => {
+    setPointages(pointagesTous.map(p => p.id===id
+      ? { ...p, ...editData, modifiePar:"RH", modifieLe: new Date().toISOString() }
+      : p
+    ));
+    setEditId(null);
+    setEditData({});
+  };
+
+  const iStyle = {padding:"6px 8px",background:C.papier,border:`1.5px solid ${C.encre}`,fontFamily:FM,fontSize:12,outline:"none",width:"100%",boxSizing:"border-box"};
+
   return (
     <Section titre="Pointages du jour" actions={
       <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
@@ -486,48 +544,140 @@ function OngletPointages({auj,chantiers,trouver,aValider,valider,validerTout,sup
         {aValider>0 && <Btn onClick={validerTout}>✓ TOUT VALIDER ({aValider})</Btn>}
       </div>
     }>
+
+      {/* Bandeau alertes légales */}
+      {toutesAlertes.length>0 && (
+        <div style={{marginBottom:16}}>
+          {toutesAlertes.map((a,i)=>(
+            <div key={i} style={{
+              display:"flex", alignItems:"center", gap:12, padding:"10px 16px", marginBottom:6,
+              background: a.niveau==="danger"?"#FFF0F0":"#FFF8E1",
+              border:`1.5px solid ${a.niveau==="danger"?C.orange:"#F39C12"}`,
+            }}>
+              <span style={{fontSize:18}}>{a.niveau==="danger"?"🔴":"🟠"}</span>
+              <div>
+                <div style={{fontFamily:FM,fontSize:11,fontWeight:700,color:a.niveau==="danger"?C.orange:"#B7770D"}}>
+                  {a.niveau==="danger"?"DÉPASSEMENT LÉGAL":"SEUIL D'ALERTE"}
+                </div>
+                <div style={{fontSize:12,color:C.encre,marginTop:2}}>{a.msg}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {liste.length===0
         ? <EmptyState>Aucun pointage aujourd'hui.<br/><small style={{color:C.gris}}>Les rapports arrivent depuis l'onglet Chef d'équipe.</small></EmptyState>
         : <TableWrap>
             <thead><tr>
               <Th>Date</Th><Th>Personne</Th><Th>Statut</Th><Th>Chantier</Th>
               <Th r>Début</Th><Th r>Fin</Th><Th r>Pause</Th><Th r>Total</Th><Th r>H.Nuit</Th>
-              <Th>Val. intérimaire</Th><Th>État RH</Th><Th></Th>
+              <Th>Commentaire</Th><Th>Val. intérimaire</Th><Th>État RH</Th><Th></Th>
             </tr></thead>
             <tbody>
               {liste.map(p=>{
-                const pers = trouver(p.salarie);
-                const ch = chantiers.find(c=>c.id===p.chantier);
-                const ag = p.interim ? AGENCES.find(a=>a.id===pers?.agence) : null;
+                const pers  = trouver(p.salarie);
+                const ch    = chantiers.find(c=>c.id===p.chantier);
+                const ag    = p.interim ? AGENCES.find(a=>a.id===pers?.agence) : null;
                 const dateCourte = p.date ? new Date(p.date+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"}) : "—";
-                const hTot = calcHeures(p);
+                const hTot  = calcHeures(p);
                 const hNuit = calcHNuit(p);
+                const alerte = hTot > 10 ? "danger" : null;
+                const enEdition = editId === p.id;
+
+                // Données affichées (edit ou lecture)
+                const dispDebut   = enEdition ? editData.debut   : p.debut;
+                const dispFin     = enEdition ? editData.fin     : p.fin;
+                const dispPause   = enEdition ? editData.pause   : p.pause;
+                const dispChant   = enEdition ? chantiers.find(c=>c.id===editData.chantier) : ch;
+                const hEdit       = enEdition ? calcHeures({...p,...editData}) : hTot;
+
                 return (
-                  <tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
-                    <Td><span style={{fontSize:11,fontWeight:500}}>{dateCourte}</span></Td>
-                    <Td><b style={{fontSize:13}}>{pers?.nom||p.salarie}</b><br/><span style={{fontSize:11,color:C.gris}}>{pers?.poste||"—"}{p.chefNom?` · Chef: ${p.chefNom}`:""}</span></Td>
-                    <Td>{p.interim
-                      ? <span style={{fontSize:10,padding:"3px 8px",color:"#fff",fontWeight:700,background:ag?.couleur}}>{ag?.nom||"INTÉRIM"}</span>
-                      : <span style={{fontSize:10,padding:"3px 8px",fontWeight:700,border:`1px solid ${C.encre}`}}>INTERNE</span>}
+                  <tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`, background: alerte?"#FFF8F8": enEdition?"#FFFDE7":"transparent"}}>
+                    <Td>
+                      <span style={{fontSize:11,fontWeight:500}}>{dateCourte}</span>
+                      {alerte && <div style={{fontSize:9,color:C.orange,fontWeight:700,marginTop:2}}>⚠ &gt;10h</div>}
+                      {p.modifiePar && <div style={{fontSize:9,color:C.gris,marginTop:2}}>✎ Modifié RH</div>}
                     </Td>
-                    <Td>{ch ? <span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span> : "—"}</Td>
-                    <Td r>{p.debut}</Td><Td r>{p.fin}</Td><Td r>{p.pause}min</Td>
-                    <Td r><b>{fmtH(hTot)}</b></Td>
+                    <Td>
+                      <b style={{fontSize:13}}>{pers?.nom||p.salarie}</b><br/>
+                      <span style={{fontSize:11,color:C.gris}}>{pers?.poste||"—"}{p.chefNom?` · Chef: ${p.chefNom}`:""}</span>
+                      {p.commentaire && <div style={{fontSize:10,color:"#6C3483",marginTop:3,fontStyle:"italic"}}>💬 {p.commentaire}</div>}
+                    </Td>
+                    <Td>
+                      {p.interim
+                        ? <span style={{fontSize:10,padding:"3px 8px",color:"#fff",fontWeight:700,background:ag?.couleur}}>{ag?.nom||"INTÉRIM"}</span>
+                        : <span style={{fontSize:10,padding:"3px 8px",fontWeight:700,border:`1px solid ${C.encre}`}}>INTERNE</span>}
+                    </Td>
+
+                    {/* Chantier — éditable */}
+                    <Td>
+                      {enEdition
+                        ? <select value={editData.chantier} onChange={e=>setEditData({...editData,chantier:e.target.value})} style={{...iStyle,width:160}}>
+                            {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+                          </select>
+                        : dispChant
+                          ? <span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:dispChant.couleur,color:dispChant.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{dispChant.nom}</span>
+                          : "—"
+                      }
+                    </Td>
+
+                    {/* Début — éditable */}
+                    <Td r>
+                      {enEdition
+                        ? <input type="time" value={editData.debut} onChange={e=>setEditData({...editData,debut:e.target.value})} style={{...iStyle,width:90,textAlign:"center"}}/>
+                        : dispDebut}
+                    </Td>
+
+                    {/* Fin — éditable */}
+                    <Td r>
+                      {enEdition
+                        ? <input type="time" value={editData.fin} onChange={e=>setEditData({...editData,fin:e.target.value})} style={{...iStyle,width:90,textAlign:"center"}}/>
+                        : dispFin}
+                    </Td>
+
+                    {/* Pause — éditable */}
+                    <Td r>
+                      {enEdition
+                        ? <input type="number" value={editData.pause} onChange={e=>setEditData({...editData,pause:parseInt(e.target.value)||0})} style={{...iStyle,width:70,textAlign:"center"}}/>
+                        : `${dispPause}min`}
+                    </Td>
+
+                    <Td r>
+                      <b style={{color: hEdit>10?C.orange:"inherit"}}>{fmtH(enEdition?hEdit:hTot)}</b>
+                      {enEdition && hEdit>10 && <div style={{fontSize:9,color:C.orange,fontWeight:700}}>⚠ MAX 10h</div>}
+                    </Td>
                     <Td r>{hNuit>0 ? <span style={{color:"#6C3483",fontWeight:700,fontSize:11}}>{fmtH(hNuit)}</span> : <span style={{color:C.ligne}}>—</span>}</Td>
+                    {/* Commentaire */}
+                    <Td>
+                      {enEdition
+                        ? <textarea value={editData.commentaire||""} onChange={e=>setEditData({...editData,commentaire:e.target.value})} placeholder="Commentaire..." rows={2} style={{...iStyle,width:160,resize:"vertical",fontSize:11}}/>
+                        : p.commentaire
+                          ? <span style={{fontSize:10,color:"#6C3483",fontStyle:"italic"}}>💬 {p.commentaire}</span>
+                          : <span style={{color:C.ligne,fontSize:10}}>—</span>
+                      }
+                    </Td>
                     <Td>
                       {p.interim===true
                         ? p.valideParInterimaire
                           ? <span style={{color:C.vert,fontSize:10,fontWeight:700}}>✓ ACCEPTÉ<br/><span style={{fontWeight:400,fontSize:9}}>{p.horodatageValidation?new Date(p.horodatageValidation).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}</span></span>
                           : <span style={{color:C.orange,fontSize:10,fontWeight:700}}>⏳ EN ATTENTE</span>
-                        : <span style={{color:C.gris,fontSize:10}}>—</span>
-                      }
+                        : <span style={{color:C.gris,fontSize:10}}>—</span>}
                     </Td>
                     <Td>{p.valide?<span style={{color:C.vert,fontSize:11,fontWeight:700}}>● VALIDÉ RH</span>:<span style={{color:C.orange,fontSize:11,fontWeight:700}}>● ATTENTE RH</span>}</Td>
                     <Td>
-                      <div style={{display:"flex",gap:6}}>
-                        {!p.valide && <Btn variant="mini" onClick={()=>valider(p.id)}>VALIDER</Btn>}
-                        <Btn variant="danger-mini" onClick={()=>supprPointage(p.id)}>✕</Btn>
-                      </div>
+                      {enEdition ? (
+                        <div style={{display:"flex",gap:6,flexDirection:"column"}}>
+                          <Btn variant="mini" onClick={()=>sauvegarderEdit(p.id)}>✓ SAUVER</Btn>
+                          <Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn>
+                        </div>
+                      ) : (
+                        <div style={{display:"flex",gap:6}}>
+                          <Btn variant="ghost" onClick={()=>ouvrirEdit(p)}>✎</Btn>
+                          {!p.valide && <Btn variant="mini" onClick={()=>valider(p.id)}>✓</Btn>}
+                          <Btn variant="danger-mini" onClick={()=>supprPointage(p.id)}>✕</Btn>
+                        </div>
+                      )}
                     </Td>
                   </tr>
                 );
@@ -535,6 +685,227 @@ function OngletPointages({auj,chantiers,trouver,aValider,valider,validerTout,sup
             </tbody>
           </TableWrap>
       }
+
+      {/* Légende alertes */}
+      <div style={{marginTop:12,fontSize:11,color:C.gris,display:"flex",gap:20,flexWrap:"wrap"}}>
+        <span>🔴 Dépassement légal absolu (&gt;10h/j ou &gt;48h/sem)</span>
+        <span>🟠 Seuil d'alerte (&gt;44h/sem — moyenne 12 sem.)</span>
+        <span>✎ Modifier les horaires d'un pointage</span>
+      </div>
+    </Section>
+  );
+}
+
+// ---- Onglet Absences / Congés ----
+function OngletAbsences({absences, setAbsences, salaries, interimaires, pointages}) {
+  const [open, setOpen] = useState(false);
+  const [personneId, setPersonneId] = useState("");
+  const [dateDebut, setDateDebut] = useState(TODAY);
+  const [dateFin, setDateFin] = useState(TODAY);
+  const [type, setType] = useState(TYPES_ABSENCE[0].code);
+  const [commentaire, setCommentaire] = useState("");
+  const [err, setErr] = useState("");
+  const [filtreType, setFiltreType] = useState("tous");
+  const [filtrePersonne, setFiltrePersonne] = useState("tous");
+
+  const tousPersonnes = [
+    ...salaries.map(s=>({...s,_type:"interne"})),
+    ...interimaires.map(i=>({...i,_type:"interim"})),
+  ];
+
+  const ajouter = () => {
+    if (!personneId) { setErr("Sélectionnez une personne."); return; }
+    if (dateDebut > dateFin) { setErr("La date de fin doit être après la date de début."); return; }
+    const typeInfo = TYPES_ABSENCE.find(t=>t.code===type);
+    setAbsences([...absences, {
+      id: genId("A"),
+      salarie: personneId,
+      dateDebut, dateFin,
+      type,
+      typeLabel: typeInfo.label,
+      typeIcone: typeInfo.icone,
+      commentaire: commentaire.trim(),
+      saisieParRH: true,
+      saisieDate: new Date().toISOString(),
+    }]);
+    setPersonneId(""); setDateDebut(TODAY); setDateFin(TODAY);
+    setType(TYPES_ABSENCE[0].code); setCommentaire("");
+    setOpen(false); setErr("");
+  };
+
+  const supprimer = (id) => {
+    if (!window.confirm("Supprimer cette absence ?")) return;
+    setAbsences(absences.filter(a=>a.id!==id));
+  };
+
+  const getNom = (id) => tousPersonnes.find(p=>p.id===id)?.nom || id;
+  const getType = (code) => TYPES_ABSENCE.find(t=>t.code===code);
+
+  // Calcul nombre de jours ouvrés entre deux dates
+  const nbJoursOuvres = (d1, d2) => {
+    let count = 0;
+    const cur = new Date(d1+"T00:00:00");
+    const fin = new Date(d2+"T00:00:00");
+    while (cur <= fin) {
+      const j = cur.getDay();
+      if (j!==0 && j!==6) count++;
+      cur.setDate(cur.getDate()+1);
+    }
+    return count;
+  };
+
+  // Absences filtrées
+  const listeFiltree = absences
+    .filter(a => filtreType==="tous" || a.type===filtreType)
+    .filter(a => filtrePersonne==="tous" || a.salarie===filtrePersonne)
+    .sort((a,b) => b.dateDebut.localeCompare(a.dateDebut));
+
+  // Stats par type
+  const statParType = TYPES_ABSENCE.map(t=>({
+    ...t,
+    nb: absences.filter(a=>a.type===t.code).length,
+    jours: absences.filter(a=>a.type===t.code).reduce((s,a)=>s+nbJoursOuvres(a.dateDebut,a.dateFin),0)
+  })).filter(t=>t.nb>0);
+
+  const fmtDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
+
+  return (
+    <Section titre={`Absences & Congés — ${absences.length} entrée(s)`} actions={
+      <Btn onClick={()=>{setOpen(!open);setErr("");}}>{open?"✕ Annuler":"+ SAISIR UNE ABSENCE"}</Btn>
+    }>
+
+      {open && <FormInline>
+        <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris,fontWeight:700,marginBottom:12}}>NOUVELLE ABSENCE / CONGÉ</div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:12}}>
+          <Champ label="PERSONNE">
+            <select value={personneId} onChange={e=>{setPersonneId(e.target.value);setErr("");}} style={selectStyle}>
+              <option value="" disabled>— Sélectionner —</option>
+              {salaries.length>0 && <optgroup label="── Salariés CHOK BÉTON">
+                {salaries.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}
+              </optgroup>}
+              {interimaires.length>0 && <optgroup label="── Intérimaires">
+                {interimaires.map(i=><option key={i.id} value={i.id}>{i.nom}</option>)}
+              </optgroup>}
+            </select>
+          </Champ>
+          <Champ label="TYPE D'ABSENCE">
+            <select value={type} onChange={e=>setType(e.target.value)} style={selectStyle}>
+              {TYPES_ABSENCE.map(t=><option key={t.code} value={t.code}>{t.icone} {t.label}</option>)}
+            </select>
+          </Champ>
+          <Champ label="DATE DÉBUT">
+            <input type="date" value={dateDebut} onChange={e=>setDateDebut(e.target.value)} style={inputStyle}/>
+          </Champ>
+          <Champ label="DATE FIN">
+            <input type="date" value={dateFin} onChange={e=>setDateFin(e.target.value)} style={inputStyle}/>
+          </Champ>
+          {dateDebut && dateFin && dateDebut<=dateFin &&
+            <div style={{padding:"0 0 2px",fontSize:12,color:C.gris,alignSelf:"flex-end"}}>
+              → <b>{nbJoursOuvres(dateDebut,dateFin)}</b> jour(s) ouvré(s)
+            </div>
+          }
+        </div>
+        <div style={{display:"flex",gap:12,alignItems:"flex-end"}}>
+          <Champ label="COMMENTAIRE (OPTIONNEL)" style={{flex:1}}>
+            <input value={commentaire} onChange={e=>setCommentaire(e.target.value)} placeholder="Justificatif, remarque..." style={{...inputStyle,minWidth:300}}/>
+          </Champ>
+          <Btn onClick={ajouter}>ENREGISTRER</Btn>
+        </div>
+        {err && <ErrBox>{err}</ErrBox>}
+      </FormInline>}
+
+      {/* Bandeau stats */}
+      {statParType.length>0 && (
+        <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+          {statParType.map(t=>(
+            <div key={t.code} style={{padding:"10px 16px",background:C.papier,border:`1.5px solid ${t.couleur}`,display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:20}}>{t.icone}</span>
+              <div>
+                <div style={{fontSize:10,color:C.gris,letterSpacing:"0.1em",fontWeight:700}}>{t.label.toUpperCase()}</div>
+                <div style={{fontFamily:FT,fontSize:18,fontWeight:800,marginTop:2}}>
+                  {t.nb} <span style={{fontSize:12,fontWeight:400,color:C.gris}}>absent. · {t.jours}j ouvrés</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Filtres */}
+      {absences.length>0 && (
+        <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+          <select value={filtreType} onChange={e=>setFiltreType(e.target.value)} style={selectStyle}>
+            <option value="tous">Tous les types</option>
+            {TYPES_ABSENCE.map(t=><option key={t.code} value={t.code}>{t.icone} {t.label}</option>)}
+          </select>
+          <select value={filtrePersonne} onChange={e=>setFiltrePersonne(e.target.value)} style={selectStyle}>
+            <option value="tous">Toutes les personnes</option>
+            {salaries.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}
+            {interimaires.map(i=><option key={i.id} value={i.id}>{i.nom}</option>)}
+          </select>
+          <span style={{fontSize:11,color:C.gris}}>{listeFiltree.length} résultat(s)</span>
+        </div>
+      )}
+
+      {absences.length===0
+        ? <EmptyState>Aucune absence enregistrée.<br/><span style={{color:C.gris,fontSize:12}}>Cliquez sur "+ SAISIR UNE ABSENCE" pour commencer.</span></EmptyState>
+        : listeFiltree.length===0
+          ? <EmptyState>Aucun résultat pour ces filtres.</EmptyState>
+          : <TableWrap>
+              <thead><tr>
+                <Th>Personne</Th><Th>Type</Th><Th>Début</Th><Th>Fin</Th>
+                <Th r>Jours ouvrés</Th><Th>Commentaire</Th><Th>Saisi le</Th><Th></Th>
+              </tr></thead>
+              <tbody>
+                {listeFiltree.map(a=>{
+                  const typeInfo = getType(a.type);
+                  const jours = nbJoursOuvres(a.dateDebut, a.dateFin);
+                  const personne = tousPersonnes.find(p=>p.id===a.salarie);
+                  const ag = personne?._type==="interim" ? AGENCES.find(x=>x.id===personne.agence) : null;
+                  return (
+                    <tr key={a.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
+                      <Td>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{width:28,height:28,background:ag?ag.couleur:C.encre,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>
+                            {initiales(personne?.nom||a.salarie)}
+                          </div>
+                          <div>
+                            <div style={{fontWeight:600,fontSize:13}}>{personne?.nom||a.salarie}</div>
+                            {ag && <div style={{fontSize:9,color:ag.couleur,fontWeight:700}}>{ag.nom}</div>}
+                          </div>
+                        </div>
+                      </Td>
+                      <Td>
+                        <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",background:typeInfo?.couleur+"22",border:`1px solid ${typeInfo?.couleur}`,fontSize:11,fontWeight:700,color:typeInfo?.couleur}}>
+                          {typeInfo?.icone} {typeInfo?.label}
+                        </span>
+                      </Td>
+                      <Td>{fmtDate(a.dateDebut)}</Td>
+                      <Td>{fmtDate(a.dateFin)}</Td>
+                      <Td r><b style={{fontFamily:FT,fontSize:16}}>{jours}</b> <span style={{fontSize:10,color:C.gris}}>j.</span></Td>
+                      <Td>
+                        {a.commentaire
+                          ? <span style={{fontSize:11,color:"#6C3483",fontStyle:"italic"}}>💬 {a.commentaire}</span>
+                          : <span style={{color:C.ligne}}>—</span>}
+                      </Td>
+                      <Td>
+                        <span style={{fontSize:10,color:C.gris}}>
+                          {a.saisieDate ? new Date(a.saisieDate).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) : "—"}
+                          {a.saisieParRH && <span style={{marginLeft:4,color:C.bleu,fontWeight:700}}>· RH</span>}
+                        </span>
+                      </Td>
+                      <Td><Btn variant="danger" onClick={()=>supprimer(a.id)}>SUPPR.</Btn></Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </TableWrap>
+      }
+
+      <div style={{marginTop:12,padding:"10px 14px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11,color:C.gris,lineHeight:1.6}}>
+        💡 Les absences apparaissent dans le rapport détaillé et dans les archives de chaque semaine, en complément des pointages.
+        Les jours ouvrés excluent samedis et dimanches.
+      </div>
     </Section>
   );
 }
@@ -1430,6 +1801,7 @@ function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires
               debut:m.debut,
               fin:m.fin,
               pause:m.pause,
+              commentaire: m.commentaire||"",
               valide:false,
               interim:m.type==="interim",
               valideParInterimaire: m.type==="interim" ? validationsInt[m.id]===true : null,
@@ -1640,13 +2012,25 @@ function MPointage({chantier,chef,equipe,setEquipe,salaries,interimaires,onRetou
               </div>
 
               {/* Horaires */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:isInt?12:0}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
                 {[["DÉBUT","time","debut"],["FIN","time","fin"],["PAUSE (min)","number","pause"]].map(([l,t,k])=>(
                   <div key={k}>
                     <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>{l}</div>
                     <input type={t} value={m[k]} onChange={e=>upd(m.id,k,e.target.value)} style={{width:"100%",padding:"10px 8px",background:C.papier,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:13,outline:"none",textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/>
                   </div>
                 ))}
+              </div>
+
+              {/* Commentaire optionnel */}
+              <div style={{marginBottom:isInt?8:0}}>
+                <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>COMMENTAIRE (OPTIONNEL)</div>
+                <textarea
+                  value={m.commentaire||""}
+                  onChange={e=>upd(m.id,"commentaire",e.target.value)}
+                  placeholder="Remarque, incident, information..."
+                  rows={2}
+                  style={{width:"100%",padding:"8px 10px",background:C.papier,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:11,outline:"none",resize:"vertical",boxSizing:"border-box"}}
+                />
               </div>
 
               {/* Case à cocher validation intérimaire */}
