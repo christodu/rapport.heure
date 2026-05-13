@@ -101,6 +101,18 @@
 const { useState, useEffect, useRef, useCallback } = React;
 
 // ============================================================
+//  MIGRATION — efface l'ancienne liste vide si elle existe
+// ============================================================
+(function migrateSalaries() {
+  try {
+    const raw = localStorage.getItem("chok_salaries");
+    if (raw === "[]" || raw === null) {
+      localStorage.removeItem("chok_salaries");
+    }
+  } catch(e) {}
+})();
+
+// ============================================================
 //  CONSTANTES
 // ============================================================
 const AGENCES = [
@@ -295,7 +307,7 @@ function App() {
   const [pinRH,   setPinRH]   = usePersist("chok_pin_rh",   "1234");
   const [pinChef, setPinChef] = usePersist("chok_pin_chef",  "0000");
 
-  const [salaries,     setSalariesRaw]     = useState(() => load("chok_salaries",     REAL_SALARIES));
+  const [salaries,     setSalariesRaw]     = useState(() => { const s = load("chok_salaries", null); return (s && s.length > 0) ? s : REAL_SALARIES; });
   const [interimaires, setInterimairesRaw] = useState(() => load("chok_interimaires", []));
   const [chantiers,    setChantiersRaw]    = useState(() => load("chok_chantiers",    []));
   const [pointages,    setPointagesRaw]    = useState(() => load("chok_pointages",    []));
