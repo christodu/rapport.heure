@@ -339,7 +339,13 @@ function App() {
         sb.from("pointages").select("*"),
         sb.from("absences").select("*"),
       ]);
-      if (!s.error && s.data.length) { setSalariesRaw(s.data);     save("chok_salaries",     s.data); }
+      if (!s.error && s.data.length) {
+        setSalariesRaw(s.data); save("chok_salaries", s.data);
+      } else if (!s.error && s.data.length === 0) {
+        // Table vide → pousser les 33 salariés réels vers Supabase
+        await sb.from("salaries").upsert(REAL_SALARIES);
+        setSalariesRaw(REAL_SALARIES); save("chok_salaries", REAL_SALARIES);
+      }
       if (!i.error) { setInterimairesRaw(i.data); save("chok_interimaires", i.data); }
       if (!c.error) { setChantiersRaw(c.data);    save("chok_chantiers",    c.data); }
       if (!p.error) { setPointagesRaw(p.data);    save("chok_pointages",    p.data); }
