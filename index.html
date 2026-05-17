@@ -304,8 +304,8 @@ async function sbSync(table, newData, prevData) {
 //  APP
 // ============================================================
 function App() {
-  const [pinRH,   setPinRH]   = usePersist("chok_pin_rh",   "1234");
-  const [pinChef, setPinChef] = usePersist("chok_pin_chef",  "0000");
+  const [pinRH,   setPinRH]   = usePersist("chok_pin_rh",   "010126");
+  const [pinChef, setPinChef] = usePersist("chok_pin_chef",  "2026");
 
   const [salaries,     setSalariesRaw]     = useState(() => { const s = load("chok_salaries", null); return (s && s.length > 0) ? s : REAL_SALARIES; });
   const [interimaires, setInterimairesRaw] = useState(() => load("chok_interimaires", []));
@@ -1078,10 +1078,7 @@ function VueSalarie({session,pointages,chantiers,salaries,interimaires}) {
 function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onReloadSupabase,salaries,setSalaries,chantiers,setChantiers,interimaires,setInterimaires,pointages,setPointages,absences,setAbsences}) {
   const [newPinRH,setNewPinRH]=useState("");
   const [newPinChef,setNewPinChef]=useState("");
-  const [sbUrl,setSbUrl]=useState(localStorage.getItem("chok_sb_url")||"");
-  const [sbKey,setSbKey]=useState(localStorage.getItem("chok_sb_key")||"");
   const [msgPin,setMsgPin]=useState("");
-  const [msgSb,setMsgSb]=useState("");
 
   const sauverPins=()=>{
     if(newPinRH.length>=4)setPinRH(newPinRH);
@@ -1089,28 +1086,10 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
     setMsgPin("✓ Codes mis à jour.");setNewPinRH("");setNewPinChef("");
     setTimeout(()=>setMsgPin(""),3000);
   };
-  const sauverSb=()=>{
-    localStorage.setItem("chok_sb_url",sbUrl.trim());
-    localStorage.setItem("chok_sb_key",sbKey.trim());
-    setMsgSb("✓ Configuration Supabase sauvegardée.");
-    setTimeout(()=>setMsgSb(""),3000);
-  };
   const reinitialiserTout=()=>{
     if(!window.confirm("⚠ Effacer TOUTES les données (pointages, absences, chantiers) ? Les salariés seront conservés."))return;
     setPointages([]);setAbsences([]);setChantiers([]);setInterimaires([]);
   };
-
-  const SQL_SCHEMA=`create table salaries (id text primary key, nom text, poste text, equipe text, interne boolean);
-create table interimaires (id text primary key, nom text, poste text, agence text, "accesPlateforme" boolean);
-create table chantiers (id text primary key, nom text, ville text, client text, couleur text, actif boolean);
-create table pointages (id text primary key, salarie text, chantier text, date text, debut text, fin text, pause int, commentaire text, valide boolean, interim boolean, "valideParInterimaire" boolean, "horodatageValidation" text, "chefNom" text);
-create table absences (id text primary key, salarie text, "dateDebut" text, "dateFin" text, type text, "typeLabel" text, "typeIcone" text, commentaire text, "saisieParRH" boolean, "saisieDate" text);
-
-alter table salaries disable row level security;
-alter table interimaires disable row level security;
-alter table chantiers disable row level security;
-alter table pointages disable row level security;
-alter table absences disable row level security;`;
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:24}}>
@@ -1131,32 +1110,17 @@ alter table absences disable row level security;`;
         </FormInline>
       </Section>
 
-      {/* Supabase */}
-      <Section titre="Connexion Supabase (synchronisation multi-appareils)">
-        <FormInline>
-          <div style={{marginBottom:12,padding:"12px 16px",background:"#E8F5E9",border:`1px solid ${C.vert}`,fontSize:12,lineHeight:1.7}}>
-            <b>Comment configurer :</b><br/>
-            1. Créez un projet sur <a href="https://supabase.com" target="_blank" style={{color:C.vert}}>supabase.com</a> (gratuit)<br/>
-            2. Allez dans Settings → API → copiez l'URL du projet et la clé "anon public"<br/>
-            3. Collez-les ci-dessous, puis exécutez le schéma SQL dans l'éditeur SQL Supabase
+      {/* Supabase — statut */}
+      <Section titre="Synchronisation cloud">
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"#E8F5E9",border:`1px solid ${C.vert}`,fontSize:12}}>
+          <span style={{fontSize:18}}>✓</span>
+          <div>
+            <div style={{fontWeight:700,color:C.vert}}>Supabase connecté</div>
+            <div style={{color:C.gris,marginTop:2}}>Toutes les données sont synchronisées en temps réel sur tous les appareils.</div>
           </div>
-          <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:12}}>
-            <Champ label="SUPABASE PROJECT URL" style={{flex:2,minWidth:280}}>
-              <input value={sbUrl} onChange={e=>setSbUrl(e.target.value)} placeholder="https://xxxx.supabase.co" style={{...inputStyle,fontFamily:"monospace"}}/>
-            </Champ>
-            <Champ label="SUPABASE ANON KEY" style={{flex:2,minWidth:280}}>
-              <input type="password" value={sbKey} onChange={e=>setSbKey(e.target.value)} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." style={{...inputStyle,fontFamily:"monospace"}}/>
-            </Champ>
-            <Btn onClick={sauverSb}>SAUVEGARDER</Btn>
-          </div>
-          {msgSb&&<div style={{color:C.vert,fontSize:12,fontWeight:700,marginBottom:8}}>{msgSb}</div>}
+        </div>
+        <div style={{marginTop:12}}>
           <Btn variant="ghost" onClick={onReloadSupabase}>⟳ SYNCHRONISER MAINTENANT</Btn>
-        </FormInline>
-        <div style={{marginTop:16}}>
-          <div style={{fontFamily:FM,fontSize:11,fontWeight:700,color:C.gris,letterSpacing:"0.15em",marginBottom:8}}>SCHÉMA SQL À EXÉCUTER DANS SUPABASE :</div>
-          <div style={{background:C.encre,color:"#98D98E",padding:"16px 20px",fontSize:11,fontFamily:"monospace",lineHeight:1.8,overflowX:"auto",whiteSpace:"pre"}}>
-            {SQL_SCHEMA}
-          </div>
         </div>
       </Section>
 
