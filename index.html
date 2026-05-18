@@ -230,7 +230,6 @@ const REAL_SALARIES = [
   {id:"S-004",nom:"BAVESA Mayala",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-005",nom:"CAMARA Mady Oualy",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-006",nom:"CISSE Souleymane",poste:"Chef d'équipe",equipe:"—",interne:true},
-  {id:"S-007",nom:"CLEMENT Sylvain",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-008",nom:"COLPIN Maxence",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-009",nom:"COULIBALY Koniba",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-010",nom:"DE JESUS VIEIRA ALVES Marcos Lezito",poste:"Chef d'équipe",equipe:"—",interne:true},
@@ -340,9 +339,13 @@ function App() {
         sb.from("absences").select("*"),
       ]);
       if (!s.error && s.data.length) {
-        setSalariesRaw(s.data); save("chok_salaries", s.data);
+        // Supprimer les salariés retirés de la liste officielle
+        const SUPPRIMES = ["S-007"];
+        await Promise.all(SUPPRIMES.map(id => sb.from("salaries").delete().eq("id", id)));
+        const filtered = s.data.filter(sal => !SUPPRIMES.includes(sal.id));
+        setSalariesRaw(filtered); save("chok_salaries", filtered);
       } else if (!s.error && s.data.length === 0) {
-        // Table vide → pousser les 33 salariés réels vers Supabase
+        // Table vide → pousser les 32 salariés réels vers Supabase
         await sb.from("salaries").upsert(REAL_SALARIES);
         setSalariesRaw(REAL_SALARIES); save("chok_salaries", REAL_SALARIES);
       }
@@ -1558,7 +1561,7 @@ function Footer() {
   return(
     <footer style={{borderTop:`2px solid #0A0A0A`,padding:"14px 32px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:C.gris,letterSpacing:"0.05em",flexWrap:"wrap",gap:12}}>
       <span style={{fontWeight:700,color:C.encre}}>RAPPORT HEURE CHOK BÉTON — v2.0</span>
-      <span style={{fontStyle:"italic",fontSize:10}}>33 salariés · Supabase optionnel · Données stockées localement</span>
+      <span style={{fontStyle:"italic",fontSize:10}}>32 salariés · Supabase connecté · Synchronisation multi-appareils</span>
     </footer>
   );
 }
