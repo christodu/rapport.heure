@@ -889,13 +889,12 @@ function OngletChantiers({chantiers,setChantiers,pointages}) {
   const [nom,setNom]=useState("");
   const [ville,setVille]=useState("");
   const [client,setClient]=useState("");
-  const [couleur,setCouleur]=useState(COULEURS_CHANTIER[0]);
-  const ajouter=()=>{if(nom.trim().length<2)return;setChantiers([...chantiers,{id:genId("C"),nom:nom.trim(),ville:ville||"—",client:client||"—",couleur,actif:true}]);setNom("");setVille("");setClient("");setCouleur(COULEURS_CHANTIER[0]);setOpen(false);};
+  const ajouter=()=>{if(nom.trim().length<2)return;setChantiers([...chantiers,{id:genId("C"),nom:nom.trim(),ville:ville||"—",client:client||"—",couleur:"#3D5A80",actif:true}]);setNom("");setVille("");setClient("");setOpen(false);};
   const toggle=(id)=>setChantiers(chantiers.map(c=>c.id===id?{...c,actif:!c.actif}:c));
   const suppr=(id)=>{if(window.confirm("Supprimer ce chantier ?"))setChantiers(chantiers.filter(c=>c.id!==id));};
   return (
     <Section titre={`Chantiers — ${chantiers.length}`} actions={<Btn onClick={()=>setOpen(!open)}>{open?"✕ Annuler":"+ NOUVEAU CHANTIER"}</Btn>}>
-      {open&&<FormInline><div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}><Champ label="NOM"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="Résidence Les Pins" style={inputStyle}/></Champ><Champ label="VILLE"><input value={ville} onChange={e=>setVille(e.target.value)} placeholder="Lyon 3e" style={inputStyle}/></Champ><Champ label="CLIENT"><input value={client} onChange={e=>setClient(e.target.value)} placeholder="Vinci" style={inputStyle}/></Champ></div><div style={{display:"flex",alignItems:"center",gap:10,marginTop:10}}><span style={{fontSize:10,color:C.gris,letterSpacing:"0.18em",fontWeight:700}}>COULEUR</span>{COULEURS_CHANTIER.map(c=>(<button key={c} onClick={()=>setCouleur(c)} style={{width:30,height:30,background:c,border:"none",cursor:"pointer",outline:couleur===c?"3px solid #0A0A0A":"none",outlineOffset:2}}/>))}<Btn onClick={ajouter} style={{marginLeft:"auto"}}>CRÉER</Btn></div></FormInline>}
+      {open&&<FormInline><div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}><Champ label="ADRESSE CHANTIER"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="14 rue de la Paix, Lyon 3e" style={inputStyle}/></Champ><Champ label="VILLE"><input value={ville} onChange={e=>setVille(e.target.value)} placeholder="Lyon 3e" style={inputStyle}/></Champ><Champ label="CLIENT"><input value={client} onChange={e=>setClient(e.target.value)} placeholder="Vinci" style={inputStyle}/></Champ><Btn onClick={ajouter} style={{marginLeft:"auto"}}>CRÉER</Btn></div></FormInline>}
       {chantiers.length===0?<EmptyState>Aucun chantier. Créez-en un ci-dessus ou depuis l'app chef d'équipe.</EmptyState>
         :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
           {chantiers.map(c=>{const nb=pointages.filter(p=>p.chantier===c.id&&p.date===auj).length;return(<div key={c.id} style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflow:"hidden"}}><div style={{height:7,background:c.couleur}}/><div style={{padding:"14px 16px"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:10,color:C.gris,fontWeight:700,letterSpacing:"0.1em"}}>{c.id}</span><span style={{fontSize:10,fontWeight:700,color:c.actif?C.vert:C.gris}}>{c.actif?"● ACTIF":"○ FERMÉ"}</span></div><div style={{fontFamily:FT,fontSize:17,fontWeight:700,marginBottom:4}}>{c.nom}</div><div style={{fontSize:12,color:C.gris,marginBottom:4}}>📍 {c.ville}</div><div style={{fontSize:11,color:C.gris,fontStyle:"italic",marginBottom:14}}>Client : {c.client}</div><div style={{paddingTop:10,borderTop:`1px solid ${C.ligne}`,marginBottom:12}}><span style={{fontFamily:FT,fontSize:20,fontWeight:800}}>{nb}</span><span style={{fontSize:10,color:C.gris,marginLeft:6}}>pointage(s) aujourd'hui</span></div><div style={{display:"flex",gap:8}}><Btn variant="ghost" onClick={()=>toggle(c.id)}>{c.actif?"FERMER":"RÉACTIVER"}</Btn><Btn variant="danger" onClick={()=>suppr(c.id)}>SUPPR.</Btn></div></div></div>);})}
@@ -1323,13 +1322,12 @@ function MAccueil({chantiers,salaries,interimaires,optionsDates,dateRapport,setD
 
 // ---- Création chantier mobile ----
 function MNouveauChantier({onAnnuler,onCreer}) {
-  const [nom,setNom]=useState("");const [ville,setVille]=useState("");const [client,setClient]=useState("");const [couleur,setCouleur]=useState(COULEURS_CHANTIER[0]);const ok=nom.length>2;
+  const [nom,setNom]=useState("");const [ville,setVille]=useState("");const [client,setClient]=useState("");const ok=nom.length>2;
   return(<MFormWrap titre="NOUVEAU CHANTIER" onRetour={onAnnuler}>
-    <MChamp label="NOM"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="Résidence Belle Vue" style={mInputStyle}/></MChamp>
+    <MChamp label="ADRESSE CHANTIER"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="14 rue de la Paix, Lyon 3e" style={mInputStyle}/></MChamp>
     <MChamp label="VILLE"><input value={ville} onChange={e=>setVille(e.target.value)} placeholder="Lyon 3e" style={mInputStyle}/></MChamp>
-    <MChamp label="CLIENT (OPTIONNEL)"><input value={client} onChange={e=>setClient(e.target.value)} placeholder="Vinci" style={mInputStyle}/></MChamp>
-    <MChamp label="COULEUR"><div style={{display:"flex",gap:8}}>{COULEURS_CHANTIER.map(c=><button key={c} onClick={()=>setCouleur(c)} style={{width:32,height:32,background:c,border:"none",cursor:"pointer",outline:couleur===c?"3px solid #0A0A0A":"none",outlineOffset:2}}/>)}</div></MChamp>
-    <MBtn disabled={!ok} onClick={()=>ok&&onCreer({id:genId("C"),nom,ville:ville||"—",client:client||"—",couleur,actif:true})}>✓ CRÉER LE CHANTIER</MBtn>
+    <MChamp label="CLIENT"><input value={client} onChange={e=>setClient(e.target.value)} placeholder="Vinci" style={mInputStyle}/></MChamp>
+    <MBtn disabled={!ok} onClick={()=>ok&&onCreer({id:genId("C"),nom,ville:ville||"—",client:client||"—",couleur:"#3D5A80",actif:true})}>✓ CRÉER LE CHANTIER</MBtn>
   </MFormWrap>);
 }
 
