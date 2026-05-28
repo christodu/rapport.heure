@@ -2,8 +2,19 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rapport Heure — CHOK BÉTON v2</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>CHOK BÉTON</title>
+
+  <!-- PWA — installation comme app -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0A0A0A" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- iOS Safari -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="CHOK BÉTON" />
+  <link rel="apple-touch-icon" href="icon-512.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <style>
@@ -138,7 +149,9 @@ const TYPES_ABSENCE = [
 const calcHeures = (p) => {
   const [h1,m1] = p.debut.split(":").map(Number);
   const [h2,m2] = p.fin.split(":").map(Number);
-  const min = (h2*60+m2)-(h1*60+m1)-(p.pause||0);
+  let min = (h2*60+m2)-(h1*60+m1);
+  if (min < 0) min += 1440; // passage minuit (ex: 20h→6h)
+  min -= (p.pause||0);
   return Math.max(0, Math.round((min/60)*100)/100);
 };
 const calcHSupSemaine = (ptgs) => {
@@ -146,10 +159,16 @@ const calcHSupSemaine = (ptgs) => {
   return Math.max(0, Math.round((total-35)*100)/100);
 };
 const calcHNuit = (p) => {
+  const [h1,m1] = p.debut.split(":").map(Number);
   const [h2,m2] = p.fin.split(":").map(Number);
-  const finMin = h2*60+m2;
-  if (finMin <= 20*60) return 0;
-  const minNuit = finMin - 20*60;
+  let debutMin = h1*60+m1;
+  let finMin   = h2*60+m2;
+  if (finMin <= debutMin) finMin += 1440; // passage minuit
+  // Plages de nuit : 20h-24h (1200-1440) et 00h-06h (0-360 / 1440-1800 normalisé)
+  const overlap = (s1,e1,s2,e2) => Math.max(0, Math.min(e1,e2)-Math.max(s1,s2));
+  const minNuit = overlap(debutMin,finMin,1200,1440)
+                + overlap(debutMin,finMin,0,360)
+                + overlap(debutMin,finMin,1440,1800);
   return Math.min(Math.round((minNuit/60)*100)/100, calcHeures(p));
 };
 const fmtH = (n) => `${Math.floor(n)}h${String(Math.round((n%1)*60)).padStart(2,"0")}`;
@@ -359,6 +378,13 @@ function App() {
   }, []);
 
   useEffect(() => { chargerDepuisSupabase(); }, []);
+
+  // Enregistrement du Service Worker (PWA)
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch(() => {});
+    }
+  }, []);
 
   function makeSetter(rawSetter, ref, lsKey, table) {
     return (v) => {
@@ -1154,10 +1180,10 @@ function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires
   const reset = () => { setEtape("accueil"); setCh(null); setChef(null); setEquipe([]); setDate(new Date().toISOString().slice(0,10)); };
 
   // 3 options de date
-  const optionsDates = Array.from({length:3},(_,i)=>{
+  const optionsDates = Array.from({length:7},(_,i)=>{
     const d = new Date(); d.setDate(d.getDate()-i);
     const iso = d.toISOString().slice(0,10);
-    const label = i===0?"Aujourd'hui":i===1?"Hier":"Avant-hier";
+    const label = i===0?"Aujourd'hui":i===1?"Hier":i===2?"Avant-hier":d.toLocaleDateString("fr-FR",{weekday:"long"}).charAt(0).toUpperCase()+d.toLocaleDateString("fr-FR",{weekday:"long"}).slice(1);
     const fr = d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"});
     return {iso,label,fr};
   });
@@ -1188,7 +1214,7 @@ function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires
             <div style={{fontFamily:FT,fontSize:22,fontWeight:800,letterSpacing:"-0.02em",lineHeight:1.1,marginTop:2}}>CHOK BÉTON</div>
           </div>
 
-          {etape==="accueil" && <MAccueil chantiers={chantiers} salaries={salaries} interimaires={interimaires} optionsDates={optionsDates} dateRapport={dateRapport} setDate={setDate} onNouveau={()=>setEtape("nouveau-chantier")} onSuite={(ch,chef)=>{setCh(ch);setChef(chef);setEtape("equipe");}}/>}
+          {etape==="accueil" && <MAccueil chantiers={chantiers} salaries={salaries} interimaires={interimaires} pointages={pointages} optionsDates={optionsDates} dateRapport={dateRapport} setDate={setDate} onNouveau={()=>setEtape("nouveau-chantier")} onSuite={(ch,chef)=>{setCh(ch);setChef(chef);setEtape("equipe");}}/>}
           {etape==="nouveau-chantier" && <MNouveauChantier onAnnuler={()=>setEtape("accueil")} onCreer={c=>{setChantiers([...chantiers,c]);setEtape("accueil");}}/>}
           {etape==="equipe" && <MEquipe chantier={chantierSel} chef={chefSel} salaries={salaries} interimaires={interimaires} equipe={equipe} setEquipe={setEquipe} onRetour={()=>setEtape("accueil")} onSuite={()=>setEtape("pointage")} onAjoutInt={()=>setEtape("nouveau-interim")}/>}
           {etape==="nouveau-interim" && <MNouvelInt onAnnuler={()=>setEtape("equipe")} onCreer={i=>{setInterimaires([...interimaires,i]);setEquipe([...equipe,{id:i.id,type:"interim",debut:"08:00",fin:"16:00",pause:60}]);setEtape("equipe");}}/>}
@@ -1230,11 +1256,24 @@ function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires
 }
 
 // ---- Écran Accueil Mobile ----
-function MAccueil({chantiers,salaries,interimaires,optionsDates,dateRapport,setDate,onNouveau,onSuite}) {
+function MAccueil({chantiers,salaries,interimaires,pointages,optionsDates,dateRapport,setDate,onNouveau,onSuite}) {
   const [chSel,setChSel]   = useState(null);
   const [chefId,setChefId] = useState("");
   const [proposerReprise,setProposerReprise] = useState(false);
   const [dernierRapport,setDernierRapport]   = useState(null);
+
+  // Tracker hebdomadaire — 7 derniers jours
+  const auj = new Date().toISOString().slice(0,10);
+  const tracker7j = Array.from({length:7},(_,i)=>{
+    const d = new Date(); d.setDate(d.getDate()-i);
+    const iso = d.toISOString().slice(0,10);
+    const jour = d.toLocaleDateString("fr-FR",{weekday:"short"}).toUpperCase().slice(0,3);
+    const num  = d.getDate();
+    const isWE = [0,6].includes(d.getDay());
+    const aRapport = pointages.some(p=>p.date===iso);
+    const estAuj = iso===auj;
+    return {iso,jour,num,isWE,aRapport,estAuj};
+  }).reverse();
 
   const actifs = chantiers.filter(c=>c.actif);
   const tousChefs = [...salaries.map(s=>({...s,_type:"interne"})),...interimaires.map(i=>({...i,_type:"interim"}))];
@@ -1258,6 +1297,27 @@ function MAccueil({chantiers,salaries,interimaires,optionsDates,dateRapport,setD
   return (
     <>
       <div style={{overflowY:"auto",flex:1,padding:"0 20px 8px"}}>
+
+        {/* Tracker hebdomadaire */}
+        <div style={{marginBottom:14,padding:"12px",background:C.fond,border:`1.5px solid ${C.ligne}`}}>
+          <div style={{fontSize:9,color:C.gris,letterSpacing:"0.2em",fontWeight:700,marginBottom:10}}>RAPPORTS — 7 DERNIERS JOURS</div>
+          <div style={{display:"flex",gap:4,justifyContent:"space-between"}}>
+            {tracker7j.map(t=>(
+              <div key={t.iso} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                <div style={{fontSize:8,fontWeight:700,color:t.isWE?"#9B5DE5":C.gris,letterSpacing:"0.05em"}}>{t.jour}</div>
+                <div style={{width:30,height:30,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:11,border:`2px solid ${t.estAuj?C.encre:t.aRapport?C.vert:t.isWE?"#E0D0F0":"#FFCCCC"}`,background:t.aRapport?C.vert:t.estAuj?"#FFF8E1":"transparent",color:t.aRapport?"#fff":t.estAuj?C.encre:C.gris}}>
+                  {t.aRapport?"✓":t.estAuj?"!":t.num}
+                </div>
+                <div style={{fontSize:8,color:t.aRapport?C.vert:t.estAuj?C.orange:C.gris,fontWeight:700}}>{t.aRapport?"OK":t.estAuj?"À SAISIR":"—"}</div>
+              </div>
+            ))}
+          </div>
+          {!tracker7j.find(t=>t.estAuj)?.aRapport && (
+            <div style={{marginTop:10,padding:"7px 10px",background:"#FFF0E0",border:`1px solid ${C.orange}`,fontSize:11,color:C.orange,fontWeight:700}}>
+              ⚠ Aucun rapport saisi aujourd'hui — pensez à le faire avant la fin de journée !
+            </div>
+          )}
+        </div>
 
         {/* Chef d'équipe EN PREMIER */}
         <div style={{marginBottom:14}}>
@@ -1396,11 +1456,14 @@ function MPointage({chantier,chef,equipe,setEquipe,salaries,interimaires,dateRap
               <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{getNom(m.id)}</div><div style={{fontSize:10,color:C.gris}}>{isChef?"CHEF D'ÉQUIPE":isInt?`INTÉRIM · ${ag?.nom}`:"SALARIÉ CHOK BÉTON"}</div></div>
               <div style={{fontFamily:FT,fontSize:16,fontWeight:800,background:C.encre,color:C.jaune,padding:"3px 10px"}}>{fmtH(total)}</div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+            {(()=>{const[dh,dm]=m.debut.split(":").map(Number);const[fh,fm]=m.fin.split(":").map(Number);const passageMinuit=(fh*60+fm)<=(dh*60+dm)&&m.fin!=="";return(<>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:4}}>
               {[["DÉBUT","time","debut"],["FIN","time","fin"],["PAUSE (min)","number","pause"]].map(([l,t,k])=>(
-                <div key={k}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>{l}</div><input type={t} value={m[k]} onChange={e=>upd(m.id,k,e.target.value)} style={{width:"100%",padding:"10px 8px",background:C.papier,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:13,outline:"none",textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/></div>
+                <div key={k}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>{l}</div><input type={t} value={m[k]} onChange={e=>upd(m.id,k,e.target.value)} style={{width:"100%",padding:"10px 8px",background:C.papier,border:`1.5px solid ${k==="fin"&&passageMinuit?"#6C3483":C.ligne}`,fontFamily:FM,fontSize:13,outline:"none",textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/></div>
               ))}
             </div>
+            {passageMinuit&&<div style={{marginBottom:8,padding:"5px 10px",background:"#F3E5F5",border:"1px solid #6C3483",fontSize:10,color:"#6C3483",fontWeight:700}}>🌙 FIN LE LENDEMAIN — heures de nuit comptabilisées</div>}
+            </>);})()}
             <div style={{marginBottom:isInt?8:0}}>
               <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>COMMENTAIRE (OPTIONNEL)</div>
               <textarea value={m.commentaire||""} onChange={e=>upd(m.id,"commentaire",e.target.value)} placeholder="Remarque, incident..." rows={2} style={{width:"100%",padding:"8px 10px",background:C.papier,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:11,outline:"none",resize:"vertical",boxSizing:"border-box"}}/>
