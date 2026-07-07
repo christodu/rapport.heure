@@ -178,6 +178,148 @@ const dateFr = () => new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"
 const heureFr = () => new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
 
 // ============================================================
+//  PASSERELLE PLANNING  →  RAPPORT HEURE
+//  Lit le planning (Google Apps Script) et propose de créer
+//  les pointages de la semaine. Rapprochement par nom.
+// ============================================================
+
+// URL de l'API Apps Script du planning (modifiable dans Paramètres)
+const PLANNING_GAS_URL_DEFAUT = "https://script.google.com/macros/s/AKfycbyovrVtwNYaZhBnQewdHxfZhUSRvKEvWgOpmYTiZ2Sdx494FhusobScjWg-tdko93Nq/exec";
+const getPlanningUrl = () => (typeof localStorage!=="undefined" && localStorage.getItem("chok_planning_url")) || PLANNING_GAS_URL_DEFAUT;
+
+// Heures par défaut appliquées aux pointages importés (le chef confirmera)
+const PLANNING_DEBUT_DEFAUT = "08:00";
+const PLANNING_FIN_DEFAUT   = "16:00";
+const PLANNING_PAUSE_DEFAUT = 60;
+
+// Normalisation d'un nom : majuscules sans accents, ponctuation retirée
+const normNom = (s) => (s||"")
+  .toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+  .toUpperCase().replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim();
+const tokensNom = (s) => normNom(s).split(" ").filter(t=>t.length>1);
+
+// Rapproche un nom du planning avec la liste des salariés.
+// Renvoie {id, score} du meilleur candidat, ou null.
+function matchSalarie(nomPlanning, salaries) {
+  const cible = normNom(nomPlanning);
+  if (!cible) return null;
+  const tCible = tokensNom(nomPlanning);
+  let best = null;
+  salaries.forEach(sal => {
+    const nSal = normNom(sal.nom);
+    const tSal = tokensNom(sal.nom);
+    let score = 0;
+    if (nSal === cible) score = 100;
+    else {
+      // tous les tokens du nom le plus court présents dans l'autre
+      const court = tCible.length <= tSal.length ? tCible : tSal;
+      const long  = tCible.length <= tSal.length ? tSal : tCible;
+      const tousPresents = court.length>0 && court.every(t => long.includes(t));
+      const communs = tCible.filter(t => tSal.includes(t)).length;
+      if (tousPresents) score = 60 + communs*10;
+      else if (communs>0) score = communs*10;
+    }
+    if (score>0 && (!best || score>best.score)) best = {id:sal.id, score, nom:sal.nom};
+  });
+  return best && best.score>=20 ? best : null;
+}
+
+// Rapproche un nom de chantier (texte libre) avec la liste des chantiers
+function matchChantier(noteChantier, chantiers) {
+  const cible = normNom(noteChantier);
+  if (!cible) return null;
+  let best = null;
+  chantiers.forEach(ch => {
+    const nCh = normNom(ch.nom);
+    let score = 0;
+    if (nCh === cible) score = 100;
+    else if (nCh && (nCh.includes(cible) || cible.includes(nCh))) score = 70;
+    else {
+      const tC = tokensNom(noteChantier), tH = tokensNom(ch.nom);
+      const communs = tC.filter(t=>tH.includes(t)).length;
+      if (communs>0) score = communs*15;
+    }
+    if (score>0 && (!best || score>best.score)) best = {id:ch.id, score, nom:ch.nom};
+  });
+  return best && best.score>=30 ? best : null;
+}
+
+// ---- Dates : reconstruire la date depuis la clé de cellule du planning ----
+// Clé planning : w{AAAASS}_d{0-5}_c{idChef}   (jour 0=lundi … 5=samedi)
+function planningAbsWkToMonday(idx) {
+  const y = parseInt(String(idx).slice(0,4),10), w = parseInt(String(idx).slice(4),10);
+  const j4 = new Date(y,0,4), s = new Date(j4);
+  s.setDate(j4.getDate() - (j4.getDay()||7) + 1);
+  const r = new Date(s); r.setDate(s.getDate() + (w-1)*7); return r;
+}
+const planningWeekNum = (d) => {
+  const t = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+  t.setUTCDate(t.getUTCDate()+4-(t.getUTCDay()||7));
+  return Math.ceil(((t-new Date(Date.UTC(t.getUTCFullYear(),0,1)))/86400000+1)/7);
+};
+const planningAbsWk = (d) => `${d.getFullYear()}${String(planningWeekNum(d)).padStart(2,"0")}`;
+const isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+// Lundi d'une semaine décalée de "off" semaines par rapport à aujourd'hui
+function planningMonday(off=0) {
+  const n=new Date(), day=n.getDay(), diff=day===0?-6:1-day;
+  n.setHours(0,0,0,0); n.setDate(n.getDate()+diff+off*7); return n;
+}
+
+// Charge le planning via JSONP (contourne CORS sur Apps Script)
+function chargerPlanning() {
+  return new Promise((resolve, reject) => {
+    const url = getPlanningUrl();
+    if (!url) { reject(new Error("URL du planning non configurée")); return; }
+    const cb = "chokPlanningCb_" + Date.now().toString(36) + Math.floor(Math.random()*1e6);
+    const script = document.createElement("script");
+    const minuteur = setTimeout(() => { nettoyer(); reject(new Error("Délai dépassé — vérifiez l'URL du planning")); }, 15000);
+    function nettoyer(){ clearTimeout(minuteur); delete window[cb]; if(script.parentNode) script.parentNode.removeChild(script); }
+    window[cb] = (data) => { nettoyer(); resolve(data); };
+    script.onerror = () => { nettoyer(); reject(new Error("Connexion impossible au planning")); };
+    script.src = url + (url.includes("?")?"&":"?") + "action=load&callback=" + cb;
+    document.body.appendChild(script);
+  });
+}
+
+// Transforme les cellules CHANTIER du planning d'une semaine en lignes d'import
+function planningVersLignes(data, lundi, salaries, chantiers, pointagesExistants) {
+  const cells = (data && data.cells) || {};
+  const semaineWk = planningAbsWk(lundi);
+  const chefsParId = {};
+  (data.chefs||[]).forEach(c => { if(c.id) chefsParId[c.id] = c.name; });
+  const lignes = [];
+  Object.keys(cells).forEach(key => {
+    const m = String(key).match(/^w([^_]+)_d(\d+)_c(.+)$/);
+    if (!m) return;
+    if (m[1] !== semaineWk) return;            // semaine demandée uniquement
+    const cell = cells[key];
+    if (!cell || cell.type !== "CHANTIER") return;  // on ignore absences/congés ici
+    const jour = parseInt(m[2],10);
+    if (jour > 5) return;                       // dimanche ignoré
+    const date = new Date(lundi); date.setDate(lundi.getDate()+jour);
+    const dateIso = isoLocal(date);
+    const nomChef = chefsParId[m[3]] || cell.directorId || m[3];
+    const sal = matchSalarie(nomChef, salaries);
+    const noteCh = cell.note || "";
+    const ch = noteCh ? matchChantier(noteCh, chantiers) : null;
+    const doublon = !!sal && pointagesExistants.some(p => p.salarie===sal.id && p.date===dateIso);
+    lignes.push({
+      key, dateIso, jour,
+      nomChef, noteChantier: noteCh,
+      manoeuvre: cell.manoeuvre || "",
+      activite: cell.activite || "",
+      salarieId: sal ? sal.id : "",
+      chantierId: ch ? ch.id : "",
+      inclure: !!sal && !doublon,           // pré-coché si rapproché et non doublon
+      doublon,
+    });
+  });
+  // tri par date puis chef
+  lignes.sort((a,b)=> a.dateIso.localeCompare(b.dateIso) || a.nomChef.localeCompare(b.nomChef));
+  return lignes;
+}
+
+// ============================================================
 //  COULEURS & TYPO
 // ============================================================
 const C = {
@@ -647,7 +789,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
           </button>
         ))}
       </div>
-      {onglet==="pointages"  && <OngletPointages auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
+      {onglet==="pointages"  && <OngletPointages auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
       {onglet==="absences"   && <OngletAbsences absences={absences} setAbsences={setAbsences} salaries={salaries} interimaires={interimaires} pointages={pointages}/>}
       {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages}/>}
       {onglet==="interim"    && <OngletInterim interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} chantiers={chantiers}/>}
@@ -660,8 +802,163 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
 }
 
 // ---- Onglet Pointages ----
-function OngletPointages({auj,pointagesTous,setPointages,chantiers,salaries,interimaires,trouver,aValider,valider,validerTout,supprPointage}) {
+// ---- Modal : import du planning vers les pointages ----
+function ModalImportPlanning({onFermer, pointages, setPointages, salaries, chantiers, setChantiers}) {
+  const [semOff, setSemOff]   = useState(0);          // 0 = semaine en cours
+  const [etat, setEtat]       = useState("idle");      // idle | chargement | apercu | erreur
+  const [erreur, setErreur]   = useState("");
+  const [lignes, setLignes]   = useState([]);
+  const [hDebut, setHDebut]   = useState(PLANNING_DEBUT_DEFAUT);
+  const [hFin, setHFin]       = useState(PLANNING_FIN_DEFAUT);
+  const [hPause, setHPause]   = useState(PLANNING_PAUSE_DEFAUT);
+
+  const lundi = planningMonday(semOff);
+  const vendredi = (()=>{const d=new Date(lundi);d.setDate(d.getDate()+5);return d;})();
+  const fmtJ = (d)=>d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"});
+  const libelleSemaine = `S${String(planningWeekNum(lundi)).padStart(2,"0")} · ${fmtJ(lundi)} au ${fmtJ(vendredi)} ${lundi.getFullYear()}`;
+
+  const charger = async () => {
+    setEtat("chargement"); setErreur("");
+    try {
+      const data = await chargerPlanning();
+      const l = planningVersLignes(data, lundi, salaries, chantiers, pointages);
+      setLignes(l);
+      setEtat("apercu");
+    } catch(e) { setErreur(e.message||"Erreur"); setEtat("erreur"); }
+  };
+
+  const majLigne = (i, champ, val) => setLignes(lignes.map((l,idx)=>idx===i?{...l,[champ]:val}:l));
+
+  const nbAImporter = lignes.filter(l=>l.inclure && l.salarieId).length;
+  const nbDoublons  = lignes.filter(l=>l.doublon).length;
+  const nbNonRappro = lignes.filter(l=>!l.salarieId).length;
+
+  const confirmer = () => {
+    let chantiersMaj = chantiers;
+    const aImporter = lignes.filter(l=>l.inclure && l.salarieId);
+    const nouveaux = aImporter.map(l => {
+      let chantierId = l.chantierId;
+      if (chantierId === "__new__" && l.noteChantier) {
+        const nv = {id:genId("C"),nom:l.noteChantier.trim(),ville:"—",client:"—",couleur:"#3D5A80",actif:true};
+        chantiersMaj = [...chantiersMaj, nv];
+        chantierId = nv.id;
+      }
+      const sal = salaries.find(s=>s.id===l.salarieId);
+      const comm = l.manoeuvre ? ("Manœuvre : "+l.manoeuvre) : "";
+      return {
+        id:genId("P"), salarie:l.salarieId, chantier:chantierId||"", date:l.dateIso,
+        debut:hDebut, fin:hFin, pause:hPause, commentaire:comm,
+        valide:false, interim:false,
+        valideParInterimaire:null, horodatageValidation:null,
+        chefNom:(sal&&sal.nom)||l.nomChef||"—",
+      };
+    });
+    if (chantiersMaj !== chantiers) setChantiers(chantiersMaj);
+    if (nouveaux.length) setPointages([...pointages, ...nouveaux]);
+    onFermer(nouveaux.length);
+  };
+
+  const wrap = {position:"fixed",inset:0,background:"rgba(10,10,10,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16};
+  const carte = {background:C.papier,width:"100%",maxWidth:920,maxHeight:"90vh",display:"flex",flexDirection:"column",border:`1px solid ${C.encre}`,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"};
+  const lab = {fontFamily:FM,fontSize:9,letterSpacing:"0.15em",color:C.gris,fontWeight:700,marginBottom:4};
+  const inp = {padding:"7px 8px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:12,outline:"none",boxSizing:"border-box"};
+
+  return (
+    <div style={wrap} onClick={()=>onFermer(0)}>
+      <div style={carte} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.ligne}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <div>
+            <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris}}>PASSERELLE</div>
+            <div style={{fontFamily:FT,fontSize:20,fontWeight:800,letterSpacing:"-0.02em"}}>📅 Importer depuis le planning</div>
+          </div>
+          <Btn variant="ghost" onClick={()=>onFermer(0)}>✕</Btn>
+        </div>
+
+        <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.ligne}`,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
+          <Btn variant="ghost" onClick={()=>{setSemOff(semOff-1);setEtat("idle");}}>◀ Préc.</Btn>
+          <div style={{fontFamily:FM,fontSize:13,fontWeight:700,minWidth:230,textAlign:"center"}}>{libelleSemaine}</div>
+          <Btn variant="ghost" onClick={()=>{setSemOff(semOff+1);setEtat("idle");}}>Suiv. ▶</Btn>
+          {semOff!==0 && <Btn variant="ghost" onClick={()=>{setSemOff(0);setEtat("idle");}}>Aujourd'hui</Btn>}
+          <div style={{flex:1}}/>
+          <Btn onClick={charger} disabled={etat==="chargement"}>{etat==="chargement"?"CHARGEMENT…":"🔄 CHARGER LE PLANNING"}</Btn>
+        </div>
+
+        {etat==="apercu" && (
+          <div style={{padding:"12px 20px",borderBottom:`1px solid ${C.ligne}`,display:"flex",gap:16,alignItems:"flex-end",flexWrap:"wrap",flexShrink:0,background:C.fond}}>
+            <div><div style={lab}>DÉBUT (défaut)</div><input type="time" value={hDebut} onChange={e=>setHDebut(e.target.value)} style={{...inp,width:110}}/></div>
+            <div><div style={lab}>FIN (défaut)</div><input type="time" value={hFin} onChange={e=>setHFin(e.target.value)} style={{...inp,width:110}}/></div>
+            <div><div style={lab}>PAUSE (min)</div><input type="number" value={hPause} onChange={e=>setHPause(parseInt(e.target.value)||0)} style={{...inp,width:90,textAlign:"center"}}/></div>
+            <div style={{fontSize:11,color:C.gris,maxWidth:360,lineHeight:1.4}}>Ces horaires sont appliqués à tous les pointages importés. Le chef d'équipe pourra les ajuster ensuite.</div>
+          </div>
+        )}
+
+        <div style={{overflow:"auto",flex:1,padding:"0 0 8px"}}>
+          {etat==="idle" && <div style={{padding:"48px 20px",textAlign:"center",color:C.gris,fontSize:13}}>Choisissez une semaine puis cliquez sur <b>Charger le planning</b>.</div>}
+          {etat==="chargement" && <div style={{padding:"48px 20px",textAlign:"center",color:C.gris,fontFamily:FM,fontSize:12,letterSpacing:"0.1em"}}>CONNEXION AU PLANNING…</div>}
+          {etat==="erreur" && <div style={{padding:"32px 20px"}}><div style={{padding:"14px 16px",background:"#FFF0F0",border:`1.5px solid ${C.orange}`,fontSize:13}}><b style={{color:C.orange}}>Erreur :</b> {erreur}<div style={{fontSize:11,color:C.gris,marginTop:8}}>Vérifiez l'URL du planning dans <b>Paramètres</b> (elle doit finir par <code>/exec</code>).</div></div></div>}
+
+          {etat==="apercu" && lignes.length===0 && <div style={{padding:"48px 20px",textAlign:"center",color:C.gris,fontSize:13}}>Aucune affectation « chantier » trouvée pour cette semaine dans le planning.</div>}
+
+          {etat==="apercu" && lignes.length>0 && (
+            <>
+              <div style={{padding:"12px 20px",display:"flex",gap:18,flexWrap:"wrap",fontSize:12}}>
+                <span><b style={{color:C.vert}}>{nbAImporter}</b> à importer</span>
+                {nbNonRappro>0 && <span><b style={{color:C.orange}}>{nbNonRappro}</b> salarié(s) non rapproché(s)</span>}
+                {nbDoublons>0 && <span><b style={{color:C.gris}}>{nbDoublons}</b> doublon(s) déjà saisi(s)</span>}
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:C.fond}}>
+                    <Th></Th><Th>Jour</Th><Th>Planning (chef)</Th><Th>→ Salarié</Th><Th>Chantier planning</Th><Th>→ Chantier</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lignes.map((l,i)=>{
+                    const jourNom = new Date(l.dateIso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"});
+                    return (
+                      <tr key={l.key} style={{borderBottom:`1px solid ${C.ligne}`,background:l.doublon?"#F4F2EC":l.inclure?"transparent":"#FBFAF6",opacity:l.doublon?0.7:1}}>
+                        <Td><input type="checkbox" checked={l.inclure} onChange={e=>majLigne(i,"inclure",e.target.checked)} disabled={!l.salarieId}/></Td>
+                        <Td><span style={{fontSize:11,fontWeight:600}}>{jourNom}</span>{l.doublon&&<div style={{fontSize:9,color:C.gris}}>déjà saisi</div>}</Td>
+                        <Td><span style={{fontSize:12,fontWeight:700}}>{l.nomChef}</span>{l.manoeuvre&&<div style={{fontSize:10,color:C.gris}}>+ manœuvre : {l.manoeuvre}</div>}</Td>
+                        <Td>
+                          <select value={l.salarieId} onChange={e=>majLigne(i,"salarieId",e.target.value)} style={{...inp,width:190,borderColor:l.salarieId?C.ligne:C.orange}}>
+                            <option value="">— non rapproché —</option>
+                            {salaries.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}
+                          </select>
+                        </Td>
+                        <Td><span style={{fontSize:11,color:l.noteChantier?C.encre:C.gris}}>{l.noteChantier||"(vide)"}</span></Td>
+                        <Td>
+                          <select value={l.chantierId} onChange={e=>majLigne(i,"chantierId",e.target.value)} style={{...inp,width:180}}>
+                            <option value="">— aucun —</option>
+                            {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+                            {l.noteChantier && <option value="__new__">➕ Créer « {l.noteChantier} »</option>}
+                          </select>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+
+        <div style={{padding:"14px 20px",borderTop:`1px solid ${C.ligne}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,gap:12,flexWrap:"wrap"}}>
+          <div style={{fontSize:11,color:C.gris}}>{etat==="apercu"?`${nbAImporter} pointage(s) seront créés en statut « attente ».`:"Aucun pointage ne sera modifié sans confirmation."}</div>
+          <div style={{display:"flex",gap:10}}>
+            <Btn variant="ghost" onClick={()=>onFermer(0)}>ANNULER</Btn>
+            <Btn onClick={confirmer} disabled={etat!=="apercu"||nbAImporter===0}>✓ IMPORTER {nbAImporter>0?`(${nbAImporter})`:""}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OngletPointages({auj,pointagesTous,setPointages,chantiers,setChantiers,salaries,interimaires,trouver,aValider,valider,validerTout,supprPointage}) {
   const [filtre,setFiltre] = useState("tous");
+  const [importOuvert,setImportOuvert] = useState(false);
+  const [importMsg,setImportMsg] = useState("");
   const [editId,setEditId] = useState(null);
   const [editData,setEditData] = useState({});
   const liste = filtre==="tous" ? pointagesTous.filter(p=>p.date===auj) : pointagesTous.filter(p=>p.date===auj&&p.chantier===filtre);
@@ -682,9 +979,15 @@ function OngletPointages({auj,pointagesTous,setPointages,chantiers,salaries,inte
           <option value="tous">Tous les chantiers</option>
           {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
         </select>
+        <Btn variant="ghost" onClick={()=>{setImportMsg("");setImportOuvert(true);}}>📅 IMPORTER LE PLANNING</Btn>
         {aValider>0 && <Btn onClick={validerTout}>✓ TOUT VALIDER ({aValider})</Btn>}
       </div>
     }>
+      {importOuvert && <ModalImportPlanning
+        pointages={pointagesTous} setPointages={setPointages}
+        salaries={salaries} chantiers={chantiers} setChantiers={setChantiers}
+        onFermer={(n)=>{setImportOuvert(false); if(n>0) setImportMsg(`✓ ${n} pointage(s) importé(s) depuis le planning.`);}}/>}
+      {importMsg && <div style={{marginBottom:16,padding:"10px 16px",background:"#EAF7F4",border:`1.5px solid ${C.vert}`,fontSize:12,fontWeight:600,color:C.vert}}>{importMsg}</div>}
       {toutesAlertes.length>0 && <div style={{marginBottom:16}}>{toutesAlertes.map((a,i)=>(
         <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",marginBottom:6,background:a.niveau==="danger"?"#FFF0F0":"#FFF8E1",border:`1.5px solid ${a.niveau==="danger"?C.orange:"#F39C12"}`}}>
           <span style={{fontSize:18}}>{a.niveau==="danger"?"🔴":"🟠"}</span>
@@ -1107,6 +1410,13 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
   const [newPinRH,setNewPinRH]=useState("");
   const [newPinChef,setNewPinChef]=useState("");
   const [msgPin,setMsgPin]=useState("");
+  const [planningUrl,setPlanningUrl]=useState(getPlanningUrl());
+  const [msgPlanning,setMsgPlanning]=useState("");
+  const sauverPlanningUrl=()=>{
+    const u=(planningUrl||"").trim();
+    try{localStorage.setItem("chok_planning_url",u);}catch(e){}
+    setMsgPlanning("✓ Lien du planning enregistré.");setTimeout(()=>setMsgPlanning(""),3000);
+  };
 
   const sauverPins=()=>{
     if(newPinRH.length>=4)setPinRH(newPinRH);
@@ -1135,6 +1445,20 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
             <Btn onClick={sauverPins} disabled={newPinRH.length<4&&newPinChef.length<4}>METTRE À JOUR</Btn>
           </div>
           {msgPin&&<div style={{color:C.vert,fontSize:12,fontWeight:700}}>{msgPin}</div>}
+        </FormInline>
+      </Section>
+
+      {/* Liaison planning */}
+      <Section titre="Liaison avec le planning">
+        <FormInline>
+          <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.5}}>Lien de l'API du planning (Google Apps Script). Sert au bouton <b>« 📅 Importer le planning »</b> de l'onglet Pointages. Doit se terminer par <code>/exec</code>.</div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+            <Champ label="LIEN DU PLANNING">
+              <input type="url" value={planningUrl} onChange={e=>setPlanningUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" style={{...inputStyle,minWidth:380}}/>
+            </Champ>
+            <Btn onClick={sauverPlanningUrl}>ENREGISTRER</Btn>
+          </div>
+          {msgPlanning&&<div style={{color:C.vert,fontSize:12,fontWeight:700,marginTop:8}}>{msgPlanning}</div>}
         </FormInline>
       </Section>
 
@@ -1343,6 +1667,8 @@ function MAccueil({chantiers,salaries,interimaires,pointages,optionsDates,dateRa
               </button>
             ))}
           </div>
+          <input type="date" value={dateRapport} max={new Date().toISOString().slice(0,10)} onChange={e=>{ if(e.target.value) setDate(e.target.value); }} style={{marginTop:8,width:"100%",boxSizing:"border-box",padding:"10px 12px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:13,fontWeight:700,color:C.encre,outline:"none"}}/>
+          <div style={{fontSize:10,color:C.gris,marginTop:5,fontWeight:600}}>📅 {new Date(dateRapport+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
         </div>
 
         {/* Proposition de reprise */}
