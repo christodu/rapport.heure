@@ -1102,6 +1102,20 @@ function OngletSalaries({salaries,setSalaries,pointages}) {
     setSalaries(salaries.filter(s=>s.id!==id));
   };
 
+  const [editId,setEditId]=useState(null);
+  const [editNom,setEditNom]=useState("");
+  const [editPoste,setEditPoste]=useState(POSTES[0]);
+  const [editErr,setEditErr]=useState("");
+  const ouvrirEdit=(s)=>{setEditId(s.id);setEditNom(s.nom);setEditPoste(s.poste||POSTES[0]);setEditErr("");};
+  const annulerEdit=()=>{setEditId(null);setEditNom("");setEditErr("");};
+  const sauverEdit=(id)=>{
+    const n=editNom.trim();
+    if(n.length<2){setEditErr("Nom trop court.");return;}
+    if(salaries.some(s=>s.id!==id&&s.nom.toLowerCase()===n.toLowerCase())){setEditErr("Ce nom existe déjà.");return;}
+    setSalaries(salaries.map(s=>s.id===id?{...s,nom:n,poste:editPoste}:s));
+    setEditId(null);setEditNom("");setEditErr("");
+  };
+
   const detecterPoste=(l)=>{
     const ll=l.toLowerCase();
     if(ll.includes(" ce ")||ll.includes("chef")||ll.endsWith(" ce")||ll.includes("(ce)")||ll.includes("chef d'équipe")) return "Chef d'équipe";
@@ -1176,12 +1190,19 @@ function OngletSalaries({salaries,setSalaries,pointages}) {
             <thead><tr><Th>Nom</Th><Th>Poste</Th><Th>ID</Th><Th r>Pointages</Th><Th></Th></tr></thead>
             <tbody>{salaries.map(s=>{
               const jours=pointages.filter(p=>p.salarie===s.id).length;
+              if(editId===s.id) return <tr key={s.id} style={{borderBottom:`1px solid ${C.ligne}`,background:"#FFFDE7"}}>
+                <Td><input value={editNom} onChange={e=>{setEditNom(e.target.value);setEditErr("");}} onKeyDown={e=>{if(e.key==="Enter")sauverEdit(s.id);if(e.key==="Escape")annulerEdit();}} autoFocus style={{...inputStyle,minWidth:200}}/>{editErr&&<div style={{color:C.orange,fontSize:11,fontWeight:700,marginTop:4}}>{editErr}</div>}</Td>
+                <Td><select value={editPoste} onChange={e=>setEditPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Td>
+                <Td><span style={{fontSize:10,padding:"3px 8px",color:C.gris,border:`1px solid ${C.ligne}`}}>{s.id}</span></Td>
+                <Td r>{jours}</Td>
+                <Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn onClick={()=>sauverEdit(s.id)}>✓ ENREGISTRER</Btn><Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn></div></Td>
+              </tr>;
               return <tr key={s.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
                 <Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={s.nom}/><b>{s.nom}</b></div></Td>
                 <Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,border:`1px solid ${C.encre}`}}>{s.poste}</span></Td>
                 <Td><span style={{fontSize:10,padding:"3px 8px",color:C.gris,border:`1px solid ${C.ligne}`}}>{s.id}</span></Td>
                 <Td r>{jours}</Td>
-                <Td><Btn variant="danger" onClick={()=>supprimer(s.id)}>SUPPRIMER</Btn></Td>
+                <Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn variant="ghost" onClick={()=>ouvrirEdit(s)}>✎ MODIFIER</Btn><Btn variant="danger" onClick={()=>supprimer(s.id)}>SUPPRIMER</Btn></div></Td>
               </tr>;
             })}</tbody>
           </TableWrap>
@@ -1200,12 +1221,22 @@ function OngletInterim({interimaires,setInterimaires,pointages,chantiers}) {
   const ajouter=()=>{if(nom.trim().length<2){setErr("Nom trop court.");return;}if(interimaires.some(i=>i.nom.toLowerCase()===nom.trim().toLowerCase())){setErr("Déjà enregistré.");return;}setInterimaires([...interimaires,{id:genId("I"),nom:nom.trim(),poste,agence,accesPlateforme:false}]);setNom("");setPoste("Manœuvre");setAgence(AGENCES[0].id);setOpen(false);setErr("");};
   const supprimer=(id)=>{if(pointages.some(p=>p.salarie===id)&&!window.confirm("Cet intérimaire a des pointages. Supprimer ?"))return;setInterimaires(interimaires.filter(i=>i.id!==id));};
   const stats=(id)=>{const ps=pointages.filter(p=>p.salarie===id);return{j:ps.length,h:ps.reduce((s,p)=>s+calcHeures(p),0)};};
+  const [editId,setEditId]=useState(null);
+  const [eNom,setENom]=useState("");
+  const [ePoste,setEPoste]=useState("Manœuvre");
+  const [eAgence,setEAgence]=useState(AGENCES[0].id);
+  const [eErr,setEErr]=useState("");
+  const ouvrirEdit=(i)=>{setEditId(i.id);setENom(i.nom);setEPoste(i.poste||"Manœuvre");setEAgence(i.agence||AGENCES[0].id);setEErr("");};
+  const annulerEdit=()=>{setEditId(null);setENom("");setEErr("");};
+  const sauverEdit=(id)=>{const n=eNom.trim();if(n.length<2){setEErr("Nom trop court.");return;}if(interimaires.some(i=>i.id!==id&&i.nom.toLowerCase()===n.toLowerCase())){setEErr("Ce nom existe déjà.");return;}setInterimaires(interimaires.map(i=>i.id===id?{...i,nom:n,poste:ePoste,agence:eAgence}:i));setEditId(null);setENom("");setEErr("");};
   return (
     <Section titre={`Intérimaires — ${interimaires.length}`} actions={<Btn onClick={()=>{setOpen(!open);setErr("");}}>{open?"✕ Annuler":"+ AJOUTER UN INTÉRIMAIRE"}</Btn>}>
       {open&&<FormInline><div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}><Champ label="NOM COMPLET"><input value={nom} onChange={e=>{setNom(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&ajouter()} placeholder="Prénom Nom" style={inputStyle}/></Champ><Champ label="POSTE"><select value={poste} onChange={e=>setPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Champ><Champ label="AGENCE"><select value={agence} onChange={e=>setAgence(e.target.value)} style={selectStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Champ><Btn onClick={ajouter}>AJOUTER</Btn></div>{err&&<ErrBox>{err}</ErrBox>}</FormInline>}
       {interimaires.length===0?<EmptyState>Aucun intérimaire. Ajoutez-les ici ou depuis l'app chef d'équipe.</EmptyState>
         :<TableWrap><thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Agence</Th><Th r>Jours</Th><Th r>Heures</Th><Th></Th></tr></thead>
-          <tbody>{interimaires.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);const s=stats(i.id);return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`}}><Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={i.nom} bg={ag?.couleur} light/><b>{i.nom}</b></div></Td><Td>{i.poste}</Td><Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><Btn variant="danger" onClick={()=>supprimer(i.id)}>SUPPRIMER</Btn></Td></tr>;})}</tbody>
+          <tbody>{interimaires.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);const s=stats(i.id);
+            if(editId===i.id) return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`,background:"#FFFDE7"}}><Td><input value={eNom} onChange={e=>{setENom(e.target.value);setEErr("");}} onKeyDown={e=>{if(e.key==="Enter")sauverEdit(i.id);if(e.key==="Escape")annulerEdit();}} autoFocus style={{...inputStyle,minWidth:180}}/>{eErr&&<div style={{color:C.orange,fontSize:11,fontWeight:700,marginTop:4}}>{eErr}</div>}</Td><Td><select value={ePoste} onChange={e=>setEPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Td><Td><select value={eAgence} onChange={e=>setEAgence(e.target.value)} style={selectStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn onClick={()=>sauverEdit(i.id)}>✓ ENREGISTRER</Btn><Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn></div></Td></tr>;
+            return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`}}><Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={i.nom} bg={ag?.couleur} light/><b>{i.nom}</b></div></Td><Td>{i.poste}</Td><Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn variant="ghost" onClick={()=>ouvrirEdit(i)}>✎ MODIFIER</Btn><Btn variant="danger" onClick={()=>supprimer(i.id)}>SUPPRIMER</Btn></div></Td></tr>;})}</tbody>
         </TableWrap>}
     </Section>
   );
@@ -1428,6 +1459,14 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
     if(!window.confirm("⚠ Effacer TOUTES les données (pointages, absences, chantiers) ? Les salariés seront conservés."))return;
     setPointages([]);setAbsences([]);setChantiers([]);setInterimaires([]);
   };
+  const [msgReset,setMsgReset]=useState("");
+  const remettreHeuresAZero=()=>{
+    if(!window.confirm(`⚠ Remettre les HEURES à zéro ?\n\nCela effacera ${pointages.length} pointage(s) et ${absences.length} absence(s) sur TOUS les appareils.\n\nLes salariés, chantiers et intérimaires sont conservés.\n\nCette action est définitive.`))return;
+    if(!window.confirm("Dernière confirmation : effacer tous les pointages et absences ?"))return;
+    setPointages([]);setAbsences([]);
+    setMsgReset("✓ Heures remises à zéro. L'app est prête pour une nouvelle saisie.");
+    setTimeout(()=>setMsgReset(""),6000);
+  };
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:24}}>
@@ -1474,6 +1513,15 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
         <div style={{marginTop:12}}>
           <Btn variant="ghost" onClick={onReloadSupabase}>⟳ SYNCHRONISER MAINTENANT</Btn>
         </div>
+      </Section>
+
+      {/* Remise à zéro des heures */}
+      <Section titre="Remise à zéro des heures">
+        <div style={{padding:"14px 16px",background:"#FFF8E1",border:`1.5px solid ${C.jaune}`,marginBottom:14,fontSize:12,lineHeight:1.6,color:C.encre}}>
+          👉 À utiliser après vos tests, juste avant le lancement réel : efface tous les pointages et absences pour repartir d'une feuille vierge. <b>Vos salariés, chantiers et intérimaires sont conservés.</b>
+        </div>
+        <Btn variant="danger" onClick={remettreHeuresAZero}>🧹 REMETTRE LES HEURES À ZÉRO</Btn>
+        {msgReset&&<div style={{marginTop:12,color:C.vert,fontSize:13,fontWeight:700}}>{msgReset}</div>}
       </Section>
 
       {/* Démo + reset */}
