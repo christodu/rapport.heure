@@ -1,4 +1,4 @@
-const CACHE = "chok-beton-v1";
+const CACHE = "chok-beton-v2-google";
 const ASSETS = ["./index.html", "./icon-192.png", "./icon-512.png", "./manifest.json"];
 
 self.addEventListener("install", e => {
