@@ -172,6 +172,118 @@ const calcHNuit = (p) => {
   return Math.min(Math.round((minNuit/60)*100)/100, calcHeures(p));
 };
 const fmtH = (n) => `${Math.floor(n)}h${String(Math.round((n%1)*60)).padStart(2,"0")}`;
+
+// ============================================================
+//  JOURS FÉRIÉS FRANÇAIS + MAJORATIONS 25 % / 50 % / 100 %
+// ============================================================
+// Dimanche de Pâques (algorithme de Meeus/Butcher)
+function paques(annee){
+  const a=annee%19, b=Math.floor(annee/100), c=annee%100;
+  const d=Math.floor(b/4), e=b%4, f=Math.floor((b+8)/25), g=Math.floor((b-f+1)/3);
+  const h=(19*a+b-d-g+15)%30, i=Math.floor(c/4), k=c%4;
+  const l=(32+2*e+2*i-h-k)%7, m=Math.floor((a+11*h+22*l)/451);
+  const mois=Math.floor((h+l-7*m+114)/31), jour=((h+l-7*m+114)%31)+1;
+  return new Date(Date.UTC(annee,mois-1,jour));
+}
+const _isoUTC = (d) => d.toISOString().slice(0,10);
+const _plusJours = (d,n) => { const x=new Date(d.getTime()); x.setUTCDate(x.getUTCDate()+n); return x; };
+const _cacheFeries = {};
+function feriesAnnee(annee){
+  if(_cacheFeries[annee]) return _cacheFeries[annee];
+  const P=paques(annee);
+  const liste={
+    [`${annee}-01-01`]:"Jour de l'an",
+    [`${annee}-05-01`]:"Fête du travail",
+    [`${annee}-05-08`]:"Victoire 1945",
+    [`${annee}-07-14`]:"Fête nationale",
+    [`${annee}-08-15`]:"Assomption",
+    [`${annee}-11-01`]:"Toussaint",
+    [`${annee}-11-11`]:"Armistice",
+    [`${annee}-12-25`]:"Noël",
+    [_isoUTC(_plusJours(P,1))]:"Lundi de Pâques",
+    [_isoUTC(_plusJours(P,39))]:"Ascension",
+    [_isoUTC(_plusJours(P,50))]:"Lundi de Pentecôte",
+  };
+  _cacheFeries[annee]=liste;
+  return liste;
+}
+const nomFerie = (iso) => feriesAnnee(Number(iso.slice(0,4)))[iso] || null;
+const estFerie  = (iso) => !!nomFerie(iso);
+const estDimanche = (iso) => new Date(iso+"T12:00:00Z").getUTCDay()===0;
+const estMajore100 = (iso) => estDimanche(iso) || estFerie(iso);
+
+// Répartit les heures NETTES d'un pointage sur les jours calendaires
+// qu'il traverse (gère les postes à cheval sur minuit).
+function heuresParJour(p){
+  const [h1,m1]=p.debut.split(":").map(Number);
+  const [h2,m2]=p.fin.split(":").map(Number);
+  let d=h1*60+m1, f=h2*60+m2;
+  if(f<=d) f+=1440;
+  const parts=[];
+  const finJ1=Math.min(f,1440);
+  if(finJ1>d) parts.push({date:p.date, min:finJ1-d});
+  if(f>1440)  parts.push({date:_isoUTC(_plusJours(new Date(p.date+"T12:00:00Z"),1)), min:f-1440});
+  const brut=parts.reduce((s,x)=>s+x.min,0);
+  const net=calcHeures(p); // heures nettes (pause déjà déduite)
+  const res={};
+  if(brut<=0||net<=0) return res;
+  parts.forEach(x=>{ res[x.date]=(res[x.date]||0)+net*(x.min/brut); });
+  return res;
+}
+// Heures d'un pointage tombant un dimanche ou un jour férié → majorées 100 %
+function calcH100(p){
+  let h=0;
+  Object.entries(heuresParJour(p)).forEach(([iso,v])=>{ if(estMajore100(iso)) h+=v; });
+  return Math.round(h*100)/100;
+}
+// Majorations sur une SEMAINE, pour une personne.
+// Règle retenue : dimanche/férié = +100 % exclusif (ces heures ne sont pas
+// recomptées dans les paliers 25 % / 50 %).
+// Heures ordinaires : 35 h base, de la 36e à la 43e = +25 %, au-delà de 43 h = +50 %.
+function calcMajorations(ptgs){
+  let h100=0, hOrd=0;
+  (ptgs||[]).forEach(p=>{ const t=calcHeures(p), d=calcH100(p); h100+=d; hOrd+=Math.max(0,t-d); });
+  const r=(n)=>Math.round(n*100)/100;
+  const hBase=r(Math.min(hOrd,35));
+  const h25=r(Math.max(0,Math.min(hOrd-35,8)));
+  const h50=r(Math.max(0,hOrd-43));
+  return { hBase, h25, h50, h100:r(h100), hOrdinaire:r(hOrd), total:r(hOrd+h100), hSup:r(h25+h50) };
+}
+// Nuitées : nombre de journées avec déplacement + logement
+const calcNuitees = (ptgs) => (ptgs||[]).filter(p=>p.deplacement).length;
+
+// ============================================================
+//  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
+// ============================================================
+const CODE_DEFAUT = "0000";
+const CONGES_DEFAUT = 25;               // jours ouvrés par an
+const codeDe   = (p) => (p && p.code) ? String(p.code) : CODE_DEFAUT;
+const congesDe = (p) => (p && p.conges != null && p.conges !== "") ? Number(p.conges) : CONGES_DEFAUT;
+
+// Jours ouvrés (lun-ven, hors jours fériés) d'une absence, limités à une année.
+function joursAbsenceAnnee(a, annee){
+  if(!a || !a.dateDebut || !a.dateFin) return 0;
+  let n=0;
+  const d1=new Date(a.dateDebut+"T12:00:00Z"), d2=new Date(a.dateFin+"T12:00:00Z");
+  for(let d=new Date(d1.getTime()); d<=d2; d.setUTCDate(d.getUTCDate()+1)){
+    const iso=_isoUTC(d), jour=d.getUTCDay();
+    if(annee!=null && Number(iso.slice(0,4))!==Number(annee)) continue;
+    if(jour===0||jour===6) continue;      // week-end
+    if(estFerie(iso)) continue;           // jour férié
+    n++;
+  }
+  return n;
+}
+// Congés payés (type CP) déjà pris par une personne sur une année
+const congesPris = (absences, personneId, annee) =>
+  (absences||[]).filter(a=>a.salarie===personneId && a.type==="CP")
+                .reduce((s,a)=>s+joursAbsenceAnnee(a,annee),0);
+// Bilan congés : { droit, pris, restant }
+function bilanConges(personne, absences, annee){
+  const droit=congesDe(personne);
+  const pris=congesPris(absences, personne?.id, annee);
+  return { droit, pris, restant: Math.round((droit-pris)*10)/10 };
+}
 const initiales = (nom) => nom.trim().split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase();
 const genId = (p) => `${p}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2,5).toUpperCase()}`;
 const dateFr = () => new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}).toUpperCase();
@@ -450,14 +562,152 @@ function getSb() {
   return null;
 }
 
+// ---- Correspondance noms JS (camelCase) <-> colonnes SQL (snake_case) ----
+// Sans cette traduction, les colonnes chef_nom / date_debut / ... ne sont pas
+// reconnues par Supabase et l'enregistrement échoue silencieusement.
+// ============================================================
+//  BACKEND GOOGLE APPS SCRIPT
+//  Les codes d'accès et le cloisonnement sont gérés par le serveur.
+//  Aucune clé de base de données n'est présente dans cette page.
+// ============================================================
+const getApiUrl  = () => (localStorage.getItem("chok_api_url") || "").trim();
+const setApiUrl  = (u) => { try { localStorage.setItem("chok_api_url", (u||"").trim()); } catch(e){} };
+// Tant qu'aucune adresse Google n'est renseignée, l'app continue de
+// fonctionner comme avant (Supabase). Dès qu'elle l'est : mode Google.
+const MODE = () => getApiUrl() ? "google" : "supabase";
+
+let _jeton = null;
+const getJeton = () => _jeton || (()=>{ try { return sessionStorage.getItem("chok_jeton"); } catch(e){ return null; } })();
+const setJeton = (j) => { _jeton = j; try { j ? sessionStorage.setItem("chok_jeton", j) : sessionStorage.removeItem("chok_jeton"); } catch(e){} };
+
+/** Appel au serveur Google. Renvoie l'objet JSON ou lève une erreur lisible. */
+async function api(action, params) {
+  const url = getApiUrl();
+  if (!url) throw new Error("Adresse du serveur Google non renseignée (Paramètres).");
+  let rep;
+  try {
+    rep = await fetch(url, {
+      method: "POST",
+      // text/plain : évite le pré-vol CORS, qu'Apps Script ne gère pas.
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      redirect: "follow",
+      body: JSON.stringify(Object.assign({ action }, params || {})),
+    });
+  } catch (e) {
+    throw new Error("Connexion au serveur impossible (réseau ou adresse incorrecte).");
+  }
+  if (!rep.ok) throw new Error(`Serveur Google : erreur ${rep.status}.`);
+  const texte = await rep.text();
+  let data;
+  try { data = JSON.parse(texte); }
+  catch (e) {
+    throw new Error("Réponse inattendue du serveur. Vérifiez que le déploiement est accessible à « Tout le monde ».");
+  }
+  if (!data.ok) {
+    const err = new Error(data.erreur || "Erreur inconnue du serveur.");
+    err.codeErreur = data.codeErreur; err.expire = data.expire;
+    throw err;
+  }
+  return data;
+}
+
+// ---- File d'attente : aucune saisie perdue même sans réseau ----
+const OUTBOX_CLE = "chok_outbox";
+const lireOutbox  = () => { try { return JSON.parse(localStorage.getItem(OUTBOX_CLE) || "[]"); } catch(e){ return []; } };
+const ecrireOutbox= (l) => { try { localStorage.setItem(OUTBOX_CLE, JSON.stringify(l)); } catch(e){} };
+const outboxCount = () => lireOutbox().length;
+
+function empilerOutbox(table, upserts, suppressions) {
+  const l = lireOutbox();
+  l.push({ cle: `${Date.now()}-${Math.random().toString(36).slice(2,7)}`, table,
+           upserts: upserts||[], suppressions: suppressions||[], essais: 0, le: new Date().toISOString() });
+  ecrireOutbox(l);
+}
+
+let _envoiEnCours = false;
+/** Vide la file d'attente. Renvoie {envoyes, restants, erreur}. */
+async function viderOutbox() {
+  if (_envoiEnCours) return { envoyes: 0, restants: outboxCount() };
+  if (MODE() !== "google" || !getJeton()) return { envoyes: 0, restants: outboxCount() };
+  _envoiEnCours = true;
+  let envoyes = 0, erreur = null;
+  try {
+    let file = lireOutbox();
+    while (file.length) {
+      const op = file[0];
+      try {
+        await api("enregistrer", { jeton: getJeton(), table: op.table,
+                                   upserts: op.upserts, suppressions: op.suppressions,
+                                   confirmerSuppressionMassive: !!op.confirmerSuppressionMassive });
+        file.shift(); ecrireOutbox(file); envoyes++;
+      } catch (e) {
+        // On conserve l'opération pour un nouvel essai plus tard.
+        op.essais = (op.essais||0) + 1; op.derniereErreur = e.message;
+        file[0] = op; ecrireOutbox(file);
+        erreur = e; break;
+      }
+    }
+  } finally { _envoiEnCours = false; }
+  return { envoyes, restants: outboxCount(), erreur };
+}
+
+const _JS2DB = {
+  valideParInterimaire:"valide_par_interimaire",
+  horodatageValidation:"horodatage_validation",
+  chefNom:"chef_nom",
+  dateDebut:"date_debut",
+  dateFin:"date_fin",
+  typeLabel:"type_label",
+  typeIcone:"type_icone",
+  saisieParRH:"saisie_par_rh",
+  saisieDate:"saisie_date",
+  accesPlateforme:"accesplateforme",
+  modifiePar:"modifie_par",
+  modifieLe:"modifie_le",
+};
+const _DB2JS = Object.fromEntries(Object.entries(_JS2DB).map(([k,v])=>[v,k]));
+const versDB = (o) => { const r={}; Object.entries(o||{}).forEach(([k,v])=>{ r[_JS2DB[k]||k]=v; }); return r; };
+const versJS = (o) => { const r={}; Object.entries(o||{}).forEach(([k,v])=>{ r[_DB2JS[k]||k]=v; }); return r; };
+const listeVersJS = (arr) => (arr||[]).map(versJS);
+
 async function sbSync(table, newData, prevData) {
   const sb = getSb(); if (!sb) return;
   const prevIds = new Set((prevData||[]).map(r=>r.id));
   const newIds  = new Set((newData||[]).map(r=>r.id));
   const toUpsert  = newData.filter(r => !prevIds.has(r.id) || JSON.stringify(r) !== JSON.stringify((prevData||[]).find(p=>p.id===r.id)));
   const toDelete  = [...prevIds].filter(id => !newIds.has(id));
-  if (toUpsert.length)  await sb.from(table).upsert(toUpsert);
-  if (toDelete.length)  await sb.from(table).delete().in("id", toDelete);
+  if (toUpsert.length) {
+    const { error } = await sb.from(table).upsert(toUpsert.map(versDB));
+    if (error) throw new Error(`${table} : ${error.message}`);
+  }
+  if (toDelete.length) {
+    const { error } = await sb.from(table).delete().in("id", toDelete);
+    if (error) throw new Error(`${table} : ${error.message}`);
+  }
+}
+
+/**
+ * Sortie unique pour toute écriture, quel que soit le backend.
+ * En mode Google : la donnée est déjà enregistrée en local, on empile
+ * l'opération puis on tente de l'envoyer. Si le réseau manque, elle
+ * reste en file d'attente et repartira plus tard — rien n'est perdu.
+ */
+async function syncSortie(table, newData, prevData) {
+  const prevIds = new Set((prevData||[]).map(r=>r.id));
+  const newIds  = new Set((newData||[]).map(r=>r.id));
+  const upserts = (newData||[]).filter(r => !prevIds.has(r.id) ||
+      JSON.stringify(r) !== JSON.stringify((prevData||[]).find(p=>p.id===r.id)));
+  const suppressions = [...prevIds].filter(id => !newIds.has(id));
+  if (!upserts.length && !suppressions.length) return { envoyes:0, restants:outboxCount() };
+
+  if (MODE() === "google") {
+    empilerOutbox(table, upserts, suppressions);
+    const r = await viderOutbox();
+    if (r.erreur) throw r.erreur;
+    return r;
+  }
+  await sbSync(table, newData, prevData);
+  return { envoyes: 1, restants: 0 };
 }
 
 // ============================================================
@@ -503,23 +753,65 @@ function App() {
         // Supprimer les salariés retirés de la liste officielle
         const SUPPRIMES = ["S-007"];
         await Promise.all(SUPPRIMES.map(id => sb.from("salaries").delete().eq("id", id)));
-        const filtered = s.data.filter(sal => !SUPPRIMES.includes(sal.id));
+        const filtered = listeVersJS(s.data).filter(sal => !SUPPRIMES.includes(sal.id));
         setSalariesRaw(filtered); save("chok_salaries", filtered);
       } else if (!s.error && s.data.length === 0) {
         // Table vide → pousser les 32 salariés réels vers Supabase
         await sb.from("salaries").upsert(REAL_SALARIES);
         setSalariesRaw(REAL_SALARIES); save("chok_salaries", REAL_SALARIES);
       }
-      if (!i.error) { setInterimairesRaw(i.data); save("chok_interimaires", i.data); }
-      if (!c.error) { setChantiersRaw(c.data);    save("chok_chantiers",    c.data); }
-      if (!p.error) { setPointagesRaw(p.data);    save("chok_pointages",    p.data); }
-      if (!a.error) { setAbsencesRaw(a.data);     save("chok_absences",     a.data); }
+      if (!i.error) { const v=listeVersJS(i.data); setInterimairesRaw(v); save("chok_interimaires", v); }
+      if (!c.error) { const v=listeVersJS(c.data); setChantiersRaw(v);    save("chok_chantiers",    v); }
+      if (!p.error) { const v=listeVersJS(p.data); setPointagesRaw(v);    save("chok_pointages",    v); }
+      if (!a.error) { const v=listeVersJS(a.data); setAbsencesRaw(v);     save("chok_absences",     v); }
       setSyncState("ok");
     } catch(e) { setSyncState("err"); }
     finally { setAppLoading(false); }
   }, []);
 
-  useEffect(() => { chargerDepuisSupabase(); }, []);
+  /** Chargement depuis le serveur Google (données déjà cloisonnées par rôle). */
+  const chargerDepuisGoogle = useCallback(async () => {
+    if (MODE() !== "google" || !getJeton()) return;
+    setAppLoading(true); setSyncState("syncing");
+    try {
+      // On envoie d'abord ce qui attend, pour ne pas écraser des saisies locales.
+      await viderOutbox();
+      const rep = await api("charger", { jeton: getJeton() });
+      const d = rep.donnees || {};
+      const pose = (arr, setter, cle) => { const v = arr || []; setter(v); save(cle, v); };
+      pose(d.salaries,     setSalariesRaw,     "chok_salaries");
+      pose(d.interimaires, setInterimairesRaw, "chok_interimaires");
+      pose(d.chantiers,    setChantiersRaw,    "chok_chantiers");
+      pose(d.pointages,    setPointagesRaw,    "chok_pointages");
+      pose(d.absences,     setAbsencesRaw,     "chok_absences");
+      setSyncState(outboxCount() ? "attente" : "ok");
+    } catch(e) {
+      setSyncState("err");
+      if (e && e.expire) { setJeton(null); setSession(null); }
+    }
+    finally { setAppLoading(false); }
+  }, []);
+
+  const rechargerDonnees = useCallback(() => {
+    return MODE() === "google" ? chargerDepuisGoogle() : chargerDepuisSupabase();
+  }, [chargerDepuisGoogle, chargerDepuisSupabase]);
+
+  // Au démarrage : en mode Google on attend la connexion (les données sont
+  // protégées par le serveur). En mode Supabase, comportement d'origine.
+  useEffect(() => { if (MODE() !== "google") chargerDepuisSupabase(); }, []);
+
+  // Renvoi automatique de la file d'attente : au retour du réseau et toutes les 60 s.
+  useEffect(() => {
+    if (MODE() !== "google") return;
+    const relancer = async () => {
+      if (!getJeton() || !outboxCount()) return;
+      const r = await viderOutbox();
+      setSyncState(r.restants ? "attente" : "ok");
+    };
+    const t = setInterval(relancer, 60000);
+    window.addEventListener("online", relancer);
+    return () => { clearInterval(t); window.removeEventListener("online", relancer); };
+  }, []);
 
   // Enregistrement du Service Worker (PWA)
   useEffect(() => {
@@ -534,13 +826,18 @@ function App() {
       const next = typeof v === "function" ? v(prev) : v;
       ref.current = next;
       rawSetter(next);
-      save(lsKey, next);
-      const sb = getSb();
-      if (sb) {
+      save(lsKey, next);   // 1) toujours enregistré en local d'abord
+      if (MODE() === "google" || getSb()) {
         setSyncState("syncing");
-        sbSync(table, next, prev)
-          .then(() => setSyncState("ok"))
-          .catch(() => setSyncState("err"));
+        syncSortie(table, next, prev)   // 2) puis envoyé au serveur
+          .then((r) => setSyncState(r && r.restants ? "attente" : "ok"))
+          .catch((e) => {
+            setSyncState(outboxCount() ? "attente" : "err");
+            if (e && e.codeErreur === "SUPPRESSION_MASSIVE") {
+              window.alert("⚠ Suppression bloquée par sécurité\n\n" + e.message +
+                "\n\nRien n'a été supprimé sur le serveur. Contactez l'administrateur si c'est volontaire.");
+            }
+          });
       }
     };
   }
@@ -552,7 +849,16 @@ function App() {
   const setAbsences     = makeSetter(setAbsencesRaw,     refs.absences,     "chok_absences",     "absences");
 
   const [session, setSession] = useState(null);
-  const seDeconnecter = () => setSession(null);
+  const connexionReussie = async (s) => {
+    setSession(s);
+    if (MODE() === "google") { await chargerDepuisGoogle(); }
+  };
+  const seDeconnecter = () => {
+    if (outboxCount() && !window.confirm(
+      `⚠ ${outboxCount()} enregistrement(s) n'ont pas encore été envoyés au serveur.\n\n` +
+      `Ils sont conservés sur cet appareil et repartiront à la prochaine connexion.\n\nSe déconnecter quand même ?`)) return;
+    setJeton(null); setSession(null);
+  };
 
   const donnees = { salaries, setSalaries, interimaires, setInterimaires, chantiers, setChantiers, pointages, setPointages, absences, setAbsences };
 
@@ -568,14 +874,14 @@ function App() {
     </div>
   );
 
-  if (!session) return <EcranConnexion salaries={salaries} interimaires={interimaires} pinRH={pinRH} pinChef={pinChef} onConnexion={setSession}/>;
+  if (!session) return <EcranConnexion salaries={salaries} interimaires={interimaires} pinRH={pinRH} pinChef={pinChef} onConnexion={connexionReussie}/>;
 
   return (
     <div>
-      <Header session={session} onDeconnexion={seDeconnecter} syncState={syncState} onReload={chargerDepuisSupabase}/>
-      {session.role === "rh"     && <VueAdmin {...donnees} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onChargerDemo={chargerDemo} onReloadSupabase={chargerDepuisSupabase}/>}
+      <Header session={session} onDeconnexion={seDeconnecter} syncState={syncState} onReload={rechargerDonnees}/>
+      {session.role === "rh"     && <VueAdmin {...donnees} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onChargerDemo={chargerDemo} onReloadSupabase={rechargerDonnees}/>}
       {session.role === "chef"   && <VueMobile {...donnees}/>}
-      {session.role === "salarie"&& <VueSalarie session={session} pointages={pointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires}/>}
+      {session.role === "salarie"&& <VueSalarie session={session} pointages={pointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} absences={absences}/>}
       <Footer/>
     </div>
   );
@@ -595,15 +901,64 @@ function EcranConnexion({salaries, interimaires, pinRH, pinChef, onConnexion}) {
     ...interimaires.filter(i=>i.accesPlateforme).map(i=>({...i,_type:"interim"})),
   ];
 
-  const validerPin = (attendu, role) => {
+  const [enCours, setEnCours] = useState(false);
+  const [etapeSal, setEtapeSal] = useState("nom");
+  // Liste des noms : depuis le serveur Google (appareil neuf), sinon cache local.
+  const [personnesServeur, setPersonnesServeur] = useState(null);
+  useEffect(() => {
+    if (MODE() !== "google") return;
+    api("listePersonnes", {})
+      .then(r => setPersonnesServeur(r.personnes || []))
+      .catch(() => setPersonnesServeur(null));
+  }, []);
+  const salariesListe = personnesServeur
+    ? personnesServeur.filter(p=>p.type==="interne")
+    : salaries;
+  const interimListe = personnesServeur
+    ? personnesServeur.filter(p=>p.type==="interim")
+    : interimaires.filter(i=>i.accesPlateforme);
+
+  /** Connexion RH / chef. En mode Google, le code est vérifié par le serveur. */
+  const validerPin = async (attendu, role) => {
+    if (MODE() === "google") {
+      setEnCours(true); setErreur("");
+      try {
+        const r = await api("connexion", { role, pin });
+        setJeton(r.jeton);
+        onConnexion({ role });
+      } catch (e) { setErreur(e.message); setPin(""); }
+      finally { setEnCours(false); }
+      return;
+    }
     if (pin === attendu) { onConnexion({ role }); }
     else { setErreur("Code incorrect. Réessayez."); setPin(""); }
   };
+
+  const personneSel = personnesServeur
+    ? personnesServeur.find(x=>x.id===personneId)
+    : [...salaries, ...interimaires].find(x=>x.id===personneId);
+
   const validerSalarie = () => {
     if (!personneId) { setErreur("Sélectionnez votre nom."); return; }
-    onConnexion({ role: "salarie", personneId });
+    setErreur(""); setPin(""); setEtapeSal("code");
   };
-  const reset = () => { setMode(null); setPin(""); setPersonneId(""); setErreur(""); };
+
+  const validerCodeSalarie = async () => {
+    if (MODE() === "google") {
+      setEnCours(true); setErreur("");
+      try {
+        const r = await api("connexion", { role: "salarie", personneId, pin });
+        setJeton(r.jeton);
+        onConnexion({ role: "salarie", personneId });
+      } catch (e) { setErreur(e.message); setPin(""); }
+      finally { setEnCours(false); }
+      return;
+    }
+    if (pin === codeDe(personneSel)) { onConnexion({ role: "salarie", personneId }); }
+    else { setErreur("Code incorrect. Demandez-le à la RH."); setPin(""); }
+  };
+
+  const reset = () => { setMode(null); setPin(""); setPersonneId(""); setErreur(""); setEtapeSal("nom"); };
 
   return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
@@ -619,6 +974,8 @@ function EcranConnexion({salaries, interimaires, pinRH, pinChef, onConnexion}) {
           <div style={{fontFamily:FM,fontSize:12,color:C.gris,letterSpacing:"0.2em",marginTop:4}}>CHOK BÉTON</div>
         </div>
       </div>
+
+      {enCours && <div style={{marginBottom:16,padding:"10px 16px",background:C.jaune,border:`1.5px solid ${C.encre}`,fontFamily:FM,fontSize:11,fontWeight:700,letterSpacing:"0.1em"}}>VÉRIFICATION DU CODE…</div>}
 
       {!mode && (
         <div style={{width:"100%",maxWidth:420}}>
@@ -656,22 +1013,32 @@ function EcranConnexion({salaries, interimaires, pinRH, pinChef, onConnexion}) {
         </div>
       )}
 
-      {mode === "salarie" && (
+      {mode === "salarie" && etapeSal === "code" && (
+        <div style={{width:"100%",maxWidth:360}}>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:6}}>MON CODE PERSONNEL</div>
+          <div style={{fontFamily:FT,fontSize:20,fontWeight:800,textAlign:"center",marginBottom:16}}>{personneSel?.nom||""}</div>
+          <PinPad pin={pin} setPin={setPin} onValider={validerCodeSalarie} erreur={erreur} setErreur={setErreur}/>
+          <button onClick={()=>{setEtapeSal("nom");setPin("");setErreur("");}} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Changer de nom</button>
+        </div>
+      )}
+
+      {mode === "salarie" && etapeSal === "nom" && (
         <div style={{width:"100%",maxWidth:360}}>
           <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>MON NOM</div>
-          {toutesPersonnes.length === 0
+          {(salariesListe.length + interimListe.length) === 0
             ? <div style={{padding:"20px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:12,textAlign:"center",lineHeight:1.6}}>Aucun salarié enregistré.<br/>Demandez à la RH d'ajouter votre nom.</div>
             : <>
                 <select value={personneId} onChange={e=>{setPersonneId(e.target.value);setErreur("");}}
                   style={{width:"100%",padding:"16px",background:C.papier,border:`2px solid ${C.encre}`,fontFamily:FM,fontSize:14,outline:"none",marginBottom:12}}>
                   <option value="" disabled>— Sélectionnez votre nom —</option>
-                  {salaries.length>0 && <optgroup label="── Salariés CHOK BÉTON">{salaries.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}</optgroup>}
-                  {interimaires.length>0 && <optgroup label="── Intérimaires">{interimaires.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);return <option key={i.id} value={i.id}>{i.nom} ({ag?.nom})</option>;})}</optgroup>}
+                  {salariesListe.length>0 && <optgroup label="── Salariés CHOK BÉTON">{salariesListe.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}</optgroup>}
+                  {interimListe.length>0 && <optgroup label="── Intérimaires">{interimListe.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);return <option key={i.id} value={i.id}>{i.nom}{ag?` (${ag.nom})`:""}</option>;})}</optgroup>}
                 </select>
                 {erreur && <div style={{padding:"8px 12px",background:"#FFF0F0",border:`1px solid ${C.orange}`,color:C.orange,fontSize:12,marginBottom:12}}>{erreur}</div>}
                 <button onClick={validerSalarie} style={{width:"100%",padding:"16px",background:C.encre,border:"none",color:C.jaune,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer"}}>
-                  ACCÉDER À MES HEURES →
+                  CONTINUER →
                 </button>
+                <div style={{fontSize:10,color:C.gris,textAlign:"center",marginTop:10,lineHeight:1.5}}>Un code personnel à 4 chiffres vous sera demandé.<br/>Il est fourni par la RH.</div>
               </>
           }
           <button onClick={reset} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
@@ -719,8 +1086,12 @@ function Header({session, onDeconnexion, syncState, onReload}) {
   useEffect(() => { const t = setInterval(()=>setHeure(heureFr()),30000); return()=>clearInterval(t); },[]);
   const roleLabel = {rh:"RH / ADMIN", chef:"CHEF D'ÉQUIPE", salarie:"MON ESPACE"}[session.role];
   const roleColor = {rh:C.vert, chef:C.jaune, salarie:C.bleu}[session.role] || C.vert;
-  const syncIcon = {idle:"", syncing:"⟳", ok:"☁", err:"⚠"}[syncState] || "";
-  const syncColor = {idle:C.gris, syncing:C.bleu, ok:C.vert, err:C.orange}[syncState] || C.gris;
+  const enAttente = outboxCount();
+  const syncIcon = {idle:"", syncing:"⟳", ok:"☁", err:"⚠", attente:"⏳"}[syncState] || "";
+  const syncColor = {idle:C.gris, syncing:C.bleu, ok:C.vert, err:C.orange, attente:"#B7770D"}[syncState] || C.gris;
+  const syncTexte = syncState==="attente"||enAttente
+    ? `${enAttente} en attente d'envoi`
+    : {syncing:"Synchronisation…", ok:"Enregistré", err:"Erreur d'envoi"}[syncState] || "";
   return (
     <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 32px",borderBottom:`2px solid ${C.encre}`,background:C.papier,flexWrap:"wrap",gap:8}}>
       <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -740,7 +1111,7 @@ function Header({session, onDeconnexion, syncState, onReload}) {
         <span style={{fontFamily:FM,fontSize:11,fontWeight:700,letterSpacing:"0.1em"}}>{roleLabel}</span>
       </div>
       <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-        {syncState!=="idle" && <span style={{fontFamily:FM,fontSize:13,color:syncColor,cursor:syncState==="ok"?"pointer":"default"}} title="Sync Supabase" onClick={syncState==="ok"||syncState==="err"?onReload:undefined}>{syncIcon}</span>}
+        {(syncState!=="idle"||enAttente>0) && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontFamily:FM,fontSize:11,fontWeight:700,color:syncColor,cursor:"pointer",padding:enAttente?"3px 8px":0,background:enAttente?"#FFF8E1":"transparent",border:enAttente?`1px solid #B7770D`:"none"}} title={syncTexte+" — cliquer pour réessayer"} onClick={onReload}>{syncIcon}{enAttente>0&&<span>{enAttente}</span>}</span>}
         <span style={{fontFamily:FM,fontSize:11,color:C.gris}}>{heure}</span>
         <button onClick={onDeconnexion} style={{fontFamily:FM,fontSize:11,padding:"8px 14px",background:"transparent",border:`1.5px solid ${C.encre}`,color:C.encre,cursor:"pointer",letterSpacing:"0.05em",fontWeight:700}}>DÉCONNEXION →</button>
       </div>
@@ -791,7 +1162,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
       </div>
       {onglet==="pointages"  && <OngletPointages auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
       {onglet==="absences"   && <OngletAbsences absences={absences} setAbsences={setAbsences} salaries={salaries} interimaires={interimaires} pointages={pointages}/>}
-      {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages}/>}
+      {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages} absences={absences}/>}
       {onglet==="interim"    && <OngletInterim interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} chantiers={chantiers}/>}
       {onglet==="chantiers"  && <OngletChantiers chantiers={chantiers} setChantiers={setChantiers} pointages={pointages}/>}
       {onglet==="paie"       && <OngletPaie pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
@@ -961,33 +1332,41 @@ function OngletPointages({auj,pointagesTous,setPointages,chantiers,setChantiers,
   const [importMsg,setImportMsg] = useState("");
   const [editId,setEditId] = useState(null);
   const [editData,setEditData] = useState({});
-  const liste = filtre==="tous" ? pointagesTous.filter(p=>p.date===auj) : pointagesTous.filter(p=>p.date===auj&&p.chantier===filtre);
-  const semaineCourante=(()=>{const d=new Date(),day=d.getDay()||7;const lundi=new Date(d);lundi.setDate(d.getDate()-day+1);return Array.from({length:7},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});})();
-  const ptgSem=pointagesTous.filter(p=>semaineCourante.includes(p.date));
-  const alertesJour=pointagesTous.filter(p=>p.date===auj&&calcHeures(p)>10).map(p=>({id:p.id,niveau:"danger",msg:`${trouver(p.salarie)?.nom||p.salarie} — ${fmtH(calcHeures(p))}/jour (max légal : 10h)`}));
+  const [dateVue,setDateVue]=useState(auj);
+  const decalerJour=(n)=>{const d=new Date(dateVue+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+n);const iso=d.toISOString().slice(0,10);if(iso>auj)return;setDateVue(iso);};
+  const dateVueLabel=new Date(dateVue+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  const listeDate=pointagesTous.filter(p=>p.date===dateVue);
+  const aValiderDate=listeDate.filter(p=>!p.valide).length;
+  const validerToutDate=()=>setPointages(pointagesTous.map(p=>p.date===dateVue?{...p,valide:true}:p));
+  const liste = filtre==="tous" ? listeDate : listeDate.filter(p=>p.chantier===filtre);
+  const semaineVue=(()=>{const d=new Date(dateVue+"T12:00:00Z"),day=d.getUTCDay()||7;const lundi=new Date(d);lundi.setUTCDate(d.getUTCDate()-day+1);return Array.from({length:7},(_,i)=>{const x=new Date(lundi);x.setUTCDate(lundi.getUTCDate()+i);return x.toISOString().slice(0,10);});})();
+  const ptgSem=pointagesTous.filter(p=>semaineVue.includes(p.date));
+  const alertesJour=listeDate.filter(p=>calcHeures(p)>10).map(p=>({id:p.id,niveau:"danger",msg:`${trouver(p.salarie)?.nom||p.salarie} — ${fmtH(calcHeures(p))}/jour (max légal : 10h)`}));
   const personnesSem=[...new Set(ptgSem.map(p=>p.salarie))];
   const alertesSemaine=personnesSem.flatMap(id=>{const total=ptgSem.filter(p=>p.salarie===id).reduce((s,p)=>s+calcHeures(p),0);if(total>48)return[{id,niveau:"danger",msg:`${trouver(id)?.nom||id} — ${fmtH(total)}/semaine (max légal : 48h)`}];if(total>44)return[{id,niveau:"warn",msg:`${trouver(id)?.nom||id} — ${fmtH(total)}/semaine (seuil : 44h)`}];return[];});
   const toutesAlertes=[...alertesJour,...alertesSemaine];
   const iStyle={padding:"6px 8px",background:C.papier,border:`1.5px solid ${C.encre}`,fontFamily:FM,fontSize:12,outline:"none",width:"100%",boxSizing:"border-box"};
-  const ouvrirEdit=(p)=>{setEditId(p.id);setEditData({debut:p.debut,fin:p.fin,pause:p.pause,chantier:p.chantier,commentaire:p.commentaire||""});};
+  const ouvrirEdit=(p)=>{setEditId(p.id);setEditData({debut:p.debut,fin:p.fin,pause:p.pause,chantier:p.chantier,commentaire:p.commentaire||"",deplacement:!!p.deplacement});};
   const annulerEdit=()=>{setEditId(null);setEditData({});};
   const sauvegarderEdit=(id)=>{setPointages(pointagesTous.map(p=>p.id===id?{...p,...editData,modifiePar:"RH",modifieLe:new Date().toISOString()}:p));setEditId(null);setEditData({});};
   return (
-    <Section titre="Pointages du jour" actions={
+    <Section titre="Pointages" actions={
       <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
         <select value={filtre} onChange={e=>setFiltre(e.target.value)} style={selectStyle}>
           <option value="tous">Tous les chantiers</option>
           {chantiers.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
         </select>
-        <Btn variant="ghost" onClick={()=>{setImportMsg("");setImportOuvert(true);}}>📅 IMPORTER LE PLANNING</Btn>
-        {aValider>0 && <Btn onClick={validerTout}>✓ TOUT VALIDER ({aValider})</Btn>}
+        {aValiderDate>0 && <Btn onClick={validerToutDate}>✓ TOUT VALIDER ({aValiderDate})</Btn>}
       </div>
     }>
-      {importOuvert && <ModalImportPlanning
-        pointages={pointagesTous} setPointages={setPointages}
-        salaries={salaries} chantiers={chantiers} setChantiers={setChantiers}
-        onFermer={(n)=>{setImportOuvert(false); if(n>0) setImportMsg(`✓ ${n} pointage(s) importé(s) depuis le planning.`);}}/>}
-      {importMsg && <div style={{marginBottom:16,padding:"10px 16px",background:"#EAF7F4",border:`1.5px solid ${C.vert}`,fontSize:12,fontWeight:600,color:C.vert}}>{importMsg}</div>}
+      {/* Navigation dans le temps — sans limite dans le passé */}
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:16,padding:"10px 14px",background:C.fond,border:`1.5px solid ${C.ligne}`}}>
+        <Btn variant="ghost" onClick={()=>decalerJour(-1)}>◀ JOUR PRÉCÉDENT</Btn>
+        <input type="date" value={dateVue} max={auj} onChange={e=>{if(e.target.value)setDateVue(e.target.value);}} style={{padding:"8px 10px",background:C.papier,border:`1.5px solid ${C.encre}`,fontFamily:FM,fontSize:13,fontWeight:700,outline:"none"}}/>
+        <div style={{flex:1,minWidth:180,fontFamily:FT,fontSize:16,fontWeight:800,textTransform:"capitalize"}}>{dateVueLabel}{dateVue===auj&&<span style={{fontSize:11,color:C.gris,fontWeight:600,marginLeft:8}}>(aujourd'hui)</span>}</div>
+        {dateVue<auj&&<Btn variant="ghost" onClick={()=>decalerJour(1)}>JOUR SUIVANT ▶</Btn>}
+        {dateVue!==auj&&<Btn variant="ghost" onClick={()=>setDateVue(auj)}>⭯ REVENIR À AUJOURD'HUI</Btn>}
+      </div>
       {toutesAlertes.length>0 && <div style={{marginBottom:16}}>{toutesAlertes.map((a,i)=>(
         <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",marginBottom:6,background:a.niveau==="danger"?"#FFF0F0":"#FFF8E1",border:`1.5px solid ${a.niveau==="danger"?C.orange:"#F39C12"}`}}>
           <span style={{fontSize:18}}>{a.niveau==="danger"?"🔴":"🟠"}</span>
@@ -995,9 +1374,9 @@ function OngletPointages({auj,pointagesTous,setPointages,chantiers,setChantiers,
         </div>
       ))}</div>}
       {liste.length===0
-        ? <EmptyState>Aucun pointage aujourd'hui.<br/><small style={{color:C.gris}}>Les rapports arrivent depuis l'onglet Chef d'équipe.</small></EmptyState>
+        ? <EmptyState>Aucun pointage pour le {dateVueLabel}.<br/><small style={{color:C.gris}}>Utilisez les flèches ou le calendrier ci-dessus pour changer de date.</small></EmptyState>
         : <TableWrap>
-            <thead><tr><Th>Date</Th><Th>Personne</Th><Th>Statut</Th><Th>Chantier</Th><Th r>Début</Th><Th r>Fin</Th><Th r>Pause</Th><Th r>Total</Th><Th r>H.Nuit</Th><Th>Commentaire</Th><Th>État RH</Th><Th></Th></tr></thead>
+            <thead><tr><Th>Date</Th><Th>Personne</Th><Th>Statut</Th><Th>Chantier</Th><Th r>Début</Th><Th r>Fin</Th><Th r>Pause</Th><Th r>Total</Th><Th r>H.Nuit</Th><Th r>H.100%</Th><Th>Logé</Th><Th>Commentaire</Th><Th>État RH</Th><Th></Th></tr></thead>
             <tbody>{liste.map(p=>{
               const pers=trouver(p.salarie);const ch=chantiers.find(c=>c.id===p.chantier);const ag=p.interim?AGENCES.find(a=>a.id===pers?.agence):null;
               const dateCourte=p.date?new Date(p.date+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"}):"—";
@@ -1013,6 +1392,10 @@ function OngletPointages({auj,pointagesTous,setPointages,chantiers,setChantiers,
                 <Td r>{enEdition?<input type="number" value={editData.pause} onChange={e=>setEditData({...editData,pause:parseInt(e.target.value)||0})} style={{...iStyle,width:70,textAlign:"center"}}/>:`${p.pause}min`}</Td>
                 <Td r><b style={{color:hEdit>10?C.orange:"inherit"}}>{fmtH(enEdition?hEdit:hTot)}</b></Td>
                 <Td r>{hNuit>0?<span style={{color:"#6C3483",fontWeight:700,fontSize:11}}>{fmtH(hNuit)}</span>:<span style={{color:C.ligne}}>—</span>}</Td>
+                <Td r>{(()=>{const h100=calcH100(p);return h100>0?<span style={{color:"#C0392B",fontWeight:700,fontSize:11}} title={nomFerie(p.date)||"Dimanche"}>{fmtH(h100)}</span>:<span style={{color:C.ligne}}>—</span>;})()}</Td>
+                <Td>{enEdition
+                  ? <label style={{display:"flex",alignItems:"center",gap:6,fontSize:10,cursor:"pointer",fontWeight:700}}><input type="checkbox" checked={!!editData.deplacement} onChange={e=>setEditData({...editData,deplacement:e.target.checked})}/>🛏</label>
+                  : p.deplacement?<span style={{fontSize:10,padding:"3px 8px",fontWeight:700,color:"#fff",background:C.bleu}} title="Déplacement avec logement">🛏 LOGÉ</span>:<span style={{color:C.ligne,fontSize:10}}>—</span>}</Td>
                 <Td>{enEdition?<textarea value={editData.commentaire||""} onChange={e=>setEditData({...editData,commentaire:e.target.value})} rows={2} style={{...iStyle,width:160,resize:"vertical",fontSize:11}}/>:p.commentaire?<span style={{fontSize:10,color:"#6C3483",fontStyle:"italic"}}>💬 {p.commentaire}</span>:<span style={{color:C.ligne,fontSize:10}}>—</span>}</Td>
                 <Td>{p.valide?<span style={{color:C.vert,fontSize:11,fontWeight:700}}>● VALIDÉ</span>:<span style={{color:C.orange,fontSize:11,fontWeight:700}}>● ATTENTE</span>}</Td>
                 <Td>{enEdition?(<div style={{display:"flex",gap:6,flexDirection:"column"}}><Btn variant="mini" onClick={()=>sauvegarderEdit(p.id)}>✓ SAUVER</Btn><Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn></div>):(<div style={{display:"flex",gap:6}}><Btn variant="ghost" onClick={()=>ouvrirEdit(p)}>✎</Btn>{!p.valide&&<Btn variant="mini" onClick={()=>valider(p.id)}>✓</Btn>}<Btn variant="danger-mini" onClick={()=>supprPointage(p.id)}>✕</Btn></div>)}</Td>
@@ -1049,11 +1432,26 @@ function OngletAbsences({absences,setAbsences,salaries,interimaires,pointages}) 
     setPersonneId("");setDateDebut(auj);setDateFin(auj);setType(TYPES_ABSENCE[0].code);setCommentaire("");setOpen(false);setErr("");
   };
   const supprimer=(id)=>{if(!window.confirm("Supprimer cette absence ?"))return;setAbsences(absences.filter(a=>a.id!==id));};
-  const nbJoursOuvres=(d1,d2)=>{let count=0;const cur=new Date(d1+"T00:00:00");const fin=new Date(d2+"T00:00:00");while(cur<=fin){const j=cur.getDay();if(j!==0&&j!==6)count++;cur.setDate(cur.getDate()+1);}return count;};
+  // Jours ouvrés = lundi→vendredi, hors jours fériés (cohérent avec le solde de congés)
+  const nbJoursOuvres=(d1,d2)=>joursAbsenceAnnee({dateDebut:d1,dateFin:d2},null);
   const listeFiltree=absences.filter(a=>filtreType==="tous"||a.type===filtreType).filter(a=>filtrePersonne==="tous"||a.salarie===filtrePersonne).sort((a,b)=>b.dateDebut.localeCompare(a.dateDebut));
   const fmtDate=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
   return (
     <Section titre={`Absences & Congés — ${absences.length}`} actions={<Btn onClick={()=>{setOpen(!open);setErr("");}}>{open?"✕ Annuler":"+ SAISIR UNE ABSENCE"}</Btn>}>
+      {/* Soldes de congés payés de l'année en cours */}
+      {salaries.length>0&&(()=>{const annee=new Date().getFullYear();const soldes=salaries.map(s=>({s,bc:bilanConges(s,absences,annee)}));const alerte=soldes.filter(x=>x.bc.restant<=5);
+        return(<div style={{marginBottom:20}}>
+          <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris,fontWeight:700,marginBottom:10}}>SOLDES CONGÉS PAYÉS {annee} — EN JOURS OUVRÉS (HORS WEEK-ENDS ET FÉRIÉS)</div>
+          {alerte.length>0&&<div style={{marginBottom:10,padding:"9px 14px",background:"#FFF8E1",border:`1.5px solid ${C.jaune}`,fontSize:11,fontWeight:600}}>⚠ {alerte.length} salarié(s) avec 5 jours ou moins de congés restants : {alerte.map(x=>x.s.nom).join(", ")}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
+            {soldes.map(({s,bc})=>(
+              <div key={s.id} style={{padding:"9px 12px",background:C.papier,border:`1px solid ${bc.restant<0?C.orange:bc.restant<=5?C.jaune:C.ligne}`,fontSize:11}}>
+                <div style={{fontWeight:700,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.nom}</div>
+                <div><b style={{fontFamily:FT,fontSize:18,color:bc.restant<0?C.orange:C.vert}}>{bc.restant}</b><span style={{color:C.gris}}> / {bc.droit} j. · {bc.pris} pris</span></div>
+              </div>
+            ))}
+          </div>
+        </div>);})()}
       {open&&<FormInline>
         <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris,fontWeight:700,marginBottom:12}}>NOUVELLE ABSENCE / CONGÉ</div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:12}}>
@@ -1082,7 +1480,8 @@ function OngletAbsences({absences,setAbsences,salaries,interimaires,pointages}) 
 }
 
 // ---- Onglet Salariés (avec import en masse) ----
-function OngletSalaries({salaries,setSalaries,pointages}) {
+function OngletSalaries({salaries,setSalaries,pointages,absences}) {
+  const anneeCourante = new Date().getFullYear();
   const [open,setOpen]=useState(false);
   const [nom,setNom]=useState("");
   const [poste,setPoste]=useState(POSTES[0]);
@@ -1105,15 +1504,25 @@ function OngletSalaries({salaries,setSalaries,pointages}) {
   const [editId,setEditId]=useState(null);
   const [editNom,setEditNom]=useState("");
   const [editPoste,setEditPoste]=useState(POSTES[0]);
+  const [editCode,setEditCode]=useState(CODE_DEFAUT);
+  const [editConges,setEditConges]=useState(CONGES_DEFAUT);
   const [editErr,setEditErr]=useState("");
-  const ouvrirEdit=(s)=>{setEditId(s.id);setEditNom(s.nom);setEditPoste(s.poste||POSTES[0]);setEditErr("");};
+  const ouvrirEdit=(s)=>{setEditId(s.id);setEditNom(s.nom);setEditPoste(s.poste||POSTES[0]);setEditCode(codeDe(s));setEditConges(congesDe(s));setEditErr("");};
   const annulerEdit=()=>{setEditId(null);setEditNom("");setEditErr("");};
   const sauverEdit=(id)=>{
     const n=editNom.trim();
     if(n.length<2){setEditErr("Nom trop court.");return;}
     if(salaries.some(s=>s.id!==id&&s.nom.toLowerCase()===n.toLowerCase())){setEditErr("Ce nom existe déjà.");return;}
-    setSalaries(salaries.map(s=>s.id===id?{...s,nom:n,poste:editPoste}:s));
+    const c=String(editCode||"").trim();
+    if(!/^\d{4}$/.test(c)){setEditErr("Le code doit comporter 4 chiffres.");return;}
+    const cg=Number(editConges);
+    if(!Number.isFinite(cg)||cg<0||cg>60){setEditErr("Congés : nombre de jours invalide (0 à 60).");return;}
+    setSalaries(salaries.map(s=>s.id===id?{...s,nom:n,poste:editPoste,code:c,conges:cg}:s));
     setEditId(null);setEditNom("");setEditErr("");
+  };
+  const reinitCode=(s)=>{
+    if(!window.confirm(`Réinitialiser le code de ${s.nom} à ${CODE_DEFAUT} ?`))return;
+    setSalaries(salaries.map(x=>x.id===s.id?{...x,code:CODE_DEFAUT}:x));
   };
 
   const detecterPoste=(l)=>{
@@ -1187,20 +1596,23 @@ function OngletSalaries({salaries,setSalaries,pointages}) {
       {salaries.length===0
         ? <EmptyState>Aucun salarié. Cliquez sur "+ AJOUTER" ou "↑ IMPORT EN MASSE".</EmptyState>
         : <TableWrap>
-            <thead><tr><Th>Nom</Th><Th>Poste</Th><Th>ID</Th><Th r>Pointages</Th><Th></Th></tr></thead>
+            <thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Code accès</Th><Th r>Congés {anneeCourante}</Th><Th r>Pointages</Th><Th></Th></tr></thead>
             <tbody>{salaries.map(s=>{
               const jours=pointages.filter(p=>p.salarie===s.id).length;
+              const bc=bilanConges(s,absences,anneeCourante);
               if(editId===s.id) return <tr key={s.id} style={{borderBottom:`1px solid ${C.ligne}`,background:"#FFFDE7"}}>
                 <Td><input value={editNom} onChange={e=>{setEditNom(e.target.value);setEditErr("");}} onKeyDown={e=>{if(e.key==="Enter")sauverEdit(s.id);if(e.key==="Escape")annulerEdit();}} autoFocus style={{...inputStyle,minWidth:200}}/>{editErr&&<div style={{color:C.orange,fontSize:11,fontWeight:700,marginTop:4}}>{editErr}</div>}</Td>
                 <Td><select value={editPoste} onChange={e=>setEditPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Td>
-                <Td><span style={{fontSize:10,padding:"3px 8px",color:C.gris,border:`1px solid ${C.ligne}`}}>{s.id}</span></Td>
+                <Td><input value={editCode} onChange={e=>{setEditCode(e.target.value.replace(/\D/g,"").slice(0,4));setEditErr("");}} maxLength={4} placeholder="4 chiffres" style={{...inputStyle,width:90,textAlign:"center",letterSpacing:"0.2em"}}/></Td>
+                <Td r><input type="number" value={editConges} onChange={e=>{setEditConges(e.target.value);setEditErr("");}} min={0} max={60} style={{...inputStyle,width:80,textAlign:"center"}}/><div style={{fontSize:9,color:C.gris,marginTop:3}}>jours/an</div></Td>
                 <Td r>{jours}</Td>
                 <Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn onClick={()=>sauverEdit(s.id)}>✓ ENREGISTRER</Btn><Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn></div></Td>
               </tr>;
               return <tr key={s.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
-                <Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={s.nom}/><b>{s.nom}</b></div></Td>
+                <Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={s.nom}/><div><b>{s.nom}</b><div style={{fontSize:9,color:C.gris}}>{s.id}</div></div></div></Td>
                 <Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,border:`1px solid ${C.encre}`}}>{s.poste}</span></Td>
-                <Td><span style={{fontSize:10,padding:"3px 8px",color:C.gris,border:`1px solid ${C.ligne}`}}>{s.id}</span></Td>
+                <Td><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.15em",padding:"3px 8px",background:codeDe(s)===CODE_DEFAUT?"#FFF8E1":C.fond,border:`1px solid ${codeDe(s)===CODE_DEFAUT?C.jaune:C.ligne}`}}>{codeDe(s)}</span>{codeDe(s)!==CODE_DEFAUT&&<button onClick={()=>reinitCode(s)} title="Réinitialiser le code" style={{background:"transparent",border:"none",cursor:"pointer",fontSize:12,color:C.gris}}>⟲</button>}</div>{codeDe(s)===CODE_DEFAUT&&<div style={{fontSize:9,color:"#B7770D",fontWeight:700,marginTop:2}}>code par défaut</div>}</Td>
+                <Td r><b style={{fontFamily:FT,fontSize:16,color:bc.restant<0?C.orange:C.encre}}>{bc.restant}</b><span style={{fontSize:10,color:C.gris}}> / {bc.droit} j.</span><div style={{fontSize:9,color:C.gris,marginTop:2}}>{bc.pris} pris</div></Td>
                 <Td r>{jours}</Td>
                 <Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn variant="ghost" onClick={()=>ouvrirEdit(s)}>✎ MODIFIER</Btn><Btn variant="danger" onClick={()=>supprimer(s.id)}>SUPPRIMER</Btn></div></Td>
               </tr>;
@@ -1226,17 +1638,18 @@ function OngletInterim({interimaires,setInterimaires,pointages,chantiers}) {
   const [ePoste,setEPoste]=useState("Manœuvre");
   const [eAgence,setEAgence]=useState(AGENCES[0].id);
   const [eErr,setEErr]=useState("");
-  const ouvrirEdit=(i)=>{setEditId(i.id);setENom(i.nom);setEPoste(i.poste||"Manœuvre");setEAgence(i.agence||AGENCES[0].id);setEErr("");};
+  const [eCode,setECode]=useState(CODE_DEFAUT);
+  const ouvrirEdit=(i)=>{setEditId(i.id);setENom(i.nom);setEPoste(i.poste||"Manœuvre");setEAgence(i.agence||AGENCES[0].id);setECode(codeDe(i));setEErr("");};
   const annulerEdit=()=>{setEditId(null);setENom("");setEErr("");};
-  const sauverEdit=(id)=>{const n=eNom.trim();if(n.length<2){setEErr("Nom trop court.");return;}if(interimaires.some(i=>i.id!==id&&i.nom.toLowerCase()===n.toLowerCase())){setEErr("Ce nom existe déjà.");return;}setInterimaires(interimaires.map(i=>i.id===id?{...i,nom:n,poste:ePoste,agence:eAgence}:i));setEditId(null);setENom("");setEErr("");};
+  const sauverEdit=(id)=>{const n=eNom.trim();if(n.length<2){setEErr("Nom trop court.");return;}if(interimaires.some(i=>i.id!==id&&i.nom.toLowerCase()===n.toLowerCase())){setEErr("Ce nom existe déjà.");return;}const c=String(eCode||"").trim();if(!/^\d{4}$/.test(c)){setEErr("Le code doit comporter 4 chiffres.");return;}setInterimaires(interimaires.map(i=>i.id===id?{...i,nom:n,poste:ePoste,agence:eAgence,code:c}:i));setEditId(null);setENom("");setEErr("");};
   return (
     <Section titre={`Intérimaires — ${interimaires.length}`} actions={<Btn onClick={()=>{setOpen(!open);setErr("");}}>{open?"✕ Annuler":"+ AJOUTER UN INTÉRIMAIRE"}</Btn>}>
       {open&&<FormInline><div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}><Champ label="NOM COMPLET"><input value={nom} onChange={e=>{setNom(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&ajouter()} placeholder="Prénom Nom" style={inputStyle}/></Champ><Champ label="POSTE"><select value={poste} onChange={e=>setPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Champ><Champ label="AGENCE"><select value={agence} onChange={e=>setAgence(e.target.value)} style={selectStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Champ><Btn onClick={ajouter}>AJOUTER</Btn></div>{err&&<ErrBox>{err}</ErrBox>}</FormInline>}
       {interimaires.length===0?<EmptyState>Aucun intérimaire. Ajoutez-les ici ou depuis l'app chef d'équipe.</EmptyState>
-        :<TableWrap><thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Agence</Th><Th r>Jours</Th><Th r>Heures</Th><Th></Th></tr></thead>
+        :<TableWrap><thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Agence</Th><Th>Code accès</Th><Th r>Jours</Th><Th r>Heures</Th><Th></Th></tr></thead>
           <tbody>{interimaires.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);const s=stats(i.id);
-            if(editId===i.id) return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`,background:"#FFFDE7"}}><Td><input value={eNom} onChange={e=>{setENom(e.target.value);setEErr("");}} onKeyDown={e=>{if(e.key==="Enter")sauverEdit(i.id);if(e.key==="Escape")annulerEdit();}} autoFocus style={{...inputStyle,minWidth:180}}/>{eErr&&<div style={{color:C.orange,fontSize:11,fontWeight:700,marginTop:4}}>{eErr}</div>}</Td><Td><select value={ePoste} onChange={e=>setEPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Td><Td><select value={eAgence} onChange={e=>setEAgence(e.target.value)} style={selectStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn onClick={()=>sauverEdit(i.id)}>✓ ENREGISTRER</Btn><Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn></div></Td></tr>;
-            return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`}}><Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={i.nom} bg={ag?.couleur} light/><b>{i.nom}</b></div></Td><Td>{i.poste}</Td><Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn variant="ghost" onClick={()=>ouvrirEdit(i)}>✎ MODIFIER</Btn><Btn variant="danger" onClick={()=>supprimer(i.id)}>SUPPRIMER</Btn></div></Td></tr>;})}</tbody>
+            if(editId===i.id) return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`,background:"#FFFDE7"}}><Td><input value={eNom} onChange={e=>{setENom(e.target.value);setEErr("");}} onKeyDown={e=>{if(e.key==="Enter")sauverEdit(i.id);if(e.key==="Escape")annulerEdit();}} autoFocus style={{...inputStyle,minWidth:180}}/>{eErr&&<div style={{color:C.orange,fontSize:11,fontWeight:700,marginTop:4}}>{eErr}</div>}</Td><Td><select value={ePoste} onChange={e=>setEPoste(e.target.value)} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Td><Td><select value={eAgence} onChange={e=>setEAgence(e.target.value)} style={selectStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Td><Td><input value={eCode} onChange={e=>{setECode(e.target.value.replace(/\D/g,"").slice(0,4));setEErr("");}} maxLength={4} placeholder="4 chiffres" style={{...inputStyle,width:90,textAlign:"center",letterSpacing:"0.2em"}}/></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn onClick={()=>sauverEdit(i.id)}>✓ ENREGISTRER</Btn><Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn></div></Td></tr>;
+            return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`}}><Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={i.nom} bg={ag?.couleur} light/><b>{i.nom}</b></div></Td><Td>{i.poste}</Td><Td><span style={{fontSize:10,padding:"3px 8px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span></Td><Td><span style={{fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.15em",padding:"3px 8px",background:codeDe(i)===CODE_DEFAUT?"#FFF8E1":C.fond,border:`1px solid ${codeDe(i)===CODE_DEFAUT?C.jaune:C.ligne}`}}>{codeDe(i)}</span></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn variant="ghost" onClick={()=>ouvrirEdit(i)}>✎ MODIFIER</Btn><Btn variant="danger" onClick={()=>supprimer(i.id)}>SUPPRIMER</Btn></div></Td></tr>;})}</tbody>
         </TableWrap>}
     </Section>
   );
@@ -1269,7 +1682,7 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
   const [modeVue,setModeVue]=useState("semaine");
   const tousLesPersonnes=[...salaries.map(s=>({...s,_type:"interne"})),...interimaires.map(i=>({...i,_type:"interim"}))];
   const auj=new Date().toISOString().slice(0,10);
-  const plage=(()=>{const d=new Date();if(modeVue==="semaine"){const day=d.getDay()||7;const lundi=new Date(d);lundi.setDate(d.getDate()-day+1);return Array.from({length:5},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});}if(modeVue==="mois"){const dates=[];const debut=new Date(d.getFullYear(),d.getMonth(),1);const fin=new Date(d.getFullYear(),d.getMonth()+1,0);for(let dt=new Date(debut);dt<=fin;dt.setDate(dt.getDate()+1))dates.push(new Date(dt).toISOString().slice(0,10));return dates;}return[...new Set(pointages.map(p=>p.date))].sort();})();
+  const plage=(()=>{const d=new Date();if(modeVue==="semaine"){const day=d.getDay()||7;const lundi=new Date(d);lundi.setDate(d.getDate()-day+1);return Array.from({length:7},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});}if(modeVue==="mois"){const dates=[];const debut=new Date(d.getFullYear(),d.getMonth(),1);const fin=new Date(d.getFullYear(),d.getMonth()+1,0);for(let dt=new Date(debut);dt<=fin;dt.setDate(dt.getDate()+1))dates.push(new Date(dt).toISOString().slice(0,10));return dates;}return[...new Set(pointages.map(p=>p.date))].sort();})();
   const fmtDate=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"}).toUpperCase();
   const personnesFiltrees=personneId==="tous"?tousLesPersonnes:tousLesPersonnes.filter(p=>p.id===personneId);
   const ptgPlage=pointages.filter(p=>plage.includes(p.date));
@@ -1280,12 +1693,18 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <select value={personneId} onChange={e=>setPersonneId(e.target.value)} style={selectStyle}><option value="tous">Toutes les personnes</option>{salaries.length>0&&<optgroup label="── Salariés CHOK BÉTON">{salaries.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}</optgroup>}{interimaires.length>0&&<optgroup label="── Intérimaires">{interimaires.map(i=><option key={i.id} value={i.id}>{i.nom}</option>)}</optgroup>}</select>
         {["semaine","mois","tout"].map(m=>(<button key={m} onClick={()=>setModeVue(m)} style={{fontFamily:FM,fontSize:11,padding:"8px 14px",background:modeVue===m?C.encre:"transparent",color:modeVue===m?C.jaune:C.encre,border:`1.5px solid ${C.encre}`,cursor:"pointer",fontWeight:modeVue===m?700:500,letterSpacing:"0.05em"}}>{{"semaine":"SEMAINE",mois:"MOIS",tout:"TOUT"}[m]}</button>))}
-        <Btn variant="ghost" onClick={()=>exportPDF("interne")}>↓ PDF Salariés</Btn>
-        <Btn variant="export" onClick={()=>exportPDF("interim")}>↓ PDF Intérimaires</Btn>
+        {personneId==="tous"
+          ? <><Btn variant="ghost" onClick={()=>exportPDF("interne")}>↓ PDF — TOUS LES SALARIÉS</Btn>
+              <Btn variant="export" onClick={()=>exportPDF("interim")}>↓ PDF — TOUS LES INTÉRIMAIRES</Btn></>
+          : <Btn variant="export" onClick={()=>exportPDF("personne")}>↓ PDF — {(tousLesPersonnes.find(x=>x.id===personneId)?.nom||"CETTE PERSONNE").toUpperCase()}</Btn>}
       </div>
     }>
+      <div className="no-print" style={{marginBottom:16,padding:"10px 14px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontSize:11,color:C.gris,lineHeight:1.6}}>
+        <b style={{color:C.encre}}>Export PDF :</b> laissez « Toutes les personnes » pour éditer le rapport de <b>tout le monde</b>, ou choisissez un nom dans la liste pour éditer le rapport <b>d'un seul salarié</b>. Le bouton s'adapte automatiquement.
+        <div style={{marginTop:6}}><b style={{color:C.encre}}>Majorations :</b> base 35 h · de la 36<sup>e</sup> à la 43<sup>e</sup> h = <span style={{color:"#B7770D",fontWeight:700}}>+25 %</span> · au-delà de 43 h = <span style={{color:C.orange,fontWeight:700}}>+50 %</span> · dimanche et jours fériés = <span style={{color:"#C0392B",fontWeight:700}}>+100 %</span> (ces heures ne sont pas recomptées en heures supplémentaires).</div>
+      </div>
       <style>{`@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:15mm;size:A4 landscape}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header{display:block!important}}.print-header{display:none}`}</style>
-      <div className="print-header"><div style={{fontFamily:"sans-serif",fontSize:20,fontWeight:800}}>RAPPORT HEURE — CHOK BÉTON</div><div style={{fontSize:12,color:"#888",marginTop:4}}>Généré le {new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})} · Période : {modeVue.toUpperCase()}</div></div>
+      <div className="print-header"><div style={{fontFamily:"sans-serif",fontSize:20,fontWeight:800}}>RAPPORT HEURE — CHOK BÉTON</div><div style={{fontSize:12,color:"#888",marginTop:4}}>Généré le {new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})} · Période : {modeVue.toUpperCase()}{personneId!=="tous"?` · ${tousLesPersonnes.find(x=>x.id===personneId)?.nom||""}`:""}</div><div style={{fontSize:10,color:"#888",marginTop:3}}>Majorations : base 35 h · 36e-43e h = +25 % · au-delà de 43 h = +50 % · dimanche/férié = +100 %</div></div>
       {tousLesPersonnes.length===0?<EmptyState>Aucun salarié ni intérimaire enregistré.</EmptyState>
         :personnesFiltrees.map(p=>{
           const ag=p._type==="interim"?AGENCES.find(a=>a.id===p.agence):null;
@@ -1295,19 +1714,24 @@ function OngletPaie({pointages,salaries,interimaires,chantiers}) {
           const parSemaine={};ptgPersonne.forEach(x=>{const{cle}=infoSemaine(x.date);if(!parSemaine[cle])parSemaine[cle]=[];parSemaine[cle].push(x);});
           const totalSup=Object.values(parSemaine).reduce((acc,ptgs)=>acc+calcHSupSemaine(ptgs),0);
           const semCle=semaineCouranteCle();const ptgSemCourante=parSemaine[semCle]||[];const totalSem35=ptgSemCourante.reduce((s,x)=>s+calcHeures(x),0);
+          // Majorations cumulées, calculées semaine par semaine (les paliers sont hebdomadaires)
+          const _r=(n)=>Math.round(n*100)/100;
+          const maj=Object.values(parSemaine).reduce((a,ptgs)=>{const m=calcMajorations(ptgs);return{hBase:a.hBase+m.hBase,h25:a.h25+m.h25,h50:a.h50+m.h50,h100:a.h100+m.h100};},{hBase:0,h25:0,h50:0,h100:0});
+          maj.hBase=_r(maj.hBase); maj.h25=_r(maj.h25); maj.h50=_r(maj.h50); maj.h100=_r(maj.h100);
+          const nuitees=calcNuitees(ptgPersonne);
           const parDate={};ptgPersonne.forEach(x=>{if(!parDate[x.date])parDate[x.date]=[];parDate[x.date].push(x);});
           return(<div key={p.id} className={`print-break ${p._type==="interim"?"bloc-interim":"bloc-interne"}`} style={{background:C.papier,border:`1.5px solid ${C.encre}`,marginBottom:20,overflow:"hidden"}}>
             <div style={{display:"flex",alignItems:"center",gap:14,padding:"14px 20px",borderBottom:`2px solid ${C.encre}`,background:C.fond,flexWrap:"wrap"}}>
               <div style={{width:44,height:44,background:p._type==="interim"?ag?.couleur:C.encre,color:p._type==="interim"?"#fff":C.jaune,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,flexShrink:0}}>{initiales(p.nom)}</div>
               <div style={{flex:1,minWidth:200}}><div style={{fontFamily:FT,fontSize:18,fontWeight:800}}>{p.nom}</div><div style={{fontSize:11,color:C.gris,marginTop:2}}>{p.poste}{p._type==="interim"&&<span style={{marginLeft:8,fontSize:10,padding:"2px 7px",fontWeight:700,color:"#fff",background:ag?.couleur}}>{ag?.nom}</span>}</div></div>
               <div style={{display:"flex",gap:24,flexWrap:"wrap"}}>
-                {[["TOTAL PÉRIODE",fmtH(totalH),C.encre],["CETTE SEMAINE",fmtH(totalSem35),C.encre],...(totalSup>0?[["H.SUP","+"+fmtH(totalSup),C.orange]]:[]),...(totalNuit>0?[["H.NUIT",fmtH(totalNuit),"#6C3483"]]:[])].map(([l,v,col])=>(<div key={l} style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:3}}>{l}</div><div style={{fontFamily:FT,fontSize:22,fontWeight:800,color:col}}>{v}</div></div>))}
+                {[["TOTAL PÉRIODE",fmtH(totalH),C.encre],["BASE",fmtH(maj.hBase),C.encre],...(maj.h25>0?[["+25 %",fmtH(maj.h25),"#B7770D"]]:[]),...(maj.h50>0?[["+50 %",fmtH(maj.h50),C.orange]]:[]),...(maj.h100>0?[["+100 %",fmtH(maj.h100),"#C0392B"]]:[]),...(totalNuit>0?[["H.NUIT",fmtH(totalNuit),"#6C3483"]]:[]),...(nuitees>0?[["NUITÉES",String(nuitees),C.bleu]]:[])].map(([l,v,col])=>(<div key={l} style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:3}}>{l}</div><div style={{fontFamily:FT,fontSize:22,fontWeight:800,color:col}}>{v}</div></div>))}
               </div>
             </div>
             {ptgPersonne.length===0?<div style={{padding:"20px",fontSize:12,color:C.gris,fontStyle:"italic"}}>Aucun pointage sur cette période.</div>
               :<table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead><tr style={{background:C.fond}}><th style={{...th9,textAlign:"left"}}>Date</th><th style={{...th9,textAlign:"left"}}>Chantier</th><th style={{...th9,textAlign:"left"}}>Lieu</th><th style={{...th9,textAlign:"right"}}>Début</th><th style={{...th9,textAlign:"right"}}>Fin</th><th style={{...th9,textAlign:"right"}}>Pause</th><th style={{...th9,textAlign:"right"}}>Total</th><th style={{...th9,textAlign:"right",color:"#6C3483"}}>H.Nuit</th><th style={{...th9,textAlign:"center"}}>État</th></tr></thead>
-                <tbody>{(()=>{const rows=[];const semainesTriees=Object.entries(parSemaine).sort(([a],[b])=>b.localeCompare(a));semainesTriees.forEach(([semCle,ptgsSem])=>{const datesSem=[...new Set(ptgsSem.map(x=>x.date))].sort((a,b)=>b.localeCompare(a));const totalSemH=ptgsSem.reduce((s,x)=>s+calcHeures(x),0);const supSem=calcHSupSemaine(ptgsSem);datesSem.forEach(date=>{const lignes=ptgsSem.filter(x=>x.date===date);const isWE=[0,6].includes(new Date(date+"T00:00:00").getDay());lignes.forEach((x,idx)=>{const ch=chantiers.find(c=>c.id===x.chantier);const h=calcHeures(x);const hNuit=calcHNuit(x);rows.push(<tr key={x.id} style={{borderBottom:`1px solid ${C.ligne}`,background:isWE?"#FFF8E1":idx%2===0?C.papier:"#F8F6F0"}}>{idx===0?<td rowSpan={lignes.length} style={{padding:"10px 16px",verticalAlign:"top",borderRight:`1px solid ${C.ligne}`,whiteSpace:"nowrap"}}><div style={{fontWeight:700,fontSize:11}}>{fmtDate(date)}</div></td>:null}<td style={{padding:"10px 16px"}}>{ch?<span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span>:<span style={{color:C.gris}}>—</span>}</td><td style={{padding:"10px 16px",fontSize:11,color:C.gris}}>{ch?`📍 ${ch.ville}`:"—"}</td><td style={{padding:"10px 16px",textAlign:"right",fontWeight:500}}>{x.debut}</td><td style={{padding:"10px 16px",textAlign:"right",fontWeight:500}}>{x.fin}</td><td style={{padding:"10px 16px",textAlign:"right",color:C.gris}}>{x.pause}min</td><td style={{padding:"10px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:15}}>{fmtH(h)}</b></td><td style={{padding:"10px 16px",textAlign:"right"}}>{hNuit>0?<b style={{color:"#6C3483",fontSize:13}}>{fmtH(hNuit)}</b>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"10px 16px",textAlign:"center"}}>{x.valide?<span style={{fontSize:10,color:C.vert,fontWeight:700}}>✓</span>:<span style={{fontSize:10,color:C.orange,fontWeight:700}}>⏳</span>}</td></tr>);});});rows.push(<tr key={`sem-${semCle}`} style={{borderTop:`1.5px solid ${C.encre}`,background:"#F0F4F8"}}><td colSpan={6} style={{padding:"8px 16px",fontSize:10,fontWeight:700,color:C.gris,letterSpacing:"0.1em"}}>{infoSemaine(ptgsSem[0].date).label}</td><td style={{padding:"8px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:15}}>{fmtH(totalSemH)}</b></td><td style={{padding:"8px 16px",textAlign:"right",fontSize:10,color:C.gris}}>{ptgsSem.reduce((s,x)=>s+calcHNuit(x),0)>0?fmtH(ptgsSem.reduce((s,x)=>s+calcHNuit(x),0)):"—"}</td><td style={{padding:"8px 16px",textAlign:"center"}}>{supSem>0?<span style={{fontSize:11,fontWeight:700,color:C.orange}}>+{fmtH(supSem)} H.SUP</span>:<span style={{fontSize:10,color:C.vert,fontWeight:700}}>{fmtH(totalSemH)}/35h ✓</span>}</td></tr>);});rows.push(<tr key="total" style={{borderTop:`2px solid ${C.encre}`,background:C.fond}}><td colSpan={6} style={{padding:"10px 16px",fontSize:11,fontWeight:700}}>TOTAL PÉRIODE</td><td style={{padding:"10px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:18,fontWeight:800}}>{fmtH(totalH)}</b></td><td style={{padding:"10px 16px",textAlign:"right"}}>{totalNuit>0?<b style={{fontFamily:FT,fontSize:16,color:"#6C3483"}}>{fmtH(totalNuit)}</b>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"10px 16px",textAlign:"center"}}>{totalSup>0?<b style={{fontFamily:FT,fontSize:16,color:C.orange}}>+{fmtH(totalSup)} H.SUP</b>:<span style={{color:C.ligne}}>—</span>}</td></tr>);return rows;})()}</tbody>
+                <thead><tr style={{background:C.fond}}><th style={{...th9,textAlign:"left"}}>Date</th><th style={{...th9,textAlign:"left"}}>Chantier</th><th style={{...th9,textAlign:"left"}}>Lieu</th><th style={{...th9,textAlign:"right"}}>Début</th><th style={{...th9,textAlign:"right"}}>Fin</th><th style={{...th9,textAlign:"right"}}>Pause</th><th style={{...th9,textAlign:"right"}}>Total</th><th style={{...th9,textAlign:"right",color:"#6C3483"}}>H.Nuit</th><th style={{...th9,textAlign:"right",color:"#C0392B"}}>H.100%</th><th style={{...th9,textAlign:"center",color:C.bleu}}>Logé</th><th style={{...th9,textAlign:"center"}}>État</th></tr></thead>
+                <tbody>{(()=>{const rows=[];const semainesTriees=Object.entries(parSemaine).sort(([a],[b])=>b.localeCompare(a));semainesTriees.forEach(([semCle,ptgsSem])=>{const datesSem=[...new Set(ptgsSem.map(x=>x.date))].sort((a,b)=>b.localeCompare(a));const totalSemH=ptgsSem.reduce((s,x)=>s+calcHeures(x),0);const supSem=calcHSupSemaine(ptgsSem);const mS=calcMajorations(ptgsSem);const nuiteesSem=calcNuitees(ptgsSem);datesSem.forEach(date=>{const lignes=ptgsSem.filter(x=>x.date===date);const isWE=[0,6].includes(new Date(date+"T00:00:00").getDay());lignes.forEach((x,idx)=>{const ch=chantiers.find(c=>c.id===x.chantier);const h=calcHeures(x);const hNuit=calcHNuit(x);rows.push(<tr key={x.id} style={{borderBottom:`1px solid ${C.ligne}`,background:isWE?"#FFF8E1":idx%2===0?C.papier:"#F8F6F0"}}>{idx===0?<td rowSpan={lignes.length} style={{padding:"10px 16px",verticalAlign:"top",borderRight:`1px solid ${C.ligne}`,whiteSpace:"nowrap"}}><div style={{fontWeight:700,fontSize:11}}>{fmtDate(date)}</div></td>:null}<td style={{padding:"10px 16px"}}>{ch?<span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span>:<span style={{color:C.gris}}>—</span>}</td><td style={{padding:"10px 16px",fontSize:11,color:C.gris}}>{ch?`📍 ${ch.ville}`:"—"}</td><td style={{padding:"10px 16px",textAlign:"right",fontWeight:500}}>{x.debut}</td><td style={{padding:"10px 16px",textAlign:"right",fontWeight:500}}>{x.fin}</td><td style={{padding:"10px 16px",textAlign:"right",color:C.gris}}>{x.pause}min</td><td style={{padding:"10px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:15}}>{fmtH(h)}</b></td><td style={{padding:"10px 16px",textAlign:"right"}}>{hNuit>0?<b style={{color:"#6C3483",fontSize:13}}>{fmtH(hNuit)}</b>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"10px 16px",textAlign:"right"}}>{(()=>{const h1=calcH100(x);return h1>0?<b style={{color:"#C0392B",fontSize:13}}>{fmtH(h1)}</b>:<span style={{color:C.ligne}}>—</span>;})()}</td><td style={{padding:"10px 16px",textAlign:"center"}}>{x.deplacement?<span style={{fontSize:11,fontWeight:700,color:C.bleu}} title="Déplacement avec logement">🛏</span>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"10px 16px",textAlign:"center"}}>{x.valide?<span style={{fontSize:10,color:C.vert,fontWeight:700}}>✓</span>:<span style={{fontSize:10,color:C.orange,fontWeight:700}}>⏳</span>}</td></tr>);});});rows.push(<tr key={`sem-${semCle}`} style={{borderTop:`1.5px solid ${C.encre}`,background:"#F0F4F8"}}><td colSpan={6} style={{padding:"8px 16px",fontSize:10,fontWeight:700,color:C.gris,letterSpacing:"0.1em"}}>{infoSemaine(ptgsSem[0].date).label}</td><td style={{padding:"8px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:15}}>{fmtH(totalSemH)}</b></td><td style={{padding:"8px 16px",textAlign:"right",fontSize:10,color:C.gris}}>{ptgsSem.reduce((s,x)=>s+calcHNuit(x),0)>0?fmtH(ptgsSem.reduce((s,x)=>s+calcHNuit(x),0)):"—"}</td><td style={{padding:"8px 16px",textAlign:"right"}}>{mS.h100>0?<b style={{color:"#C0392B",fontSize:13}}>{fmtH(mS.h100)}</b>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"8px 16px",textAlign:"center",fontSize:10,color:C.bleu,fontWeight:700}}>{nuiteesSem>0?nuiteesSem:"—"}</td><td style={{padding:"8px 16px",textAlign:"center"}}><div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap",fontSize:10,fontWeight:700}}>{mS.h25>0&&<span style={{color:"#B7770D"}}>+25% {fmtH(mS.h25)}</span>}{mS.h50>0&&<span style={{color:C.orange}}>+50% {fmtH(mS.h50)}</span>}{mS.h25===0&&mS.h50===0&&<span style={{color:C.vert}}>{fmtH(mS.hOrdinaire)}/35h ✓</span>}</div></td></tr>);});rows.push(<tr key="total" style={{borderTop:`2px solid ${C.encre}`,background:C.fond}}><td colSpan={6} style={{padding:"10px 16px",fontSize:11,fontWeight:700}}>TOTAL PÉRIODE</td><td style={{padding:"10px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:18,fontWeight:800}}>{fmtH(totalH)}</b></td><td style={{padding:"10px 16px",textAlign:"right"}}>{totalNuit>0?<b style={{fontFamily:FT,fontSize:16,color:"#6C3483"}}>{fmtH(totalNuit)}</b>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"10px 16px",textAlign:"right"}}>{maj.h100>0?<b style={{fontFamily:FT,fontSize:16,color:"#C0392B"}}>{fmtH(maj.h100)}</b>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"10px 16px",textAlign:"center",color:C.bleu,fontWeight:800}}>{nuitees>0?nuitees:"—"}</td><td style={{padding:"10px 16px",textAlign:"center"}}><div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",fontSize:11,fontWeight:800}}>{maj.h25>0&&<span style={{color:"#B7770D"}}>+25% {fmtH(maj.h25)}</span>}{maj.h50>0&&<span style={{color:C.orange}}>+50% {fmtH(maj.h50)}</span>}{maj.h25===0&&maj.h50===0&&<span style={{color:C.ligne}}>—</span>}</div></td></tr>);return rows;})()}</tbody>
               </table>}
           </div>);
         })}
@@ -1398,15 +1822,23 @@ function SemaineArchive({cle,ptgs,salaries,interimaires,chantiers,onExport}) {
 // ============================================================
 //  VUE SALARIÉ
 // ============================================================
-function VueSalarie({session,pointages,chantiers,salaries,interimaires}) {
+function VueSalarie({session,pointages,chantiers,salaries,interimaires,absences}) {
   const personne=salaries.find(s=>s.id===session.personneId)||interimaires.find(i=>i.id===session.personneId);
   const ag=personne&&interimaires.find(i=>i.id===personne.id)?AGENCES.find(a=>a.id===personne.agence):null;
+  // Cloisonnement : cette personne ne voit QUE ses propres pointages et absences.
   const mesPtg=pointages.filter(p=>p.salarie===session.personneId).sort((a,b)=>b.date.localeCompare(a.date));
+  const mesAbs=(absences||[]).filter(a=>a.salarie===session.personneId);
   const totalTout=mesPtg.reduce((s,p)=>s+calcHeures(p),0);
   const auj=new Date().toISOString().slice(0,10);
-  const semaine=(()=>{const d=new Date(),day=d.getDay()||7;const lundi=new Date(d);lundi.setDate(d.getDate()-day+1);return Array.from({length:5},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});})();
-  const totalSem=mesPtg.filter(p=>semaine.includes(p.date)).reduce((s,p)=>s+calcHeures(p),0);
-  const hSup=Math.max(0,totalSem-35);
+  const semaine=(()=>{const d=new Date(),day=d.getDay()||7;const lundi=new Date(d);lundi.setDate(d.getDate()-day+1);return Array.from({length:7},(_,i)=>{const x=new Date(lundi);x.setDate(lundi.getDate()+i);return x.toISOString().slice(0,10);});})();
+  const ptgSem=mesPtg.filter(p=>semaine.includes(p.date));
+  const totalSem=ptgSem.reduce((s,p)=>s+calcHeures(p),0);
+  const majSem=calcMajorations(ptgSem);
+  const hSup=majSem.hSup;
+  const estInterimaire=!!interimaires.find(i=>i.id===session.personneId);
+  const anneeCourante=new Date().getFullYear();
+  const bc=bilanConges(personne,mesAbs,anneeCourante);
+  const mesNuitees=calcNuitees(mesPtg);
   const fmtDate=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}).toUpperCase();
   if(!personne)return<div style={{padding:48,textAlign:"center",color:C.gris}}>Profil introuvable.</div>;
   return(
@@ -1416,17 +1848,36 @@ function VueSalarie({session,pointages,chantiers,salaries,interimaires}) {
         <div style={{flex:1}}><div style={{fontFamily:FT,fontSize:28,fontWeight:800}}>{personne.nom}</div><div style={{fontSize:12,color:C.gris,marginTop:4}}>{personne.poste}</div></div>
         <div style={{display:"flex",gap:24}}>
           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>CETTE SEMAINE</div><div style={{fontFamily:FT,fontSize:28,fontWeight:800}}>{fmtH(totalSem)}</div></div>
-          {hSup>0&&<div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>H.SUP</div><div style={{fontFamily:FT,fontSize:28,fontWeight:800,color:C.orange}}>+{fmtH(hSup)}</div></div>}
+          {majSem.h25>0&&<div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>+25 %</div><div style={{fontFamily:FT,fontSize:28,fontWeight:800,color:"#B7770D"}}>{fmtH(majSem.h25)}</div></div>}
+          {majSem.h50>0&&<div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>+50 %</div><div style={{fontFamily:FT,fontSize:28,fontWeight:800,color:C.orange}}>{fmtH(majSem.h50)}</div></div>}
+          {majSem.h100>0&&<div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>+100 %</div><div style={{fontFamily:FT,fontSize:28,fontWeight:800,color:"#C0392B"}}>{fmtH(majSem.h100)}</div></div>}
           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4}}>TOTAL</div><div style={{fontFamily:FT,fontSize:28,fontWeight:800}}>{fmtH(totalTout)}</div></div>
         </div>
+      </div>
+      {/* Congés + déplacements — informations personnelles */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:24}}>
+        {!estInterimaire&&<div style={{padding:"16px 18px",background:C.papier,border:`1.5px solid ${C.encre}`}}>
+          <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",fontWeight:700,marginBottom:8}}>🌴 MES CONGÉS {anneeCourante}</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:6}}><span style={{fontFamily:FT,fontSize:32,fontWeight:800,color:bc.restant<0?C.orange:C.vert}}>{bc.restant}</span><span style={{fontSize:12,color:C.gris}}>jour(s) restant(s)</span></div>
+          <div style={{fontSize:11,color:C.gris,marginTop:6}}>{bc.pris} pris sur {bc.droit} · en jours ouvrés</div>
+        </div>}
+        {mesNuitees>0&&<div style={{padding:"16px 18px",background:C.papier,border:`1.5px solid ${C.bleu}`}}>
+          <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",fontWeight:700,marginBottom:8}}>🛏 DÉPLACEMENTS AVEC LOGEMENT</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:6}}><span style={{fontFamily:FT,fontSize:32,fontWeight:800,color:C.bleu}}>{mesNuitees}</span><span style={{fontSize:12,color:C.gris}}>nuitée(s)</span></div>
+        </div>}
+        {mesAbs.length>0&&<div style={{padding:"16px 18px",background:C.papier,border:`1.5px solid ${C.ligne}`}}>
+          <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",fontWeight:700,marginBottom:8}}>MES ABSENCES</div>
+          {mesAbs.slice(0,4).map(a=>{const ti=TYPES_ABSENCE.find(t=>t.code===a.type);return(<div key={a.id} style={{fontSize:11,marginBottom:4,display:"flex",gap:6,alignItems:"center"}}><span>{ti?.icone}</span><b>{ti?.label}</b><span style={{color:C.gris}}>{fmtDate(a.dateDebut)}{a.dateFin!==a.dateDebut?` → ${fmtDate(a.dateFin)}`:""}</span></div>);})}
+          {mesAbs.length>4&&<div style={{fontSize:10,color:C.gris,marginTop:4}}>+ {mesAbs.length-4} autre(s)</div>}
+        </div>}
       </div>
       {mesPtg.length===0?<div style={{padding:"48px",textAlign:"center",background:C.papier,border:`1.5px dashed ${C.ligne}`,fontSize:14,color:C.gris}}>Aucun rapport d'heures enregistré.</div>
         :<div style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-            <thead><tr style={{background:C.fond}}>{["Date","Chantier","Lieu","Début","Fin","Pause","Total","État"].map((h,i)=>(<th key={h} style={{padding:"11px 16px",textAlign:i>2?"right":"left",fontSize:9,letterSpacing:"0.15em",color:C.gris,fontWeight:500,borderBottom:`1px solid ${C.ligne}`,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>))}</tr></thead>
-            <tbody>{mesPtg.map((p,idx)=>{const ch=chantiers.find(c=>c.id===p.chantier);const h=calcHeures(p);const estAujourd=p.date===auj;return(<tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`,background:estAujourd?"#FFFDE7":idx%2===0?C.papier:"#F8F6F0"}}><td style={{padding:"12px 16px",whiteSpace:"nowrap"}}><div style={{fontWeight:estAujourd?700:500,fontSize:12}}>{fmtDate(p.date)}</div>{estAujourd&&<div style={{fontSize:10,color:C.vert,fontWeight:700,marginTop:2}}>AUJOURD'HUI</div>}</td><td style={{padding:"12px 16px"}}>{ch?<span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span>:<span style={{color:C.gris}}>—</span>}</td><td style={{padding:"12px 16px",fontSize:11,color:C.gris}}>{ch?`📍 ${ch.ville}`:"—"}</td><td style={{padding:"12px 16px",textAlign:"right",fontWeight:500}}>{p.debut}</td><td style={{padding:"12px 16px",textAlign:"right",fontWeight:500}}>{p.fin}</td><td style={{padding:"12px 16px",textAlign:"right",color:C.gris}}>{p.pause}min</td><td style={{padding:"12px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:16}}>{fmtH(h)}</b></td><td style={{padding:"12px 16px",textAlign:"right"}}>{p.valide?<span style={{fontSize:10,color:C.vert,fontWeight:700}}>✓ VALIDÉ</span>:<span style={{fontSize:10,color:C.orange,fontWeight:700}}>⏳ ATTENTE</span>}</td></tr>);})}
+            <thead><tr style={{background:C.fond}}>{["Date","Chantier","Lieu","Début","Fin","Pause","Total","H.100%","Logé","État"].map((h,i)=>(<th key={h} style={{padding:"11px 16px",textAlign:i>2?"right":"left",fontSize:9,letterSpacing:"0.15em",color:C.gris,fontWeight:500,borderBottom:`1px solid ${C.ligne}`,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>))}</tr></thead>
+            <tbody>{mesPtg.map((p,idx)=>{const ch=chantiers.find(c=>c.id===p.chantier);const h=calcHeures(p);const estAujourd=p.date===auj;return(<tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`,background:estAujourd?"#FFFDE7":idx%2===0?C.papier:"#F8F6F0"}}><td style={{padding:"12px 16px",whiteSpace:"nowrap"}}><div style={{fontWeight:estAujourd?700:500,fontSize:12}}>{fmtDate(p.date)}</div>{estAujourd&&<div style={{fontSize:10,color:C.vert,fontWeight:700,marginTop:2}}>AUJOURD'HUI</div>}</td><td style={{padding:"12px 16px"}}>{ch?<span style={{fontSize:11,padding:"3px 8px",fontWeight:700,background:ch.couleur,color:ch.couleur==="#F5C518"?"#0A0A0A":"#fff"}}>{ch.nom}</span>:<span style={{color:C.gris}}>—</span>}</td><td style={{padding:"12px 16px",fontSize:11,color:C.gris}}>{ch?`📍 ${ch.ville}`:"—"}</td><td style={{padding:"12px 16px",textAlign:"right",fontWeight:500}}>{p.debut}</td><td style={{padding:"12px 16px",textAlign:"right",fontWeight:500}}>{p.fin}</td><td style={{padding:"12px 16px",textAlign:"right",color:C.gris}}>{p.pause}min</td><td style={{padding:"12px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:16}}>{fmtH(h)}</b></td><td style={{padding:"12px 16px",textAlign:"right"}}>{(()=>{const h1=calcH100(p);return h1>0?<b style={{color:"#C0392B",fontSize:13}} title={nomFerie(p.date)||"Dimanche"}>{fmtH(h1)}</b>:<span style={{color:C.ligne}}>—</span>;})()}</td><td style={{padding:"12px 16px",textAlign:"right"}}>{p.deplacement?<span style={{fontSize:12,color:C.bleu,fontWeight:700}} title="Déplacement avec logement">🛏</span>:<span style={{color:C.ligne}}>—</span>}</td><td style={{padding:"12px 16px",textAlign:"right"}}>{p.valide?<span style={{fontSize:10,color:C.vert,fontWeight:700}}>✓ VALIDÉ</span>:<span style={{fontSize:10,color:C.orange,fontWeight:700}}>⏳ ATTENTE</span>}</td></tr>);})}
             </tbody>
-            <tfoot><tr style={{borderTop:`2px solid ${C.encre}`,background:C.fond}}><td colSpan={6} style={{padding:"12px 16px",fontWeight:700,fontSize:11}}>TOTAL</td><td style={{padding:"12px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:20,fontWeight:800}}>{fmtH(totalTout)}</b></td><td></td></tr></tfoot>
+            <tfoot><tr style={{borderTop:`2px solid ${C.encre}`,background:C.fond}}><td colSpan={6} style={{padding:"12px 16px",fontWeight:700,fontSize:11}}>TOTAL</td><td style={{padding:"12px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:20,fontWeight:800}}>{fmtH(totalTout)}</b></td><td style={{padding:"12px 16px",textAlign:"right"}}><b style={{fontFamily:FT,fontSize:15,color:"#C0392B"}}>{(()=>{const t=mesPtg.reduce((s,x)=>s+calcH100(x),0);return t>0?fmtH(Math.round(t*100)/100):"—";})()}</b></td><td style={{padding:"12px 16px",textAlign:"right",color:C.bleu,fontWeight:800}}>{mesNuitees>0?mesNuitees:"—"}</td><td></td></tr></tfoot>
           </table>
         </div>}
       <div style={{marginTop:16,padding:"12px 16px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11,color:C.gris}}>🔒 Vous consultez uniquement vos propres heures. Pour toute modification, contactez la RH.</div>
@@ -1460,6 +1911,68 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
     setPointages([]);setAbsences([]);setChantiers([]);setInterimaires([]);
   };
   const [msgReset,setMsgReset]=useState("");
+
+  // ---- Serveur Google ----
+  const [apiUrl,setApiUrlLocal]=useState(getApiUrl());
+  const [msgApi,setMsgApi]=useState("");
+  const [testEnCours,setTestEnCours]=useState(false);
+  const [nbAttente,setNbAttente]=useState(outboxCount());
+  const [envoiEnCours,setEnvoiEnCours]=useState(false);
+  const [migrationEnCours,setMigrationEnCours]=useState(false);
+  const [msgMigration,setMsgMigration]=useState("");
+  useEffect(()=>{ const t=setInterval(()=>setNbAttente(outboxCount()),3000); return ()=>clearInterval(t); },[]);
+
+  const testerServeur=async()=>{
+    const u=(apiUrl||"").trim();
+    if(!u){setMsgApi("Renseignez d'abord l'adresse.");return;}
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u)){
+      setMsgApi("L'adresse doit ressembler à :\nhttps://script.google.com/macros/s/AKfy…/exec\n(vérifiez qu'elle finit bien par /exec)");return;
+    }
+    setTestEnCours(true);setMsgApi("");
+    const ancienne=getApiUrl();
+    try{
+      setApiUrl(u);
+      const r=await api("ping",{});
+      setMsgApi(`✓ Serveur joignable — version ${r.version||"?"}. Cliquez sur ENREGISTRER pour l'utiliser.`);
+    }catch(e){
+      setApiUrl(ancienne);
+      setMsgApi("Échec : "+e.message+"\n\nVérifiez que le déploiement est en accès « Tout le monde » et que l'adresse finit par /exec.");
+    }finally{setTestEnCours(false);}
+  };
+
+  const enregistrerApiUrl=()=>{
+    const u=(apiUrl||"").trim();
+    setApiUrl(u);
+    setMsgApi(u?"✓ Adresse enregistrée. Rechargez l'application (Ctrl+Maj+R) puis reconnectez-vous.":"✓ Adresse effacée : retour au mode Supabase après rechargement.");
+  };
+
+  const forcerEnvoi=async()=>{
+    setEnvoiEnCours(true);
+    const r=await viderOutbox();
+    setNbAttente(outboxCount());
+    setEnvoiEnCours(false);
+    setMsgApi(r.erreur? "Envoi incomplet : "+r.erreur.message+`\n${r.restants} opération(s) toujours en attente (conservées).`
+                      : `✓ ${r.envoyes} opération(s) envoyée(s). File d'attente vide.`);
+  };
+
+  const migrerVersGoogle=async()=>{
+    if(!window.confirm(`Transférer vers Google :\n\n• ${salaries.length} salarié(s)\n• ${interimaires.length} intérimaire(s)\n• ${chantiers.length} chantier(s)\n• ${pointages.length} pointage(s)\n• ${absences.length} absence(s)\n\nLe serveur refusera d'écraser des feuilles déjà remplies. Continuer ?`))return;
+    setMigrationEnCours(true);setMsgMigration("");
+    try{
+      const r=await api("importerTout",{jeton:getJeton(),donnees:{
+        salaries,interimaires,chantiers,pointages,absences,pinRH,pinChef
+      }});
+      const lignes=Object.entries(r.rapport||{}).map(([t,d])=>
+        d.ignore ? `• ${t} : IGNORÉ (${d.existantes} ligne(s) déjà présentes, ${d.recues} envoyée(s))`
+                 : `• ${t} : ${d.importees}/${d.recues} transféré(s) — total sur Google : ${d.total}`);
+      const ecarts=Object.entries(r.rapport||{}).filter(([t,d])=>!d.ignore&&d.importees!==d.recues);
+      setMsgMigration((ecarts.length?"⚠ Transfert terminé avec des écarts :\n":"✓ Transfert terminé et vérifié :\n")
+        +lignes.join("\n")+`\n\nSauvegarde créée : ${r.sauvegarde||"—"}`
+        +(ecarts.length?"\n\nCertaines lignes n'ont pas été transférées — ne supprimez rien et prévenez l'administrateur.":"\n\nVos données sont désormais sur Google. Rechargez l'application."));
+    }catch(e){
+      setMsgMigration("Échec du transfert : "+e.message+"\n\nAucune donnée n'a été perdue : tout est encore dans l'application et sur Supabase.");
+    }finally{setMigrationEnCours(false);}
+  };
   const remettreHeuresAZero=()=>{
     if(!window.confirm(`⚠ Remettre les HEURES à zéro ?\n\nCela effacera ${pointages.length} pointage(s) et ${absences.length} absence(s) sur TOUS les appareils.\n\nLes salariés, chantiers et intérimaires sont conservés.\n\nCette action est définitive.`))return;
     if(!window.confirm("Dernière confirmation : effacer tous les pointages et absences ?"))return;
@@ -1487,33 +2000,50 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
         </FormInline>
       </Section>
 
-      {/* Liaison planning */}
-      <Section titre="Liaison avec le planning">
+      {/* Serveur Google Apps Script */}
+      <Section titre="Serveur Google (hébergement des données)">
+        {MODE()==="google"
+          ? <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"#E8F5E9",border:`1px solid ${C.vert}`,fontSize:12,marginBottom:14}}>
+              <span style={{fontSize:18}}>🔒</span>
+              <div>
+                <div style={{fontWeight:700,color:C.vert}}>Mode Google actif</div>
+                <div style={{color:C.gris,marginTop:2}}>Les données sont dans votre Google Sheet privé. Aucune clé d'accès n'est présente dans la page. Les codes sont vérifiés par le serveur.</div>
+              </div>
+            </div>
+          : <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"#FFF8E1",border:`1.5px solid ${C.jaune}`,fontSize:12,marginBottom:14}}>
+              <span style={{fontSize:18}}>⚠</span>
+              <div>
+                <div style={{fontWeight:700,color:"#B7770D"}}>Mode Supabase (ancien)</div>
+                <div style={{color:C.gris,marginTop:2}}>La clé de la base est visible dans la page : toute personne connaissant l'adresse de l'app peut lire et modifier les données. Renseignez l'adresse du serveur Google ci-dessous pour y remédier.</div>
+              </div>
+            </div>}
         <FormInline>
-          <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.5}}>Lien de l'API du planning (Google Apps Script). Sert au bouton <b>« 📅 Importer le planning »</b> de l'onglet Pointages. Doit se terminer par <code>/exec</code>.</div>
+          <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.5}}>Adresse du déploiement Apps Script. Elle se termine par <code>/exec</code>. Voir la notice <b>GUIDE_MISE_EN_SERVICE.md</b>.</div>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
-            <Champ label="LIEN DU PLANNING">
-              <input type="url" value={planningUrl} onChange={e=>setPlanningUrl(e.target.value)} placeholder="https://script.google.com/macros/s/…/exec" style={{...inputStyle,minWidth:380}}/>
+            <Champ label="ADRESSE DU SERVEUR GOOGLE">
+              <input type="url" value={apiUrl} onChange={e=>{setApiUrlLocal(e.target.value);setMsgApi("");}} placeholder="https://script.google.com/macros/s/…/exec" style={{...inputStyle,minWidth:420}}/>
             </Champ>
-            <Btn onClick={sauverPlanningUrl}>ENREGISTRER</Btn>
+            <Btn variant="ghost" onClick={testerServeur} disabled={testEnCours}>{testEnCours?"TEST…":"⚡ TESTER"}</Btn>
+            <Btn onClick={enregistrerApiUrl}>ENREGISTRER</Btn>
           </div>
-          {msgPlanning&&<div style={{color:C.vert,fontSize:12,fontWeight:700,marginTop:8}}>{msgPlanning}</div>}
+          {msgApi&&<div style={{marginTop:10,padding:"9px 14px",fontSize:12,fontWeight:600,background:msgApi.startsWith("✓")?"#EAF7F4":"#FFF0F0",border:`1.5px solid ${msgApi.startsWith("✓")?C.vert:C.orange}`,color:msgApi.startsWith("✓")?C.vert:C.orange,whiteSpace:"pre-wrap"}}>{msgApi}</div>}
         </FormInline>
+        <div style={{marginTop:14,display:"flex",gap:12,flexWrap:"wrap"}}>
+          <Btn variant="ghost" onClick={onReloadSupabase}>⟳ SYNCHRONISER MAINTENANT</Btn>
+          {MODE()==="google"&&<Btn variant="ghost" onClick={forcerEnvoi} disabled={envoiEnCours}>{envoiEnCours?"ENVOI…":`📤 ENVOYER LA FILE D'ATTENTE (${nbAttente})`}</Btn>}
+        </div>
+        {nbAttente>0&&<div style={{marginTop:10,padding:"9px 14px",background:"#FFF8E1",border:`1.5px solid #B7770D`,fontSize:12,fontWeight:600,color:"#B7770D"}}>⏳ {nbAttente} enregistrement(s) en attente d'envoi. Ils sont conservés sur cet appareil : rien n'est perdu, l'envoi se refera automatiquement.</div>}
       </Section>
 
-      {/* Supabase — statut */}
-      <Section titre="Synchronisation cloud">
-        <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"#E8F5E9",border:`1px solid ${C.vert}`,fontSize:12}}>
-          <span style={{fontSize:18}}>✓</span>
-          <div>
-            <div style={{fontWeight:700,color:C.vert}}>Supabase connecté</div>
-            <div style={{color:C.gris,marginTop:2}}>Toutes les données sont synchronisées en temps réel sur tous les appareils.</div>
-          </div>
+      {/* Migration vers Google */}
+      {MODE()==="google"&&<Section titre="Reprise des données existantes">
+        <div style={{padding:"12px 16px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontSize:12,lineHeight:1.6,marginBottom:14}}>
+          Transfère vers Google <b>toutes les données actuellement chargées</b> dans cette application : {salaries.length} salarié(s), {interimaires.length} intérimaire(s), {chantiers.length} chantier(s), {pointages.length} pointage(s), {absences.length} absence(s).
+          <div style={{marginTop:6,color:C.gris}}>Sans risque : le serveur <b>refuse d'écraser</b> une feuille qui contient déjà des données, et crée une sauvegarde juste après le transfert.</div>
         </div>
-        <div style={{marginTop:12}}>
-          <Btn variant="ghost" onClick={onReloadSupabase}>⟳ SYNCHRONISER MAINTENANT</Btn>
-        </div>
-      </Section>
+        <Btn onClick={migrerVersGoogle} disabled={migrationEnCours}>{migrationEnCours?"TRANSFERT EN COURS…":"↗ TRANSFÉRER MES DONNÉES VERS GOOGLE"}</Btn>
+        {msgMigration&&<div style={{marginTop:12,padding:"12px 16px",fontSize:12,lineHeight:1.6,background:msgMigration.startsWith("✓")?"#EAF7F4":"#FFF0F0",border:`1.5px solid ${msgMigration.startsWith("✓")?C.vert:C.orange}`,whiteSpace:"pre-wrap"}}>{msgMigration}</div>}
+      </Section>}
 
       {/* Remise à zéro des heures */}
       <Section titre="Remise à zéro des heures">
@@ -1595,6 +2125,7 @@ function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires
             const nouveaux=equipe.map(m=>({
               id:genId("P"),salarie:m.id,chantier:chantierSel.id,date:dateRapport,
               debut:m.debut,fin:m.fin,pause:m.pause,commentaire:m.commentaire||"",
+              deplacement:!!m.deplacement,
               valide:false,interim:m.type==="interim",
               valideParInterimaire:m.type==="interim"?validationsInt[m.id]===true:null,
               horodatageValidation:m.type==="interim"&&validationsInt[m.id]?now:null,
@@ -1821,6 +2352,7 @@ function MPointage({chantier,chef,equipe,setEquipe,salaries,interimaires,dateRap
     <MFormWrap titre="HORAIRES PAR PERSONNE" onRetour={onRetour}>
       <ChantierBandeau chantier={chantier}/>
       <div style={{padding:"6px 0",fontSize:11,color:C.gris,fontWeight:700,letterSpacing:"0.05em",borderBottom:`1px solid ${C.ligne}`,marginBottom:4}}>📅 {dateFrCourt(dateRapport).toUpperCase()}</div>
+      {estMajore100(dateRapport)&&<div style={{margin:"0 0 8px",padding:"7px 10px",background:"#FDECEA",border:`1.5px solid #C0392B`,fontSize:10,color:"#C0392B",fontWeight:700,lineHeight:1.4}}>🔴 {nomFerie(dateRapport)?`JOUR FÉRIÉ — ${nomFerie(dateRapport).toUpperCase()}`:"DIMANCHE"} · heures majorées à 100 %</div>}
       <div style={{overflowY:"auto",flex:1,padding:"4px 0 8px"}}>
         {equipe.map(m=>{const isChef=m.id===chef?.id;const isInt=m.type==="interim";const ag=isInt?getAg(m.id):null;const total=calcHeures(m);const valide=validationsInt[m.id];
         return(
@@ -1841,6 +2373,10 @@ function MPointage({chantier,chef,equipe,setEquipe,salaries,interimaires,dateRap
             <div style={{marginBottom:isInt?8:0}}>
               <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>COMMENTAIRE (OPTIONNEL)</div>
               <textarea value={m.commentaire||""} onChange={e=>upd(m.id,"commentaire",e.target.value)} placeholder="Remarque, incident..." rows={2} style={{width:"100%",padding:"8px 10px",background:C.papier,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:11,outline:"none",resize:"vertical",boxSizing:"border-box"}}/>
+            </div>
+            <div onClick={()=>upd(m.id,"deplacement",!m.deplacement)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginTop:8,background:m.deplacement?"#E8F0FE":C.papier,border:`1.5px solid ${m.deplacement?C.bleu:C.ligne}`,cursor:"pointer"}}>
+              <div style={{width:20,height:20,border:`2px solid ${m.deplacement?C.bleu:C.gris}`,background:m.deplacement?C.bleu:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{m.deplacement&&<span style={{color:"#fff",fontSize:13,fontWeight:700,lineHeight:1}}>✓</span>}</div>
+              <div style={{fontSize:11,lineHeight:1.4}}><b>🛏 Déplacement avec logement</b><div style={{color:C.gris,fontSize:10}}>{m.deplacement?"1 nuitée comptabilisée":"Cocher si la personne est logée sur place"}</div></div>
             </div>
             {isInt&&(<div onClick={()=>toggleValidInt(m.id)} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px",background:valide?"#E8F5E9":"#FFF8E1",border:`1.5px solid ${valide?C.vert:C.orange}`,cursor:"pointer",marginTop:4}}>
               <div style={{width:22,height:22,border:`2px solid ${valide?C.vert:C.orange}`,background:valide?C.vert:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{valide&&<span style={{color:"#fff",fontSize:14,fontWeight:700,lineHeight:1}}>✓</span>}</div>
