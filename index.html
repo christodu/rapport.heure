@@ -1956,12 +1956,37 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
   };
 
   const migrerVersGoogle=async()=>{
-    if(!window.confirm(`Transférer vers Google :\n\n• ${salaries.length} salarié(s)\n• ${interimaires.length} intérimaire(s)\n• ${chantiers.length} chantier(s)\n• ${pointages.length} pointage(s)\n• ${absences.length} absence(s)\n\nLe serveur refusera d'écraser des feuilles déjà remplies. Continuer ?`))return;
-    setMigrationEnCours(true);setMsgMigration("");
+    setMigrationEnCours(true);setMsgMigration("Lecture des données d'origine…");
+    // La source de vérité pour la migration est SUPABASE, pas l'écran courant :
+    // en mode Google l'app a déjà rechargé (des tables vides) par-dessus le cache.
+    let src={salaries,interimaires,chantiers,pointages,absences}, origine="l'application";
     try{
-      const r=await api("importerTout",{jeton:getJeton(),donnees:{
-        salaries,interimaires,chantiers,pointages,absences,pinRH,pinChef
-      }});
+      const sb=getSb();
+      if(sb){
+        const [s,i,c,p,a]=await Promise.all([
+          sb.from("salaries").select("*"), sb.from("interimaires").select("*"),
+          sb.from("chantiers").select("*"), sb.from("pointages").select("*"),
+          sb.from("absences").select("*"),
+        ]);
+        const pioche=(res,repli)=>(!res.error&&res.data&&res.data.length)?listeVersJS(res.data):repli;
+        src={ salaries:pioche(s,salaries.length?salaries:REAL_SALARIES),
+              interimaires:pioche(i,interimaires), chantiers:pioche(c,chantiers),
+              pointages:pioche(p,pointages),       absences:pioche(a,absences) };
+        origine="Supabase";
+      }
+    }catch(e){ /* Supabase injoignable : on retombe sur l'état courant */ }
+    if(!src.salaries.length) src.salaries=REAL_SALARIES;
+
+    setMigrationEnCours(false);
+    if(!window.confirm(`Transférer vers Google (source : ${origine}) :\n\n`+
+      `• ${src.salaries.length} salarié(s)\n• ${src.interimaires.length} intérimaire(s)\n`+
+      `• ${src.chantiers.length} chantier(s)\n• ${src.pointages.length} pointage(s)\n`+
+      `• ${src.absences.length} absence(s)\n\n`+
+      `Le serveur refusera d'écraser des feuilles déjà remplies. Continuer ?`))
+      { setMsgMigration(""); return; }
+    setMigrationEnCours(true);setMsgMigration("Transfert en cours…");
+    try{
+      const r=await api("importerTout",{jeton:getJeton(),donnees:Object.assign({},src,{pinRH,pinChef})});
       const lignes=Object.entries(r.rapport||{}).map(([t,d])=>
         d.ignore ? `• ${t} : IGNORÉ (${d.existantes} ligne(s) déjà présentes, ${d.recues} envoyée(s))`
                  : `• ${t} : ${d.importees}/${d.recues} transféré(s) — total sur Google : ${d.total}`);
@@ -2038,8 +2063,8 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
       {/* Migration vers Google */}
       {MODE()==="google"&&<Section titre="Reprise des données existantes">
         <div style={{padding:"12px 16px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontSize:12,lineHeight:1.6,marginBottom:14}}>
-          Transfère vers Google <b>toutes les données actuellement chargées</b> dans cette application : {salaries.length} salarié(s), {interimaires.length} intérimaire(s), {chantiers.length} chantier(s), {pointages.length} pointage(s), {absences.length} absence(s).
-          <div style={{marginTop:6,color:C.gris}}>Sans risque : le serveur <b>refuse d'écraser</b> une feuille qui contient déjà des données, et crée une sauvegarde juste après le transfert.</div>
+          Va relire <b>directement dans Supabase</b> l'intégralité de vos données d'origine (salariés, intérimaires, chantiers, pointages, absences) et les transfère vers Google. Le décompte exact vous sera montré pour confirmation avant l'envoi.
+          <div style={{marginTop:6,color:C.gris}}>Sans risque : le serveur <b>refuse d'écraser</b> une feuille qui contient déjà des données, crée une sauvegarde juste après le transfert, et Supabase reste intact.</div>
         </div>
         <Btn onClick={migrerVersGoogle} disabled={migrationEnCours}>{migrationEnCours?"TRANSFERT EN COURS…":"↗ TRANSFÉRER MES DONNÉES VERS GOOGLE"}</Btn>
         {msgMigration&&<div style={{marginTop:12,padding:"12px 16px",fontSize:12,lineHeight:1.6,background:msgMigration.startsWith("✓")?"#EAF7F4":"#FFF0F0",border:`1.5px solid ${msgMigration.startsWith("✓")?C.vert:C.orange}`,whiteSpace:"pre-wrap"}}>{msgMigration}</div>}
