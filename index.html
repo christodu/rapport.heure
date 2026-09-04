@@ -330,7 +330,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v2.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v2.4"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -6820,7 +6820,15 @@ function VueMobile({
   const clientsConnus = [...new Set(chantiers.map(c => (c.client || "").trim()).filter(c => c && c !== "—"))].sort((a, b) => a.localeCompare(b));
 
   // Autocomplétion d'adresse — Base Adresse Nationale (service public, gratuit)
+  // Quand l'utilisateur CHOISIT une adresse, on remplit le champ : il ne faut
+  // surtout pas relancer une recherche là-dessus, sinon la liste réapparaît.
+  const ignorerRecherche = useRef(false);
   useEffect(() => {
+    if (ignorerRecherche.current) {
+      ignorerRecherche.current = false;
+      setSuggestions([]);
+      return;
+    }
     const q = nomChantier.trim();
     if (!nouveauChantier || q.length < 3) {
       setSuggestions([]);
@@ -6846,9 +6854,11 @@ function VueMobile({
   }, [nomChantier, nouveauChantier]);
   const choisirAdresse = f => {
     const p = f.properties || {};
+    ignorerRecherche.current = true; // la liste ne doit pas se rouvrir
     setNomChantier(p.name || p.label || "");
     setVilleChantier([p.postcode, p.city].filter(Boolean).join(" ") || "");
     setSuggestions([]);
+    setRechercheEnCours(false);
   };
   const [erreur, setErreur] = useState("");
   const [envoye, setEnvoye] = useState(null);
