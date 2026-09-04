@@ -330,6 +330,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
+const APP_VERSION = "v2.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -919,10 +920,14 @@ const setApiUrl = u => {
 // Sans adresse Google : mode "local" (données sur cet appareil uniquement).
 // Avec adresse : mode "google", tout est enregistré sur le serveur.
 const MODE = () => getApiUrl() ? "google" : "local";
+
+// Session conservée sur l'appareil : un rafraîchissement (F5) ou la fermeture
+// de l'application ne déconnecte plus. La sécurité repose sur l'expiration du
+// jeton côté serveur (12 h), pas sur la fermeture de l'onglet.
 let _jeton = null;
 const getJeton = () => _jeton || (() => {
   try {
-    return sessionStorage.getItem("chok_jeton");
+    return localStorage.getItem("chok_jeton");
   } catch (e) {
     return null;
   }
@@ -930,9 +935,45 @@ const getJeton = () => _jeton || (() => {
 const setJeton = j => {
   _jeton = j;
   try {
-    j ? sessionStorage.setItem("chok_jeton", j) : sessionStorage.removeItem("chok_jeton");
+    j ? localStorage.setItem("chok_jeton", j) : localStorage.removeItem("chok_jeton");
   } catch (e) {}
 };
+const getSessionSauvee = () => {
+  try {
+    return JSON.parse(localStorage.getItem("chok_session") || "null");
+  } catch (e) {
+    return null;
+  }
+};
+const setSessionSauvee = s => {
+  try {
+    s ? localStorage.setItem("chok_session", JSON.stringify(s)) : localStorage.removeItem("chok_session");
+  } catch (e) {}
+};
+
+/**
+ * Réveil du serveur.
+ * Un serveur Google endormi met jusqu'à 30 secondes à répondre au premier
+ * appel. On le réveille dès l'ouverture de l'application, pendant que
+ * l'utilisateur choisit son nom : le temps est ainsi masqué.
+ */
+let _reveilLance = false;
+function reveillerServeur() {
+  if (_reveilLance || !getApiUrl()) return;
+  _reveilLance = true;
+  try {
+    fetch(getApiUrl(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        action: "ping"
+      }),
+      keepalive: true
+    }).catch(() => {});
+  } catch (e) {}
+}
 
 /** Appel au serveur Google. Renvoie l'objet JSON ou lève une erreur lisible. */
 async function api(action, params) {
@@ -1214,7 +1255,10 @@ function App() {
   /** Chargement depuis le serveur Google (données déjà cloisonnées par rôle). */
   const chargerDepuisGoogle = useCallback(async () => {
     if (MODE() !== "google" || !getJeton()) return;
-    setAppLoading(true);
+    // On ne bloque l'écran QUE si on n'a rien à afficher. Sinon on montre
+    // les dernières données connues et on rafraîchit en arrière-plan.
+    const dejaDesDonnees = (refs.pointages.current || []).length > 0 || (refs.salaries.current || []).length > 0;
+    if (!dejaDesDonnees) setAppLoading(true);
     setSyncState("syncing");
     try {
       // On envoie d'abord ce qui attend, pour ne pas écraser des saisies locales.
@@ -1238,6 +1282,7 @@ function App() {
       setSyncState("err");
       if (e && e.expire) {
         setJeton(null);
+        setSessionSauvee(null);
         setSession(null);
       }
     } finally {
@@ -1335,9 +1380,12 @@ function App() {
   const setChantiers = makeSetter(setChantiersRaw, refs.chantiers, "chok_chantiers", "chantiers");
   const setPointages = makeSetter(setPointagesRaw, refs.pointages, "chok_pointages", "pointages");
   const setAbsences = makeSetter(setAbsencesRaw, refs.absences, "chok_absences", "absences");
-  const [session, setSession] = useState(null);
+
+  // Session restaurée au démarrage : un rafraîchissement ne déconnecte pas.
+  const [session, setSession] = useState(() => getJeton() ? getSessionSauvee() : null);
   const connexionReussie = async s => {
     setSession(s);
+    setSessionSauvee(s);
     if (MODE() === "google") {
       await chargerDepuisGoogle();
     }
@@ -1345,8 +1393,18 @@ function App() {
   const seDeconnecter = () => {
     if (outboxCount() && !window.confirm(`⚠ ${outboxCount()} enregistrement(s) n'ont pas encore été envoyés au serveur.\n\n` + `Ils sont conservés sur cet appareil et repartiront à la prochaine connexion.\n\nSe déconnecter quand même ?`)) return;
     setJeton(null);
+    setSessionSauvee(null);
     setSession(null);
   };
+
+  // Au chargement : on réveille le serveur tout de suite, et si une session
+  // valide existe on recharge les données sans repasser par la connexion.
+  useEffect(() => {
+    reveillerServeur();
+    if (MODE() === "google" && getJeton() && getSessionSauvee()) {
+      chargerDepuisGoogle();
+    }
+  }, []);
   const donnees = {
     salaries,
     setSalaries,
@@ -1456,15 +1514,21 @@ function EcranConnexion({
   const [erreur, setErreur] = useState("");
   const [enCours, setEnCours] = useState(false);
 
-  // Liste des noms : depuis le serveur (appareil neuf), sinon cache local.
-  const [personnesServeur, setPersonnesServeur] = useState(null);
-  const [chargementListe, setChargementListe] = useState(MODE() === "google");
+  // Liste des noms : affichée IMMÉDIATEMENT depuis le cache local,
+  // puis rafraîchie en arrière-plan. Plus aucune attente à l'ouverture.
+  const [personnesServeur, setPersonnesServeur] = useState(() => load("chok_personnes", null));
+  const [chargementListe, setChargementListe] = useState(MODE() === "google" && !load("chok_personnes", null));
   useEffect(() => {
     if (MODE() !== "google") {
       setChargementListe(false);
       return;
     }
-    api("listePersonnes", {}).then(r => setPersonnesServeur(r.personnes || [])).catch(() => setPersonnesServeur(null)).finally(() => setChargementListe(false));
+    api("listePersonnes", {}).then(r => {
+      const p = r.personnes || [];
+      setPersonnesServeur(p);
+      save("chok_personnes", p);
+    }).catch(() => {}) // en cas d'échec on garde la liste en cache
+    .finally(() => setChargementListe(false));
   }, []);
   const toutes = personnesServeur ? personnesServeur : [...salaries.map(s => ({
     ...s,
@@ -1719,7 +1783,14 @@ function EcranConnexion({
       overflowY: "auto",
       paddingRight: 2
     }
-  }, filtrees.map(carteNom)), /*#__PURE__*/React.createElement("button", {
+  }, filtrees.map(carteNom)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      fontSize: 10,
+      color: C.gris,
+      marginTop: 14
+    }
+  }, APP_VERSION), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setEtape("direction");
       setPin("");
@@ -6740,6 +6811,45 @@ function VueMobile({
   const [nouveauChantier, setNouveauChantier] = useState(false);
   const [nomChantier, setNomChantier] = useState("");
   const [villeChantier, setVilleChantier] = useState("");
+  const [clientChantier, setClientChantier] = useState("");
+  const [clientAutre, setClientAutre] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [rechercheEnCours, setRechercheEnCours] = useState(false);
+
+  // Clients déjà utilisés, pour éviter les doublons d'orthographe
+  const clientsConnus = [...new Set(chantiers.map(c => (c.client || "").trim()).filter(c => c && c !== "—"))].sort((a, b) => a.localeCompare(b));
+
+  // Autocomplétion d'adresse — Base Adresse Nationale (service public, gratuit)
+  useEffect(() => {
+    const q = nomChantier.trim();
+    if (!nouveauChantier || q.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    let annule = false;
+    setRechercheEnCours(true);
+    const minuteur = setTimeout(() => {
+      fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5`).then(r => r.ok ? r.json() : Promise.reject()).then(d => {
+        if (!annule) setSuggestions(d.features || []);
+      }).catch(() => {
+        if (!annule) setSuggestions([]);
+      }).finally(() => {
+        if (!annule) setRechercheEnCours(false);
+      });
+    }, 350);
+    return () => {
+      annule = true;
+      clearTimeout(minuteur);
+      setRechercheEnCours(false);
+      clearTimeout(minuteur);
+    };
+  }, [nomChantier, nouveauChantier]);
+  const choisirAdresse = f => {
+    const p = f.properties || {};
+    setNomChantier(p.name || p.label || "");
+    setVilleChantier([p.postcode, p.city].filter(Boolean).join(" ") || "");
+    setSuggestions([]);
+  };
   const [erreur, setErreur] = useState("");
   const [envoye, setEnvoye] = useState(null);
   const chantiersActifs = chantiers.filter(c => c.actif !== false);
@@ -6775,11 +6885,12 @@ function VueMobile({
   });
   const creerChantier = () => {
     if (nomChantier.trim().length < 2) return;
+    const client = (clientChantier === "__autre__" ? clientAutre : clientChantier).trim();
     const c = {
       id: genId("C"),
       nom: nomChantier.trim(),
       ville: villeChantier.trim() || "—",
-      client: "—",
+      client: client || "—",
       couleur: COULEURS_CHANTIER[chantiers.length % COULEURS_CHANTIER.length],
       actif: true
     };
@@ -6787,6 +6898,9 @@ function VueMobile({
     setChantier(c.id);
     setNomChantier("");
     setVilleChantier("");
+    setClientChantier("");
+    setClientAutre("");
+    setSuggestions([]);
     setNouveauChantier(false);
   };
   const creerInterimaire = () => {
@@ -6877,6 +6991,52 @@ function VueMobile({
     setDepl(false);
     setDate(auj);
     setErreur("");
+  };
+
+  // ---- Correction d'un rapport déjà envoyé ----
+  const [correctionId, setCorrectionId] = useState(null);
+  const [corr, setCorr] = useState({
+    debut: "08:00",
+    fin: "16:00",
+    pause: 60
+  });
+
+  // Mes envois des 10 derniers jours (les miens + ceux de mes intérimaires)
+  const idsMiens = new Set([moi.id, ...mesInterimaires.map(i => i.id)]);
+  const limite = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 10);
+    return d.toISOString().slice(0, 10);
+  })();
+  const mesDerniers = pointages.filter(p => idsMiens.has(p.salarie) && p.date >= limite).sort((a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id))).slice(0, 12);
+  const ouvrirCorrection = p => {
+    setCorrectionId(p.id);
+    setCorr({
+      debut: p.debut,
+      fin: p.fin,
+      pause: p.pause
+    });
+  };
+  const enregistrerCorrection = p => {
+    if (calcHeures(corr) <= 0) {
+      window.alert("Les horaires saisis ne donnent aucune heure travaillée.");
+      return;
+    }
+    setPointages(pointages.map(x => x.id === p.id ? {
+      ...x,
+      debut: corr.debut,
+      fin: corr.fin,
+      pause: corr.pause,
+      modifiePar: moi.nom,
+      modifieLe: new Date().toISOString()
+    } : x));
+    setCorrectionId(null);
+  };
+  const supprimerRapport = p => {
+    const qui = p.salarie === moi.id ? "vos heures" : "les heures de votre intérimaire";
+    if (!window.confirm(`Supprimer ${qui} du ${new Date(p.date + "T00:00:00").toLocaleDateString("fr-FR")} ?\n\n` + `${p.debut}–${p.fin} · ${fmtH(calcHeures(p))}\n\nCette ligne sera définitivement retirée.`)) return;
+    setPointages(pointages.filter(x => x.id !== p.id));
+    setCorrectionId(null);
   };
   const boiteStyle = {
     background: C.papier,
@@ -7061,7 +7221,7 @@ function VueMobile({
   }, "— Choisir le chantier —"), chantiersActifs.map(c => /*#__PURE__*/React.createElement("option", {
     key: c.id,
     value: c.id
-  }, c.nom, c.ville && c.ville !== "—" ? ` · ${c.ville}` : ""))), chantier && /*#__PURE__*/React.createElement("div", {
+  }, c.nom, c.ville && c.ville !== "—" ? ` · ${c.ville}` : ""))), chantier && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: "8px 12px",
@@ -7070,7 +7230,30 @@ function VueMobile({
       fontSize: 12,
       fontWeight: 700
     }
-  }, "📍 ", chantier.nom, chantier.ville && chantier.ville !== "—" ? ` — ${chantier.ville}` : ""), /*#__PURE__*/React.createElement("button", {
+  }, "📍 ", chantier.nom, chantier.ville && chantier.ville !== "—" ? ` — ${chantier.ville}` : "", chantier.client && chantier.client !== "—" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontWeight: 500,
+      marginTop: 2,
+      opacity: .85
+    }
+  }, "Client : ", chantier.client)), /*#__PURE__*/React.createElement("a", {
+    href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([chantier.nom, chantier.ville].filter(v => v && v !== "—").join(" "))}`,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      display: "block",
+      marginTop: 6,
+      padding: "9px",
+      textAlign: "center",
+      border: `1.5px solid ${C.ligne}`,
+      fontFamily: FM,
+      fontSize: 11,
+      color: C.encre,
+      textDecoration: "none",
+      fontWeight: 700
+    }
+  }, "🗺 ITINÉRAIRE GOOGLE MAPS")), /*#__PURE__*/React.createElement("button", {
     onClick: () => setNouveauChantier(true),
     style: {
       marginTop: 10,
@@ -7083,22 +7266,101 @@ function VueMobile({
       color: C.gris,
       cursor: "pointer"
     }
-  }, "+ NOUVEAU CHANTIER")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+  }, "+ NOUVEAU CHANTIER")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 9,
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 4
+    }
+  }, "ADRESSE DU CHANTIER"), /*#__PURE__*/React.createElement("input", {
     value: nomChantier,
     onChange: e => setNomChantier(e.target.value),
-    placeholder: "Adresse du chantier",
+    placeholder: "Tapez l'adresse…",
     style: {
       ...champ,
+      marginBottom: 0
+    }
+  }), rechercheEnCours && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.gris,
+      padding: "5px 2px"
+    }
+  }, "Recherche…"), suggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: `1.5px solid ${C.encre}`,
+      borderTop: "none",
+      background: "#fff",
       marginBottom: 8
     }
-  }), /*#__PURE__*/React.createElement("input", {
+  }, suggestions.map((f, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    onClick: () => choisirAdresse(f),
+    style: {
+      padding: "10px 12px",
+      fontSize: 12,
+      cursor: "pointer",
+      borderBottom: i < suggestions.length - 1 ? `1px solid ${C.ligne}` : "none"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700
+    }
+  }, f.properties.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.gris
+    }
+  }, f.properties.postcode, " ", f.properties.city)))), suggestions.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 8
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 9,
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 4
+    }
+  }, "VILLE"), /*#__PURE__*/React.createElement("input", {
     value: villeChantier,
     onChange: e => setVilleChantier(e.target.value),
     placeholder: "Ville",
     style: {
       ...champ,
-      marginBottom: 10
+      marginBottom: 8
     }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 9,
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 4
+    }
+  }, "CLIENT"), /*#__PURE__*/React.createElement("select", {
+    value: clientChantier,
+    onChange: e => setClientChantier(e.target.value),
+    style: {
+      ...champ,
+      marginBottom: clientChantier === "__autre__" ? 8 : 10
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "— Choisir le client —"), clientsConnus.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  }, c)), /*#__PURE__*/React.createElement("option", {
+    value: "__autre__"
+  }, "+ Autre client…")), clientChantier === "__autre__" && /*#__PURE__*/React.createElement("input", {
+    value: clientAutre,
+    onChange: e => setClientAutre(e.target.value),
+    placeholder: "Nom du client",
+    style: {
+      ...champ,
+      marginBottom: 10
+    },
+    autoFocus: true
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -7451,7 +7713,178 @@ function VueMobile({
     }
   }, erreur), /*#__PURE__*/React.createElement(MBtn, {
     onClick: envoyer
-  }, "✓ ENVOYER LE RAPPORT"), /*#__PURE__*/React.createElement("div", {
+  }, "✓ ENVOYER LE RAPPORT"), mesDerniers.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...boiteStyle,
+      marginTop: 24
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: titreBoite
+  }, "MES DERNIERS ENVOIS"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 16px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.gris,
+      marginBottom: 10,
+      lineHeight: 1.5
+    }
+  }, "Une erreur de frappe ? Vous pouvez corriger ou supprimer tant que la direction n'a pas validé."), mesDerniers.map(p => {
+    var _interimaires$find;
+    const ch = chantiers.find(c => c.id === p.chantier);
+    const qui = p.salarie === moi.id ? "Moi" : ((_interimaires$find = interimaires.find(i => i.id === p.salarie)) === null || _interimaires$find === void 0 ? void 0 : _interimaires$find.nom) || "Intérimaire";
+    const enCorrection = correctionId === p.id;
+    return /*#__PURE__*/React.createElement("div", {
+      key: p.id,
+      style: {
+        marginBottom: 8,
+        border: `1.5px solid ${enCorrection ? C.jaune : C.ligne}`,
+        background: enCorrection ? "#FFFDE7" : C.fond
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "10px 12px",
+        display: "flex",
+        alignItems: "center",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 700
+      }
+    }, qui, " · ", fmtH(calcHeures(p))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: C.gris,
+        marginTop: 2
+      }
+    }, new Date(p.date + "T00:00:00").toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+      month: "short"
+    }), " · ", p.debut, "–", p.fin, ch ? ` · ${ch.nom}` : "")), p.valide ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        color: C.vert,
+        padding: "3px 7px",
+        border: `1px solid ${C.vert}`
+      }
+    }, "🔒 VALIDÉ") : /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        color: C.orange
+      }
+    }, "⏳ EN ATTENTE")), !p.valide && !enCorrection && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6,
+        padding: "0 12px 10px"
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => ouvrirCorrection(p),
+      style: {
+        flex: 1,
+        padding: "8px",
+        background: "transparent",
+        border: `1.5px solid ${C.encre}`,
+        fontFamily: FM,
+        fontSize: 10,
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, "✎ CORRIGER"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => supprimerRapport(p),
+      style: {
+        flex: 1,
+        padding: "8px",
+        background: "transparent",
+        border: `1.5px solid ${C.orange}`,
+        color: C.orange,
+        fontFamily: FM,
+        fontSize: 10,
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, "✕ SUPPRIMER")), enCorrection && /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "0 12px 12px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(3,1fr)",
+        gap: 6,
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "time",
+      value: corr.debut,
+      onChange: e => setCorr({
+        ...corr,
+        debut: e.target.value
+      }),
+      style: {
+        ...champ,
+        fontSize: 14,
+        padding: "9px 4px",
+        textAlign: "center"
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "time",
+      value: corr.fin,
+      onChange: e => setCorr({
+        ...corr,
+        fin: e.target.value
+      }),
+      style: {
+        ...champ,
+        fontSize: 14,
+        padding: "9px 4px",
+        textAlign: "center"
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: corr.pause,
+      min: 0,
+      step: 15,
+      onChange: e => setCorr({
+        ...corr,
+        pause: parseInt(e.target.value) || 0
+      }),
+      style: {
+        ...champ,
+        fontSize: 14,
+        padding: "9px 4px",
+        textAlign: "center"
+      }
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        marginBottom: 8,
+        fontWeight: 700
+      }
+    }, "Nouveau total : ", fmtH(calcHeures(corr))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement(MBtn, {
+      onClick: () => enregistrerCorrection(p)
+    }, "✓ ENREGISTRER"), /*#__PURE__*/React.createElement(MBtn, {
+      variant: "ghost",
+      onClick: () => setCorrectionId(null)
+    }, "ANNULER"))));
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       fontSize: 11,
@@ -7944,7 +8377,7 @@ function Footer() {
       fontWeight: 700,
       color: C.encre
     }
-  }, "RAPPORT HEURE CHOK BÉTON — v2.0"), /*#__PURE__*/React.createElement("span", {
+  }, "RAPPORT HEURE CHOK BÉTON — ", APP_VERSION), /*#__PURE__*/React.createElement("span", {
     style: {
       fontStyle: "italic",
       fontSize: 10
