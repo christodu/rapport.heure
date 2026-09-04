@@ -189,7 +189,10 @@ const calcHeures = p => {
   const [h1, m1] = p.debut.split(":").map(Number);
   const [h2, m2] = p.fin.split(":").map(Number);
   let min = h2 * 60 + m2 - (h1 * 60 + m1);
-  if (min < 0) min += 1440; // passage minuit (ex: 20h→6h)
+  // « <= 0 » et non « < 0 » : une fin identique au début est un poste de
+  // 24 h (relève continue), pas une journée vide. Avant ce correctif,
+  // saisir 06:00 → 06:00 donnait 0 h et l'heure de paie disparaissait.
+  if (min <= 0) min += 1440;
   min -= p.pause || 0;
   return Math.max(0, Math.round(min / 60 * 100) / 100);
 };
@@ -330,7 +333,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v2.4"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v2.6"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -1253,7 +1256,8 @@ function App() {
   }, []);
 
   /** Chargement depuis le serveur Google (données déjà cloisonnées par rôle). */
-  const chargerDepuisGoogle = useCallback(async () => {
+  const [infoPeriode, setInfoPeriode] = useState(null);
+  const chargerDepuisGoogle = useCallback(async toutCharger => {
     if (MODE() !== "google" || !getJeton()) return;
     // On ne bloque l'écran QUE si on n'a rien à afficher. Sinon on montre
     // les dernières données connues et on rafraîchit en arrière-plan.
@@ -1263,10 +1267,14 @@ function App() {
     try {
       // On envoie d'abord ce qui attend, pour ne pas écraser des saisies locales.
       await viderOutbox();
+      // Par défaut on ne charge que les 90 derniers jours : l'historique
+      // complet se demande explicitement (bouton dans l'onglet Archives).
       const rep = await api("charger", {
-        jeton: getJeton()
+        jeton: getJeton(),
+        tout: !!toutCharger
       });
       const d = rep.donnees || {};
+      if (rep.meta) setInfoPeriode(rep.meta);
       const pose = (arr, setter, cle) => {
         const v = arr || [];
         setter(v);
@@ -1289,8 +1297,8 @@ function App() {
       setAppLoading(false);
     }
   }, []);
-  const rechargerDonnees = useCallback(() => {
-    return MODE() === "google" ? chargerDepuisGoogle() : chargerDepuisSupabase();
+  const rechargerDonnees = useCallback(tout => {
+    return MODE() === "google" ? chargerDepuisGoogle(tout === true) : chargerDepuisSupabase();
   }, [chargerDepuisGoogle, chargerDepuisSupabase]);
 
   // Au démarrage : en mode Google on attend la connexion (les données sont
@@ -1483,7 +1491,8 @@ function App() {
     pinChef: pinChef,
     setPinChef: setPinChef,
     onChargerDemo: chargerDemo,
-    onReloadSupabase: rechargerDonnees
+    onReloadSupabase: rechargerDonnees,
+    infoPeriode: infoPeriode
   }), session.role === "chef" && /*#__PURE__*/React.createElement(VueMobile, {
     session: session,
     ...donnees
@@ -2235,7 +2244,8 @@ function VueAdmin({
   pinChef,
   setPinChef,
   onChargerDemo,
-  onReloadSupabase
+  onReloadSupabase,
+  infoPeriode
 }) {
   const [onglet, setOnglet] = useState("pointages");
   const auj = new Date().toISOString().slice(0, 10);
@@ -2395,6 +2405,8 @@ function VueAdmin({
     interimaires: interimaires,
     chantiers: chantiers
   }), onglet === "archives" && /*#__PURE__*/React.createElement(OngletArchives, {
+    infoPeriode: infoPeriode,
+    onChargerTout: () => onReloadSupabase(true),
     pointages: pointages,
     absences: absences,
     salaries: salaries,
@@ -5264,8 +5276,37 @@ function OngletArchives({
   pointages,
   salaries,
   interimaires,
-  chantiers
+  chantiers,
+  infoPeriode,
+  onChargerTout
 }) {
+  const [chargementTout, setChargementTout] = useState(false);
+  const manquants = infoPeriode && !infoPeriode.tout ? Math.max(0, (infoPeriode.pointagesTotal || 0) - (infoPeriode.pointagesCharges || 0)) : 0;
+  const bandeauPeriode = infoPeriode && !infoPeriode.tout ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16,
+      padding: "12px 16px",
+      background: C.fond,
+      border: `1.5px solid ${C.ligne}`,
+      fontSize: 12,
+      lineHeight: 1.6
+    }
+  }, "Pour rester rapide, l'application ne charge que les ", /*#__PURE__*/React.createElement("b", null, "90 derniers jours"), infoPeriode.depuis ? /*#__PURE__*/React.createElement(React.Fragment, null, " (depuis le ", new Date(infoPeriode.depuis + "T00:00:00").toLocaleDateString("fr-FR"), ")") : null, ".", manquants > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, " ", /*#__PURE__*/React.createElement("b", null, manquants, " pointage(s) plus anciens"), " ne sont pas affichés.") : /*#__PURE__*/React.createElement(React.Fragment, null, " Aucun pointage plus ancien n'existe pour le moment."), manquants > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    disabled: chargementTout,
+    onClick: async () => {
+      setChargementTout(true);
+      try {
+        await onChargerTout();
+      } finally {
+        setChargementTout(false);
+      }
+    }
+  }, chargementTout ? "CHARGEMENT…" : "↓ CHARGER TOUT L'HISTORIQUE"))) : null;
   const semCourante = semaineCouranteCle();
   const parSemaine = grouperParSemaine(pointages);
   const semainesPassees = Object.keys(parSemaine).filter(cle => cle < semCourante).sort((a, b) => b.localeCompare(a));
@@ -5311,10 +5352,10 @@ function OngletArchives({
   };
   if (semainesPassees.length === 0) return /*#__PURE__*/React.createElement(Section, {
     titre: "Archives — Semaines passées"
-  }, /*#__PURE__*/React.createElement(EmptyState, null, "Aucune semaine archivée pour le moment."));
+  }, bandeauPeriode, /*#__PURE__*/React.createElement(EmptyState, null, "Aucune semaine archivée pour le moment."));
   return /*#__PURE__*/React.createElement(Section, {
     titre: "Archives — Semaines passées"
-  }, /*#__PURE__*/React.createElement("style", null, `@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:15mm;size:A4 landscape}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header-arch{display:block!important}}.print-header-arch{display:none}`), /*#__PURE__*/React.createElement("div", {
+  }, bandeauPeriode, /*#__PURE__*/React.createElement("style", null, `@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:15mm;size:A4 landscape}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header-arch{display:block!important}}.print-header-arch{display:none}`), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 20,
@@ -6423,12 +6464,59 @@ function OngletParametres({
     setMsgPlanning("✓ Lien du planning enregistré.");
     setTimeout(() => setMsgPlanning(""), 3000);
   };
-  const sauverPins = () => {
-    if (newPinRH.length >= 4) setPinRH(newPinRH);
-    setMsgPin("✓ Code direction mis à jour.");
+
+  // Le code doit être changé SUR LE SERVEUR, sinon la modification reste
+  // locale au navigateur et l'ancien code continue de fonctionner ailleurs.
+  const sauverPins = async () => {
+    if (newPinRH.length < 4) {
+      setMsgPin("Le code doit comporter au moins 4 chiffres.");
+      return;
+    }
+    if (MODE() === "google") {
+      try {
+        await api("reglages", {
+          jeton: getJeton(),
+          pinRH: newPinRH
+        });
+        setPinRH(newPinRH);
+        setMsgPin("✓ Code direction mis à jour sur le serveur. À utiliser dès la prochaine connexion.");
+      } catch (e) {
+        setMsgPin("Échec : " + e.message);
+        return;
+      }
+    } else {
+      setPinRH(newPinRH);
+      setMsgPin("✓ Code direction mis à jour.");
+    }
     setNewPinRH("");
     setNewPinChef("");
-    setTimeout(() => setMsgPin(""), 3000);
+    setTimeout(() => setMsgPin(""), 6000);
+  };
+
+  // ---- Récapitulatif hebdomadaire par mail ----
+  const [emailRH, setEmailRH] = useState("");
+  const [msgEmail, setMsgEmail] = useState("");
+  const [emailCharge, setEmailCharge] = useState(false);
+  useEffect(() => {
+    if (MODE() !== "google" || emailCharge) return;
+    api("reglages", {
+      jeton: getJeton(),
+      lire: true
+    }).then(r => {
+      setEmailRH(r.reglages && r.reglages.emailRH || "");
+    }).catch(() => {}).finally(() => setEmailCharge(true));
+  }, []);
+  const sauverEmail = async () => {
+    try {
+      const r = await api("reglages", {
+        jeton: getJeton(),
+        emailRH
+      });
+      setMsgEmail("✓ " + (r.message || "Enregistré."));
+      setTimeout(() => setMsgEmail(""), 6000);
+    } catch (e) {
+      setMsgEmail("Échec : " + e.message);
+    }
   };
   const reinitialiserTout = () => {
     if (!window.confirm("⚠ Effacer TOUTES les données (pointages, absences, chantiers) ? Les salariés seront conservés.")) return;
@@ -6577,7 +6665,50 @@ function OngletParametres({
       fontSize: 12,
       fontWeight: 700
     }
-  }, msgPin))), /*#__PURE__*/React.createElement(Section, {
+  }, msgPin))), MODE() === "google" && /*#__PURE__*/React.createElement(Section, {
+    titre: "Récapitulatif hebdomadaire par e-mail"
+  }, /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.gris,
+      marginBottom: 10,
+      lineHeight: 1.6
+    }
+  }, "Chaque ", /*#__PURE__*/React.createElement("b", null, "lundi matin à 7 h"), ", le serveur envoie à cette adresse le total des heures de la semaine écoulée, le détail par personne, les nuitées et le nombre de pointages en attente de validation.", /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 4
+    }
+  }, "Cette adresse reçoit aussi une ", /*#__PURE__*/React.createElement("b", null, "alerte en cas d'échec de sauvegarde"), ". Laissez vide pour désactiver.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement(Champ, {
+    label: "ADRESSE E-MAIL DE LA DIRECTION"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "email",
+    value: emailRH,
+    onChange: e => {
+      setEmailRH(e.target.value);
+      setMsgEmail("");
+    },
+    placeholder: "direction@chokbeton.fr",
+    style: {
+      ...inputStyle,
+      minWidth: 300
+    }
+  })), /*#__PURE__*/React.createElement(Btn, {
+    onClick: sauverEmail
+  }, "ENREGISTRER")), msgEmail && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      fontSize: 12,
+      fontWeight: 700,
+      color: msgEmail.startsWith("✓") ? C.vert : C.orange
+    }
+  }, msgEmail))), /*#__PURE__*/React.createElement(Section, {
     titre: "Serveur Google (hébergement des données)"
   }, MODE() === "google" ? /*#__PURE__*/React.createElement("div", {
     style: {
