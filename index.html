@@ -498,7 +498,6 @@ function grouperParSemaine(pointages) {
 // ============================================================
 const REAL_SALARIES = [
   {id:"S-001",nom:"ADOU Stéphane",poste:"Chef d'équipe",equipe:"—",interne:true},
-  {id:"S-002",nom:"AKOVI Yaovi",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-003",nom:"BAKAYOKO Moussa",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-004",nom:"BAVESA Mayala",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-005",nom:"CAMARA Mady Oualy",poste:"Chef d'équipe",equipe:"—",interne:true},
@@ -506,6 +505,7 @@ const REAL_SALARIES = [
   {id:"S-008",nom:"COLPIN Maxence",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-009",nom:"COULIBALY Koniba",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-010",nom:"DE JESUS VIEIRA ALVES Marcos Lezito",poste:"Chef d'équipe",equipe:"—",interne:true},
+  {id:"S-034",nom:"DIABATE Siriman",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-011",nom:"DUARTE MENDES Evileno Ulisses",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-012",nom:"GARCIA Gomes Cumbuessana",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-013",nom:"KONATE Zan",poste:"Chef d'équipe",equipe:"—",interne:true},
@@ -528,7 +528,6 @@ const REAL_SALARIES = [
   {id:"S-030",nom:"TISSIR OMAR",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-031",nom:"TRAORE Aly",poste:"Chef d'équipe",equipe:"—",interne:true},
   {id:"S-032",nom:"TRAORE Garaba",poste:"Chef d'équipe",equipe:"—",interne:true},
-  {id:"S-033",nom:"YATABARI Ibrahima",poste:"Chef d'équipe",equipe:"—",interne:true},
 ];
 
 // ============================================================
@@ -570,6 +569,19 @@ function getSb() {
 //  Les codes d'accès et le cloisonnement sont gérés par le serveur.
 //  Aucune clé de base de données n'est présente dans cette page.
 // ============================================================
+/**
+ * Nettoie une adresse collée par l'utilisateur :
+ * espaces/retours à la ligne, "?action=etat" collé après /exec, barre finale…
+ */
+const normaliserUrlApi = (u) => {
+  let s = String(u || "").replace(/[\s ]+/g, "").trim();
+  if (!s) return "";
+  const i = s.indexOf("/exec");
+  if (i !== -1) return s.slice(0, i + 5);   // on ne garde que jusqu'à /exec
+  const d = s.indexOf("/dev");
+  if (d !== -1) return s.slice(0, d + 4);   // détecté plus loin pour message dédié
+  return s.replace(/\/+$/, "");
+};
 const getApiUrl  = () => (localStorage.getItem("chok_api_url") || "").trim();
 const setApiUrl  = (u) => { try { localStorage.setItem("chok_api_url", (u||"").trim()); } catch(e){} };
 // Tant qu'aucune adresse Google n'est renseignée, l'app continue de
@@ -813,12 +825,42 @@ function App() {
     return () => { clearInterval(t); window.removeEventListener("online", relancer); };
   }, []);
 
-  // Enregistrement du Service Worker (PWA)
+  // ---- Service Worker + mise à jour à distance ----
+  // Objectif : une nouvelle version déposée sur l'hébergeur arrive sur les
+  // téléphones sans réinstallation. iOS gardant l'app en mémoire, on vérifie
+  // aussi à chaque retour au premier plan.
+  const [majDispo, setMajDispo] = useState(false);
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js").catch(() => {});
-    }
+    if (!("serviceWorker" in navigator)) return;
+    let reg = null;
+    navigator.serviceWorker.register("./sw.js").then(r => {
+      reg = r;
+      r.addEventListener("updatefound", () => {
+        const nouveau = r.installing;
+        if (!nouveau) return;
+        nouveau.addEventListener("statechange", () => {
+          // Une nouvelle version est prête ET une ancienne tournait déjà
+          if (nouveau.state === "installed" && navigator.serviceWorker.controller) {
+            setMajDispo(true);
+          }
+        });
+      });
+      r.update().catch(()=>{});
+    }).catch(() => {});
+
+    const verifier = () => { if (reg) reg.update().catch(()=>{}); };
+    const surRetour = () => { if (document.visibilityState === "visible") verifier(); };
+    document.addEventListener("visibilitychange", surRetour);
+    const t = setInterval(verifier, 30 * 60 * 1000);   // toutes les 30 min
+    return () => { document.removeEventListener("visibilitychange", surRetour); clearInterval(t); };
   }, []);
+
+  const appliquerMaj = () => {
+    if (navigator.serviceWorker && navigator.serviceWorker.waiting) {
+      navigator.serviceWorker.waiting.postMessage("SKIP_WAITING");
+    }
+    window.location.reload();
+  };
 
   function makeSetter(rawSetter, ref, lsKey, table) {
     return (v) => {
@@ -878,9 +920,18 @@ function App() {
 
   return (
     <div>
+      {majDispo && (
+        <div onClick={appliquerMaj} style={{position:"sticky",top:0,zIndex:9999,display:"flex",
+          alignItems:"center",justifyContent:"center",gap:12,padding:"12px 16px",
+          background:C.jaune,borderBottom:`2px solid ${C.encre}`,cursor:"pointer",
+          fontFamily:FM,fontSize:12,fontWeight:700}}>
+          <span>⬆ Une nouvelle version de l'application est disponible</span>
+          <span style={{padding:"6px 12px",background:C.encre,color:C.jaune,letterSpacing:"0.1em"}}>METTRE À JOUR</span>
+        </div>
+      )}
       <Header session={session} onDeconnexion={seDeconnecter} syncState={syncState} onReload={rechargerDonnees}/>
       {session.role === "rh"     && <VueAdmin {...donnees} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onChargerDemo={chargerDemo} onReloadSupabase={rechargerDonnees}/>}
-      {session.role === "chef"   && <VueMobile {...donnees}/>}
+      {session.role === "chef"   && <VueMobile session={session} {...donnees}/>}
       {session.role === "salarie"&& <VueSalarie session={session} pointages={pointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} absences={absences}/>}
       <Footer/>
     </div>
@@ -891,157 +942,167 @@ function App() {
 //  ÉCRAN DE CONNEXION
 // ============================================================
 function EcranConnexion({salaries, interimaires, pinRH, pinChef, onConnexion}) {
-  const [mode, setMode]       = useState(null);
+  const [etape, setEtape]     = useState("nom");   // nom → code | direction
   const [pin, setPin]         = useState("");
   const [personneId, setPersonneId] = useState("");
+  const [recherche, setRecherche]   = useState("");
   const [erreur, setErreur]   = useState("");
-
-  const toutesPersonnes = [
-    ...salaries.map(s=>({...s,_type:"interne"})),
-    ...interimaires.filter(i=>i.accesPlateforme).map(i=>({...i,_type:"interim"})),
-  ];
-
   const [enCours, setEnCours] = useState(false);
-  const [etapeSal, setEtapeSal] = useState("nom");
-  // Liste des noms : depuis le serveur Google (appareil neuf), sinon cache local.
+
+  // Liste des noms : depuis le serveur (appareil neuf), sinon cache local.
   const [personnesServeur, setPersonnesServeur] = useState(null);
+  const [chargementListe, setChargementListe]   = useState(MODE()==="google");
   useEffect(() => {
-    if (MODE() !== "google") return;
+    if (MODE() !== "google") { setChargementListe(false); return; }
     api("listePersonnes", {})
       .then(r => setPersonnesServeur(r.personnes || []))
-      .catch(() => setPersonnesServeur(null));
+      .catch(() => setPersonnesServeur(null))
+      .finally(() => setChargementListe(false));
   }, []);
-  const salariesListe = personnesServeur
-    ? personnesServeur.filter(p=>p.type==="interne")
-    : salaries;
-  const interimListe = personnesServeur
-    ? personnesServeur.filter(p=>p.type==="interim")
-    : interimaires.filter(i=>i.accesPlateforme);
 
-  /** Connexion RH / chef. En mode Google, le code est vérifié par le serveur. */
-  const validerPin = async (attendu, role) => {
+  const toutes = personnesServeur
+    ? personnesServeur
+    : [...salaries.map(s=>({...s,type:"interne"})),
+       ...interimaires.filter(i=>i.accesPlateforme).map(i=>({...i,type:"interim"}))];
+
+  const filtrees = recherche.trim()
+    ? toutes.filter(p => p.nom.toLowerCase().includes(recherche.trim().toLowerCase()))
+    : toutes;
+
+  const personneSel = toutes.find(p => p.id === personneId);
+
+  const choisirPersonne = (p) => {
+    setPersonneId(p.id); setPin(""); setErreur(""); setEtape("code");
+  };
+
+  const validerCode = async () => {
     if (MODE() === "google") {
       setEnCours(true); setErreur("");
       try {
-        const r = await api("connexion", { role, pin });
+        const r = await api("connexion", { personneId, pin });
         setJeton(r.jeton);
-        onConnexion({ role });
+        onConnexion({ role: r.role, personneId, nom: r.nom });
       } catch (e) { setErreur(e.message); setPin(""); }
       finally { setEnCours(false); }
       return;
     }
-    if (pin === attendu) { onConnexion({ role }); }
-    else { setErreur("Code incorrect. Réessayez."); setPin(""); }
+    // Mode local (Supabase) : vérification dans le navigateur
+    if (pin === codeDe(personneSel)) {
+      const estChef = String(personneSel?.poste||"").toLowerCase().includes("chef");
+      onConnexion({ role: estChef ? "chef" : "salarie", personneId, nom: personneSel?.nom });
+    } else { setErreur("Code incorrect. Demandez-le à la direction."); setPin(""); }
   };
 
-  const personneSel = personnesServeur
-    ? personnesServeur.find(x=>x.id===personneId)
-    : [...salaries, ...interimaires].find(x=>x.id===personneId);
-
-  const validerSalarie = () => {
-    if (!personneId) { setErreur("Sélectionnez votre nom."); return; }
-    setErreur(""); setPin(""); setEtapeSal("code");
-  };
-
-  const validerCodeSalarie = async () => {
+  const validerDirection = async () => {
     if (MODE() === "google") {
       setEnCours(true); setErreur("");
       try {
-        const r = await api("connexion", { role: "salarie", personneId, pin });
+        const r = await api("connexion", { role: "rh", pin });
         setJeton(r.jeton);
-        onConnexion({ role: "salarie", personneId });
+        onConnexion({ role: "rh" });
       } catch (e) { setErreur(e.message); setPin(""); }
       finally { setEnCours(false); }
       return;
     }
-    if (pin === codeDe(personneSel)) { onConnexion({ role: "salarie", personneId }); }
-    else { setErreur("Code incorrect. Demandez-le à la RH."); setPin(""); }
+    if (pin === pinRH) { onConnexion({ role: "rh" }); }
+    else { setErreur("Code incorrect."); setPin(""); }
   };
 
-  const reset = () => { setMode(null); setPin(""); setPersonneId(""); setErreur(""); setEtapeSal("nom"); };
+  const retour = () => { setEtape("nom"); setPin(""); setErreur(""); setPersonneId(""); };
+
+  const carteNom = (p) => (
+    <button key={p.id} onClick={()=>choisirPersonne(p)}
+      style={{display:"flex",alignItems:"center",gap:14,width:"100%",padding:"16px 18px",
+              background:C.papier,border:`1.5px solid ${C.ligne}`,borderLeft:`5px solid ${p.type==="interim"?C.bleu:C.encre}`,
+              cursor:"pointer",textAlign:"left",marginBottom:8}}>
+      <div style={{width:42,height:42,flexShrink:0,background:p.type==="interim"?C.bleu:C.encre,
+                   color:p.type==="interim"?"#fff":C.jaune,display:"flex",alignItems:"center",
+                   justifyContent:"center",fontFamily:FT,fontWeight:800,fontSize:15}}>{initiales(p.nom)}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:15,fontWeight:700,lineHeight:1.2}}>{p.nom}</div>
+        <div style={{fontSize:11,color:C.gris,marginTop:3}}>{p.poste||"—"}{p.type==="interim"?" · Intérimaire":""}</div>
+      </div>
+      <span style={{fontSize:20,color:C.gris}}>›</span>
+    </button>
+  );
 
   return (
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
-      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:48}}>
-        <div style={{width:56,height:56,background:C.encre,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <svg width="30" height="30" viewBox="0 0 22 22" fill="none">
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",
+                 padding:"32px 20px 40px",background:C.fond}}>
+      {/* Logo */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:28}}>
+        <div style={{width:48,height:48,background:C.encre,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="26" height="26" viewBox="0 0 22 22" fill="none">
             <path d="M2 18 L11 4 L20 18 Z" stroke="#0A0A0A" strokeWidth="2" fill="#F5C518"/>
             <circle cx="11" cy="14" r="1.5" fill="#0A0A0A"/>
           </svg>
         </div>
         <div>
-          <div style={{fontFamily:FT,fontWeight:800,fontSize:28,letterSpacing:"-0.02em",lineHeight:1}}>RAPPORT HEURE</div>
-          <div style={{fontFamily:FM,fontSize:12,color:C.gris,letterSpacing:"0.2em",marginTop:4}}>CHOK BÉTON</div>
+          <div style={{fontFamily:FT,fontWeight:800,fontSize:24,letterSpacing:"-0.02em",lineHeight:1}}>RAPPORT HEURE</div>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",marginTop:3}}>CHOK BÉTON</div>
         </div>
       </div>
 
-      {enCours && <div style={{marginBottom:16,padding:"10px 16px",background:C.jaune,border:`1.5px solid ${C.encre}`,fontFamily:FM,fontSize:11,fontWeight:700,letterSpacing:"0.1em"}}>VÉRIFICATION DU CODE…</div>}
+      {/* ---------- ÉTAPE 1 : JE CHOISIS MON NOM ---------- */}
+      {etape === "nom" && (
+        <div style={{width:"100%",maxWidth:440}}>
+          <div style={{fontFamily:FT,fontSize:26,fontWeight:800,textAlign:"center",marginBottom:6}}>Qui êtes-vous ?</div>
+          <div style={{fontSize:13,color:C.gris,textAlign:"center",marginBottom:20}}>Touchez votre nom dans la liste</div>
 
-      {!mode && (
-        <div style={{width:"100%",maxWidth:420}}>
-          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>QUI ÊTES-VOUS ?</div>
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <button onClick={()=>setMode("rh")} style={{padding:"20px 24px",background:C.encre,border:"none",color:C.papier,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer",display:"flex",alignItems:"center",gap:16,textAlign:"left"}}>
-              <span style={{fontSize:28}}>🏢</span>
-              <div><div>RH / ADMIN</div><div style={{fontSize:10,fontWeight:400,color:C.gris,marginTop:3}}>Accès complet — lecture et modification</div></div>
-            </button>
-            <button onClick={()=>setMode("chef")} style={{padding:"20px 24px",background:C.jaune,border:`2px solid ${C.encre}`,color:C.encre,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer",display:"flex",alignItems:"center",gap:16,textAlign:"left"}}>
-              <span style={{fontSize:28}}>👷</span>
-              <div><div>CHEF D'ÉQUIPE</div><div style={{fontSize:10,fontWeight:400,color:"#555",marginTop:3}}>Saisie des rapports d'heures</div></div>
-            </button>
-            <button onClick={()=>setMode("salarie")} style={{padding:"20px 24px",background:C.papier,border:`2px solid ${C.encre}`,color:C.encre,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer",display:"flex",alignItems:"center",gap:16,textAlign:"left"}}>
-              <span style={{fontSize:28}}>👤</span>
-              <div><div>SALARIÉ</div><div style={{fontSize:10,fontWeight:400,color:C.gris,marginTop:3}}>Consulter mes propres heures</div></div>
-            </button>
+          {toutes.length > 6 && (
+            <input value={recherche} onChange={e=>setRecherche(e.target.value)} placeholder="🔍  Rechercher mon nom…"
+              style={{width:"100%",boxSizing:"border-box",padding:"14px 16px",marginBottom:14,background:C.papier,
+                      border:`1.5px solid ${C.encre}`,fontFamily:FM,fontSize:15,outline:"none"}}/>
+          )}
+
+          {chargementListe
+            ? <div style={{padding:"40px",textAlign:"center",color:C.gris,fontSize:13}}>Chargement de la liste…</div>
+            : filtrees.length === 0
+              ? <div style={{padding:"24px",background:"#FFF8E1",border:`1.5px solid ${C.jaune}`,fontSize:13,textAlign:"center",lineHeight:1.6}}>
+                  {recherche ? <>Aucun nom ne correspond à « {recherche} ».</> : <>Aucun nom enregistré.<br/>Demandez à la direction de vous ajouter.</>}
+                </div>
+              : <div style={{maxHeight:"52vh",overflowY:"auto",paddingRight:2}}>{filtrees.map(carteNom)}</div>}
+
+          <button onClick={()=>{setEtape("direction");setPin("");setErreur("");}}
+            style={{width:"100%",marginTop:18,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,
+                    fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer",letterSpacing:"0.1em"}}>
+            🏢 ACCÈS DIRECTION
+          </button>
+        </div>
+      )}
+
+      {/* ---------- ÉTAPE 2 : MON CODE PERSONNEL ---------- */}
+      {etape === "code" && (
+        <div style={{width:"100%",maxWidth:360}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",marginBottom:20,
+                       background:C.papier,border:`1.5px solid ${C.encre}`}}>
+            <div style={{width:40,height:40,flexShrink:0,background:C.encre,color:C.jaune,display:"flex",
+                         alignItems:"center",justifyContent:"center",fontFamily:FT,fontWeight:800}}>{initiales(personneSel?.nom||"?")}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:15,fontWeight:700,lineHeight:1.2}}>{personneSel?.nom||""}</div>
+              <div style={{fontSize:11,color:C.gris,marginTop:2}}>{personneSel?.poste||""}</div>
+            </div>
           </div>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:14}}>MON CODE PERSONNEL</div>
+          {enCours
+            ? <div style={{padding:"30px",textAlign:"center",fontFamily:FM,fontSize:12,color:C.gris}}>VÉRIFICATION…</div>
+            : <PinPad pin={pin} setPin={setPin} onValider={validerCode} erreur={erreur} setErreur={setErreur}/>}
+          <button onClick={retour}
+            style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,
+                    fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Ce n'est pas moi</button>
         </div>
       )}
 
-      {mode === "rh" && (
+      {/* ---------- ACCÈS DIRECTION ---------- */}
+      {etape === "direction" && (
         <div style={{width:"100%",maxWidth:360}}>
-          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>CODE RH / ADMIN</div>
-          <PinPad pin={pin} setPin={setPin} onValider={()=>validerPin(pinRH,"rh")} erreur={erreur} setErreur={setErreur}/>
-          <button onClick={reset} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
-        </div>
-      )}
-
-      {mode === "chef" && (
-        <div style={{width:"100%",maxWidth:360}}>
-          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>CODE CHEF D'ÉQUIPE</div>
-          <PinPad pin={pin} setPin={setPin} onValider={()=>validerPin(pinChef,"chef")} erreur={erreur} setErreur={setErreur}/>
-          <button onClick={reset} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
-        </div>
-      )}
-
-      {mode === "salarie" && etapeSal === "code" && (
-        <div style={{width:"100%",maxWidth:360}}>
-          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:6}}>MON CODE PERSONNEL</div>
-          <div style={{fontFamily:FT,fontSize:20,fontWeight:800,textAlign:"center",marginBottom:16}}>{personneSel?.nom||""}</div>
-          <PinPad pin={pin} setPin={setPin} onValider={validerCodeSalarie} erreur={erreur} setErreur={setErreur}/>
-          <button onClick={()=>{setEtapeSal("nom");setPin("");setErreur("");}} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Changer de nom</button>
-        </div>
-      )}
-
-      {mode === "salarie" && etapeSal === "nom" && (
-        <div style={{width:"100%",maxWidth:360}}>
-          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:20}}>MON NOM</div>
-          {(salariesListe.length + interimListe.length) === 0
-            ? <div style={{padding:"20px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:12,textAlign:"center",lineHeight:1.6}}>Aucun salarié enregistré.<br/>Demandez à la RH d'ajouter votre nom.</div>
-            : <>
-                <select value={personneId} onChange={e=>{setPersonneId(e.target.value);setErreur("");}}
-                  style={{width:"100%",padding:"16px",background:C.papier,border:`2px solid ${C.encre}`,fontFamily:FM,fontSize:14,outline:"none",marginBottom:12}}>
-                  <option value="" disabled>— Sélectionnez votre nom —</option>
-                  {salariesListe.length>0 && <optgroup label="── Salariés CHOK BÉTON">{salariesListe.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}</optgroup>}
-                  {interimListe.length>0 && <optgroup label="── Intérimaires">{interimListe.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);return <option key={i.id} value={i.id}>{i.nom}{ag?` (${ag.nom})`:""}</option>;})}</optgroup>}
-                </select>
-                {erreur && <div style={{padding:"8px 12px",background:"#FFF0F0",border:`1px solid ${C.orange}`,color:C.orange,fontSize:12,marginBottom:12}}>{erreur}</div>}
-                <button onClick={validerSalarie} style={{width:"100%",padding:"16px",background:C.encre,border:"none",color:C.jaune,fontFamily:FM,fontSize:13,fontWeight:700,letterSpacing:"0.1em",cursor:"pointer"}}>
-                  CONTINUER →
-                </button>
-                <div style={{fontSize:10,color:C.gris,textAlign:"center",marginTop:10,lineHeight:1.5}}>Un code personnel à 4 chiffres vous sera demandé.<br/>Il est fourni par la RH.</div>
-              </>
-          }
-          <button onClick={reset} style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
+          <div style={{fontFamily:FM,fontSize:11,color:C.gris,letterSpacing:"0.2em",textAlign:"center",marginBottom:16}}>CODE DIRECTION</div>
+          {enCours
+            ? <div style={{padding:"30px",textAlign:"center",fontFamily:FM,fontSize:12,color:C.gris}}>VÉRIFICATION…</div>
+            : <PinPad pin={pin} setPin={setPin} onValider={validerDirection} erreur={erreur} setErreur={setErreur}/>}
+          <button onClick={retour}
+            style={{width:"100%",marginTop:12,padding:"12px",background:"transparent",border:`1px solid ${C.ligne}`,
+                    fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>← Retour</button>
         </div>
       )}
     </div>
@@ -1902,8 +1963,7 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
 
   const sauverPins=()=>{
     if(newPinRH.length>=4)setPinRH(newPinRH);
-    if(newPinChef.length>=4)setPinChef(newPinChef);
-    setMsgPin("✓ Codes mis à jour.");setNewPinRH("");setNewPinChef("");
+    setMsgPin("✓ Code direction mis à jour.");setNewPinRH("");setNewPinChef("");
     setTimeout(()=>setMsgPin(""),3000);
   };
   const reinitialiserTout=()=>{
@@ -1923,10 +1983,14 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
   useEffect(()=>{ const t=setInterval(()=>setNbAttente(outboxCount()),3000); return ()=>clearInterval(t); },[]);
 
   const testerServeur=async()=>{
-    const u=(apiUrl||"").trim();
+    const u=normaliserUrlApi(apiUrl);
+    if(u && u!==apiUrl) setApiUrlLocal(u);   // on montre l'adresse nettoyée
     if(!u){setMsgApi("Renseignez d'abord l'adresse.");return;}
+    if(/\/dev$/.test(u)){
+      setMsgApi("Cette adresse finit par /dev : c'est l'adresse de TEST, réservée à votre compte Google.\nUtilisez celle en /exec (Déployer → Gérer les déploiements → URL de l'application Web).");return;
+    }
     if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u)){
-      setMsgApi("L'adresse doit ressembler à :\nhttps://script.google.com/macros/s/AKfy…/exec\n(vérifiez qu'elle finit bien par /exec)");return;
+      setMsgApi("Adresse non reconnue :\n"+u+"\n\nElle doit ressembler à :\nhttps://script.google.com/macros/s/AKfy…/exec");return;
     }
     setTestEnCours(true);setMsgApi("");
     const ancienne=getApiUrl();
@@ -1941,8 +2005,8 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
   };
 
   const enregistrerApiUrl=()=>{
-    const u=(apiUrl||"").trim();
-    setApiUrl(u);
+    const u=normaliserUrlApi(apiUrl);
+    setApiUrlLocal(u); setApiUrl(u);
     setMsgApi(u?"✓ Adresse enregistrée. Rechargez l'application (Ctrl+Maj+R) puis reconnectez-vous.":"✓ Adresse effacée : retour au mode Supabase après rechargement.");
   };
 
@@ -2009,17 +2073,17 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
   return (
     <div style={{display:"flex",flexDirection:"column",gap:24}}>
 
-      {/* Codes PIN */}
-      <Section titre="Codes d'accès PIN">
+      {/* Code direction */}
+      <Section titre="Code d'accès direction">
+        <div style={{padding:"12px 16px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontSize:12,lineHeight:1.6,marginBottom:14}}>
+          Il n'existe plus qu'un seul code partagé : celui-ci. <b>Chaque salarié et chaque intérimaire se connecte avec son propre code personnel</b>, que vous définissez dans les onglets Salariés et Intérimaires.
+        </div>
         <FormInline>
           <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-end",marginBottom:8}}>
-            <Champ label={`CODE RH / ADMIN (actuel : ${"•".repeat(pinRH.length)})`}>
+            <Champ label={`CODE DIRECTION (actuel : ${"•".repeat(pinRH.length)})`}>
               <input type="password" value={newPinRH} onChange={e=>setNewPinRH(e.target.value)} placeholder="Nouveau code (≥4 chiffres)" style={inputStyle} maxLength={8}/>
             </Champ>
-            <Champ label={`CODE CHEF D'ÉQUIPE (actuel : ${"•".repeat(pinChef.length)})`}>
-              <input type="password" value={newPinChef} onChange={e=>setNewPinChef(e.target.value)} placeholder="Nouveau code (≥4 chiffres)" style={inputStyle} maxLength={8}/>
-            </Champ>
-            <Btn onClick={sauverPins} disabled={newPinRH.length<4&&newPinChef.length<4}>METTRE À JOUR</Btn>
+            <Btn onClick={sauverPins} disabled={newPinRH.length<4}>METTRE À JOUR</Btn>
           </div>
           {msgPin&&<div style={{color:C.vert,fontSize:12,fontWeight:700}}>{msgPin}</div>}
         </FormInline>
@@ -2095,344 +2159,267 @@ function OngletParametres({pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onRel
 }
 
 // ============================================================
-//  VUE MOBILE — responsive, mémoire par chef, sélection date
+//  VUE CHEF D'ÉQUIPE — saisie en une seule page
+//  Le chef déclare SES heures et celles de SES intérimaires.
 // ============================================================
-function VueMobile({chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages}) {
-  const [etape,setEtape]     = useState("accueil");
-  const [chantierSel,setCh]  = useState(null);
-  const [chefSel,setChef]    = useState(null);
-  const [equipe,setEquipe]   = useState([]);
-  const [dateRapport,setDate]= useState(new Date().toISOString().slice(0,10));
+function VueMobile({session,chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages}) {
+  const moi = salaries.find(s=>s.id===session?.personneId)
+           || interimaires.find(i=>i.id===session?.personneId)
+           || salaries[0] || {id:session?.personneId||"?",nom:session?.nom||"Moi",poste:"Chef d'équipe"};
 
-  const reset = () => { setEtape("accueil"); setCh(null); setChef(null); setEquipe([]); setDate(new Date().toISOString().slice(0,10)); };
+  // Mes intérimaires uniquement (le serveur filtre déjà ; on double la sécurité)
+  const mesInterimaires = interimaires.filter(i=>!i.chef || i.chef===moi.id);
 
-  // 3 options de date
-  const optionsDates = Array.from({length:7},(_,i)=>{
-    const d = new Date(); d.setDate(d.getDate()-i);
-    const iso = d.toISOString().slice(0,10);
-    const label = i===0?"Aujourd'hui":i===1?"Hier":i===2?"Avant-hier":d.toLocaleDateString("fr-FR",{weekday:"long"}).charAt(0).toUpperCase()+d.toLocaleDateString("fr-FR",{weekday:"long"}).slice(1);
-    const fr = d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"});
-    return {iso,label,fr};
+  const cleMemoire = `chok_saisie_${moi.id}`;
+  const memoire = load(cleMemoire, {}) || {};
+
+  const auj = new Date().toISOString().slice(0,10);
+  const [date,setDate]           = useState(auj);
+  const [chantierId,setChantier] = useState(memoire.chantierId || "");
+  const [debut,setDebut]         = useState(memoire.debut || "07:00");
+  const [fin,setFin]             = useState(memoire.fin   || "17:00");
+  const [pause,setPause]         = useState(memoire.pause!=null ? memoire.pause : 60);
+  const [deplacement,setDepl]    = useState(false);
+  const [equipe,setEquipe]       = useState({});   // idInterim -> {debut,fin,pause,deplacement}
+  const [ajoutOuvert,setAjoutOuvert] = useState(false);
+  const [nouveauNom,setNouveauNom]   = useState("");
+  const [nouvelleAgence,setNouvelleAgence] = useState(AGENCES[0].id);
+  const [nouveauChantier,setNouveauChantier] = useState(false);
+  const [nomChantier,setNomChantier] = useState("");
+  const [villeChantier,setVilleChantier] = useState("");
+  const [erreur,setErreur] = useState("");
+  const [envoye,setEnvoye] = useState(null);
+
+  const chantiersActifs = chantiers.filter(c=>c.actif!==false);
+  const chantier = chantiers.find(c=>c.id===chantierId);
+  const mesHeures = calcHeures({debut,fin,pause});
+  const estMajore = estMajore100(date);
+
+  const majEquipe = (id,champ,val) => setEquipe(e=>({...e,[id]:{...(e[id]||{debut,fin,pause}),[champ]:val}}));
+  const basculer = (id) => setEquipe(e=>{
+    const c={...e};
+    if(c[id]) delete c[id]; else c[id]={debut,fin,pause,deplacement:false};
+    return c;
   });
 
-  const sauverMemoire = (chef, chantier, equipeIds) => {
-    if (!chef) return;
-    save(`chok_last_${chef.id}`, {
-      chantierId: chantier.id,
-      equipeIds: equipeIds,
-      date: dateRapport,
-      ts: Date.now(),
-    });
+  const creerChantier = () => {
+    if(nomChantier.trim().length<2) return;
+    const c={id:genId("C"),nom:nomChantier.trim(),ville:villeChantier.trim()||"—",
+             client:"—",couleur:COULEURS_CHANTIER[chantiers.length%COULEURS_CHANTIER.length],actif:true};
+    setChantiers([...chantiers,c]); setChantier(c.id);
+    setNomChantier(""); setVilleChantier(""); setNouveauChantier(false);
   };
 
-  return (
-    <main className="phone-shell-outer">
-      {/* Téléphone */}
-      <div className="phone-shell">
-        <div className="phone-notch"/>
-        <div className="phone-inner">
-          {/* Status bar */}
-          <div style={{display:"flex",justifyContent:"space-between",padding:"16px 28px 6px",fontSize:12,fontWeight:700,flexShrink:0}}>
-            <Clock/><span>📶 · 🔋</span>
-          </div>
-          {/* Header mobile */}
-          <div style={{padding:"4px 28px 12px",flexShrink:0}}>
-            <div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em"}}>RAPPORT HEURE</div>
-            <div style={{fontFamily:FT,fontSize:22,fontWeight:800,letterSpacing:"-0.02em",lineHeight:1.1,marginTop:2}}>CHOK BÉTON</div>
-          </div>
+  const creerInterimaire = () => {
+    if(nouveauNom.trim().length<2) return;
+    const i={id:genId("I"),nom:nouveauNom.trim(),poste:"Manœuvre",agence:nouvelleAgence,
+             accesPlateforme:false,code:CODE_DEFAUT,chef:moi.id};
+    setInterimaires([...interimaires,i]);
+    setEquipe(e=>({...e,[i.id]:{debut,fin,pause,deplacement:false}}));
+    setNouveauNom(""); setAjoutOuvert(false);
+  };
 
-          {etape==="accueil" && <MAccueil chantiers={chantiers} salaries={salaries} interimaires={interimaires} pointages={pointages} optionsDates={optionsDates} dateRapport={dateRapport} setDate={setDate} onNouveau={()=>setEtape("nouveau-chantier")} onSuite={(ch,chef)=>{setCh(ch);setChef(chef);setEtape("equipe");}}/>}
-          {etape==="nouveau-chantier" && <MNouveauChantier onAnnuler={()=>setEtape("accueil")} onCreer={c=>{setChantiers([...chantiers,c]);setEtape("accueil");}}/>}
-          {etape==="equipe" && <MEquipe chantier={chantierSel} chef={chefSel} salaries={salaries} interimaires={interimaires} equipe={equipe} setEquipe={setEquipe} onRetour={()=>setEtape("accueil")} onSuite={()=>setEtape("pointage")} onAjoutInt={()=>setEtape("nouveau-interim")}/>}
-          {etape==="nouveau-interim" && <MNouvelInt onAnnuler={()=>setEtape("equipe")} onCreer={i=>{setInterimaires([...interimaires,i]);setEquipe([...equipe,{id:i.id,type:"interim",debut:"08:00",fin:"16:00",pause:60}]);setEtape("equipe");}}/>}
-          {etape==="pointage" && <MPointage chantier={chantierSel} chef={chefSel} equipe={equipe} setEquipe={setEquipe} salaries={salaries} interimaires={interimaires} dateRapport={dateRapport} onRetour={()=>setEtape("equipe")} onValider={(validationsInt)=>{
-            const now=new Date().toISOString();
-            const nouveaux=equipe.map(m=>({
-              id:genId("P"),salarie:m.id,chantier:chantierSel.id,date:dateRapport,
-              debut:m.debut,fin:m.fin,pause:m.pause,commentaire:m.commentaire||"",
-              deplacement:!!m.deplacement,
-              valide:false,interim:m.type==="interim",
-              valideParInterimaire:m.type==="interim"?validationsInt[m.id]===true:null,
-              horodatageValidation:m.type==="interim"&&validationsInt[m.id]?now:null,
-              chefNom:chefSel?.nom||"—",
-            }));
-            setPointages([...pointages,...nouveaux]);
-            sauverMemoire(chefSel, chantierSel, equipe.map(m=>m.id));
-            setEtape("confirm");
-          }}/>}
-          {etape==="confirm" && <MConfirm chantier={chantierSel} equipe={equipe} dateRapport={dateRapport} onReset={reset}/>}
+  const envoyer = () => {
+    if(!chantierId){setErreur("Choisissez le chantier.");return;}
+    if(mesHeures<=0){setErreur("Vos heures ne sont pas valides (vérifiez début, fin et pause).");return;}
+    const dejaSaisi = pointages.some(p=>p.salarie===moi.id && p.date===date && p.chantier===chantierId);
+    if(dejaSaisi && !window.confirm("Vous avez déjà envoyé un rapport pour ce chantier à cette date.\n\nEn envoyer un second ?"))return;
+    setErreur("");
+    const lignes=[{
+      id:genId("P"),salarie:moi.id,chantier:chantierId,date,debut,fin,pause,
+      commentaire:"",deplacement,valide:false,interim:false,chefNom:moi.nom,
+    }];
+    Object.entries(equipe).forEach(([id,h])=>{
+      lignes.push({id:genId("P"),salarie:id,chantier:chantierId,date,
+        debut:h.debut,fin:h.fin,pause:h.pause,commentaire:"",deplacement:!!h.deplacement,
+        valide:false,interim:true,valideParInterimaire:true,
+        horodatageValidation:new Date().toISOString(),chefNom:moi.nom});
+    });
+    setPointages([...pointages,...lignes]);
+    save(cleMemoire,{chantierId,debut,fin,pause});
+    setEnvoye({nb:lignes.length,total:lignes.reduce((s,l)=>s+calcHeures(l),0),chantier:chantier?.nom,date});
+  };
+
+  const recommencer = () => {
+    setEnvoye(null); setEquipe({}); setDepl(false); setDate(auj); setErreur("");
+  };
+
+  const boiteStyle={background:C.papier,border:`1.5px solid ${C.encre}`,marginBottom:14};
+  const titreBoite={fontFamily:FM,fontSize:10,letterSpacing:"0.2em",fontWeight:700,color:C.gris,
+                    padding:"12px 16px 0"};
+  const champ={width:"100%",boxSizing:"border-box",padding:"13px 12px",background:C.fond,
+               border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:16,outline:"none",fontWeight:700};
+
+  // ---------- ÉCRAN DE CONFIRMATION ----------
+  if (envoye) return (
+    <main style={{maxWidth:560,margin:"0 auto",padding:"24px 18px 60px"}}>
+      <div style={{background:C.papier,border:`2px solid ${C.vert}`,padding:"32px 24px",textAlign:"center"}}>
+        <div style={{fontSize:52,lineHeight:1}}>✓</div>
+        <div style={{fontFamily:FT,fontSize:26,fontWeight:800,marginTop:12}}>Rapport envoyé</div>
+        <div style={{fontSize:14,color:C.gris,marginTop:8,lineHeight:1.6}}>
+          {envoye.nb} ligne(s) · {fmtH(envoye.total)} au total<br/>
+          {envoye.chantier} · {new Date(envoye.date+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}
         </div>
-        <div className="phone-bar"/>
+        {outboxCount()>0 && <div style={{marginTop:16,padding:"10px 14px",background:"#FFF8E1",border:`1.5px solid #B7770D`,fontSize:12,color:"#B7770D",fontWeight:600}}>
+          ⏳ Envoi différé : pas de réseau pour le moment. Votre rapport est enregistré sur le téléphone et partira automatiquement.
+        </div>}
+        <div style={{marginTop:24}}><MBtn onClick={recommencer}>NOUVEAU RAPPORT</MBtn></div>
       </div>
-
-      {/* Aside desktop */}
-      <aside className="phone-aside">
-        <div style={{display:"inline-block",fontSize:10,letterSpacing:"0.2em",background:C.encre,color:C.jaune,padding:"5px 10px",fontWeight:700,marginBottom:16}}>VUE CHEF D'ÉQUIPE</div>
-        <h3 style={{fontFamily:FT,fontSize:30,fontWeight:800,letterSpacing:"-0.02em",lineHeight:1.1,margin:"0 0 16px"}}>Rapport des heures</h3>
-        <p style={{fontSize:14,lineHeight:1.65,marginBottom:20}}>Identifiez-vous, choisissez la date et le chantier, composez l'équipe puis saisissez les horaires de chaque personne.</p>
-        {[["1","Me connecter (chef ou intérimaire)"],["2","Choisir la date du rapport"],["3","Sélectionner le chantier"],["4","Composer l'équipe du jour"],["5","Saisir les horaires par personne"],["6","Envoyer pour validation RH"]].map(([n,l])=>(
-          <div key={n} style={{fontSize:13,lineHeight:1.6,display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-            <span style={{width:22,height:22,background:C.encre,color:C.jaune,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{n}</span>{l}
-          </div>
-        ))}
-        <div style={{marginTop:20,padding:"14px 18px",background:C.jaune,fontSize:12,lineHeight:1.6,border:`1.5px solid ${C.encre}`}}>
-          💡 L'app mémorise votre dernier chantier et équipe pendant 30 jours.
-        </div>
-      </aside>
     </main>
   );
-}
 
-// ---- Écran Accueil Mobile ----
-function MAccueil({chantiers,salaries,interimaires,pointages,optionsDates,dateRapport,setDate,onNouveau,onSuite}) {
-  const [chSel,setChSel]   = useState(null);
-  const [chefId,setChefId] = useState("");
-  const [proposerReprise,setProposerReprise] = useState(false);
-  const [dernierRapport,setDernierRapport]   = useState(null);
-
-  // Tracker hebdomadaire — 7 derniers jours
-  const auj = new Date().toISOString().slice(0,10);
-  const tracker7j = Array.from({length:7},(_,i)=>{
-    const d = new Date(); d.setDate(d.getDate()-i);
-    const iso = d.toISOString().slice(0,10);
-    const jour = d.toLocaleDateString("fr-FR",{weekday:"short"}).toUpperCase().slice(0,3);
-    const num  = d.getDate();
-    const isWE = [0,6].includes(d.getDay());
-    const aRapport = pointages.some(p=>p.date===iso);
-    const estAuj = iso===auj;
-    return {iso,jour,num,isWE,aRapport,estAuj};
-  }).reverse();
-
-  const actifs = chantiers.filter(c=>c.actif);
-  const tousChefs = [...salaries.map(s=>({...s,_type:"interne"})),...interimaires.map(i=>({...i,_type:"interim"}))];
-
-  // Mémoire par chef
-  const onChefChange = (id) => {
-    setChefId(id);
-    setProposerReprise(false);
-    setDernierRapport(null);
-    const last = load(`chok_last_${id}`, null);
-    if (last && last.ts && (Date.now()-last.ts < 30*24*60*60*1000)) {
-      setDernierRapport(last);
-      const ch = chantiers.find(c=>c.id===last.chantierId && c.actif);
-      if (ch) { setChSel(ch); setProposerReprise(true); }
-    }
-  };
-
-  const ok = chSel && chefId;
-  const trouverChef = (id) => tousChefs.find(p=>p.id===id);
-
+  // ---------- SAISIE ----------
   return (
-    <>
-      <div style={{overflowY:"auto",flex:1,padding:"0 20px 8px"}}>
+    <main style={{maxWidth:560,margin:"0 auto",padding:"18px 18px 80px"}}>
+      <div style={{marginBottom:16}}>
+        <div style={{fontFamily:FT,fontSize:24,fontWeight:800,lineHeight:1.1}}>Bonjour {moi.nom.split(" ")[0]}</div>
+        <div style={{fontSize:13,color:C.gris,marginTop:4}}>Déclarez vos heures du jour</div>
+      </div>
 
-        {/* Tracker hebdomadaire */}
-        <div style={{marginBottom:14,padding:"12px",background:C.fond,border:`1.5px solid ${C.ligne}`}}>
-          <div style={{fontSize:9,color:C.gris,letterSpacing:"0.2em",fontWeight:700,marginBottom:10}}>RAPPORTS — 7 DERNIERS JOURS</div>
-          <div style={{display:"flex",gap:4,justifyContent:"space-between"}}>
-            {tracker7j.map(t=>(
-              <div key={t.iso} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                <div style={{fontSize:8,fontWeight:700,color:t.isWE?"#9B5DE5":C.gris,letterSpacing:"0.05em"}}>{t.jour}</div>
-                <div style={{width:30,height:30,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:11,border:`2px solid ${t.estAuj?C.encre:t.aRapport?C.vert:t.isWE?"#E0D0F0":"#FFCCCC"}`,background:t.aRapport?C.vert:t.estAuj?"#FFF8E1":"transparent",color:t.aRapport?"#fff":t.estAuj?C.encre:C.gris}}>
-                  {t.aRapport?"✓":t.estAuj?"!":t.num}
-                </div>
-                <div style={{fontSize:8,color:t.aRapport?C.vert:t.estAuj?C.orange:C.gris,fontWeight:700}}>{t.aRapport?"OK":t.estAuj?"À SAISIR":"—"}</div>
-              </div>
-            ))}
+      {/* DATE */}
+      <div style={boiteStyle}>
+        <div style={titreBoite}>DATE DU RAPPORT</div>
+        <div style={{padding:"10px 16px 16px"}}>
+          <div style={{display:"flex",gap:8,marginBottom:10}}>
+            {[["Aujourd'hui",0],["Hier",1],["Avant-hier",2]].map(([lib,n])=>{
+              const d=new Date();d.setDate(d.getDate()-n);const iso=d.toISOString().slice(0,10);
+              const actif=date===iso;
+              return <button key={lib} onClick={()=>setDate(iso)} style={{flex:1,padding:"11px 4px",
+                background:actif?C.encre:C.fond,color:actif?C.jaune:C.encre,
+                border:`1.5px solid ${actif?C.encre:C.ligne}`,fontFamily:FM,fontSize:11,
+                fontWeight:700,cursor:"pointer"}}>{lib}</button>;
+            })}
           </div>
-          {!tracker7j.find(t=>t.estAuj)?.aRapport && (
-            <div style={{marginTop:10,padding:"7px 10px",background:"#FFF0E0",border:`1px solid ${C.orange}`,fontSize:11,color:C.orange,fontWeight:700}}>
-              ⚠ Aucun rapport saisi aujourd'hui — pensez à le faire avant la fin de journée !
+          <input type="date" value={date} max={auj} onChange={e=>e.target.value&&setDate(e.target.value)} style={champ}/>
+          <div style={{fontSize:12,color:C.gris,marginTop:8,textTransform:"capitalize"}}>
+            {new Date(date+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+          </div>
+          {estMajore && <div style={{marginTop:10,padding:"9px 12px",background:"#FDECEA",border:"1.5px solid #C0392B",
+            fontSize:11,color:"#C0392B",fontWeight:700}}>🔴 {nomFerie(date)?nomFerie(date).toUpperCase():"DIMANCHE"} — heures majorées à 100 %</div>}
+        </div>
+      </div>
+
+      {/* CHANTIER */}
+      <div style={boiteStyle}>
+        <div style={titreBoite}>CHANTIER</div>
+        <div style={{padding:"10px 16px 16px"}}>
+          {!nouveauChantier ? (<>
+            <select value={chantierId} onChange={e=>setChantier(e.target.value)} style={champ}>
+              <option value="">— Choisir le chantier —</option>
+              {chantiersActifs.map(c=><option key={c.id} value={c.id}>{c.nom}{c.ville&&c.ville!=="—"?` · ${c.ville}`:""}</option>)}
+            </select>
+            {chantier && <div style={{marginTop:10,padding:"8px 12px",background:chantier.couleur,
+              color:chantier.couleur==="#F5C518"?"#0A0A0A":"#fff",fontSize:12,fontWeight:700}}>
+              📍 {chantier.nom}{chantier.ville&&chantier.ville!=="—"?` — ${chantier.ville}`:""}</div>}
+            <button onClick={()=>setNouveauChantier(true)} style={{marginTop:10,width:"100%",padding:"11px",
+              background:"transparent",border:`1.5px dashed ${C.ligne}`,fontFamily:FM,fontSize:11,
+              color:C.gris,cursor:"pointer"}}>+ NOUVEAU CHANTIER</button>
+          </>) : (<>
+            <input value={nomChantier} onChange={e=>setNomChantier(e.target.value)} placeholder="Adresse du chantier" style={{...champ,marginBottom:8}}/>
+            <input value={villeChantier} onChange={e=>setVilleChantier(e.target.value)} placeholder="Ville" style={{...champ,marginBottom:10}}/>
+            <div style={{display:"flex",gap:8}}>
+              <MBtn onClick={creerChantier} disabled={nomChantier.trim().length<2}>CRÉER</MBtn>
+              <MBtn variant="ghost" onClick={()=>setNouveauChantier(false)}>ANNULER</MBtn>
             </div>
+          </>)}
+        </div>
+      </div>
+
+      {/* MES HEURES */}
+      <div style={{...boiteStyle,borderWidth:2}}>
+        <div style={{...titreBoite,color:C.encre}}>MES HEURES</div>
+        <div style={{padding:"10px 16px 16px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            <div><div style={{fontSize:10,color:C.gris,fontWeight:700,marginBottom:4}}>DÉBUT</div>
+              <input type="time" value={debut} onChange={e=>setDebut(e.target.value)} style={{...champ,textAlign:"center"}}/></div>
+            <div><div style={{fontSize:10,color:C.gris,fontWeight:700,marginBottom:4}}>FIN</div>
+              <input type="time" value={fin} onChange={e=>setFin(e.target.value)} style={{...champ,textAlign:"center"}}/></div>
+            <div><div style={{fontSize:10,color:C.gris,fontWeight:700,marginBottom:4}}>PAUSE (min)</div>
+              <input type="number" value={pause} min={0} step={15} onChange={e=>setPause(parseInt(e.target.value)||0)} style={{...champ,textAlign:"center"}}/></div>
+          </div>
+          <div style={{marginTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",
+            padding:"12px 14px",background:C.encre,color:C.jaune}}>
+            <span style={{fontFamily:FM,fontSize:11,letterSpacing:"0.1em"}}>TOTAL</span>
+            <span style={{fontFamily:FT,fontSize:24,fontWeight:800}}>{fmtH(mesHeures)}</span>
+          </div>
+          {calcHNuit({debut,fin,pause})>0 && <div style={{marginTop:8,fontSize:11,color:"#6C3483",fontWeight:700}}>🌙 dont {fmtH(calcHNuit({debut,fin,pause}))} de nuit</div>}
+          <div onClick={()=>setDepl(!deplacement)} style={{marginTop:10,display:"flex",alignItems:"center",gap:10,
+            padding:"11px 12px",background:deplacement?"#E8F0FE":C.fond,border:`1.5px solid ${deplacement?C.bleu:C.ligne}`,cursor:"pointer"}}>
+            <div style={{width:20,height:20,flexShrink:0,border:`2px solid ${deplacement?C.bleu:C.gris}`,
+              background:deplacement?C.bleu:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {deplacement&&<span style={{color:"#fff",fontSize:13,fontWeight:700,lineHeight:1}}>✓</span>}</div>
+            <span style={{fontSize:12,fontWeight:700}}>🛏 Déplacement avec logement</span>
+          </div>
+        </div>
+      </div>
+
+      {/* MES INTÉRIMAIRES */}
+      <div style={boiteStyle}>
+        <div style={titreBoite}>MES INTÉRIMAIRES {Object.keys(equipe).length>0?`· ${Object.keys(equipe).length} présent(s)`:""}</div>
+        <div style={{padding:"10px 16px 16px"}}>
+          {mesInterimaires.length===0 && !ajoutOuvert &&
+            <div style={{fontSize:12,color:C.gris,fontStyle:"italic",marginBottom:10}}>Aucun intérimaire enregistré pour vous.</div>}
+
+          {mesInterimaires.map(i=>{
+            const actif=!!equipe[i.id]; const h=equipe[i.id]||{};
+            const ag=AGENCES.find(a=>a.id===i.agence);
+            return (
+              <div key={i.id} style={{marginBottom:8,border:`1.5px solid ${actif?C.bleu:C.ligne}`,background:actif?"#F5F9FF":C.fond}}>
+                <div onClick={()=>basculer(i.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer"}}>
+                  <div style={{width:20,height:20,flexShrink:0,border:`2px solid ${actif?C.bleu:C.gris}`,
+                    background:actif?C.bleu:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    {actif&&<span style={{color:"#fff",fontSize:13,fontWeight:700,lineHeight:1}}>✓</span>}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700}}>{i.nom}</div>
+                    <div style={{fontSize:10,color:C.gris}}>{ag?ag.nom:"—"}</div>
+                  </div>
+                  {actif&&<span style={{fontFamily:FT,fontSize:16,fontWeight:800}}>{fmtH(calcHeures({debut:h.debut,fin:h.fin,pause:h.pause}))}</span>}
+                </div>
+                {actif&&(
+                  <div style={{padding:"0 14px 14px"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                      <input type="time" value={h.debut} onChange={e=>majEquipe(i.id,"debut",e.target.value)} style={{...champ,fontSize:14,padding:"10px 6px",textAlign:"center"}}/>
+                      <input type="time" value={h.fin} onChange={e=>majEquipe(i.id,"fin",e.target.value)} style={{...champ,fontSize:14,padding:"10px 6px",textAlign:"center"}}/>
+                      <input type="number" value={h.pause} min={0} step={15} onChange={e=>majEquipe(i.id,"pause",parseInt(e.target.value)||0)} style={{...champ,fontSize:14,padding:"10px 6px",textAlign:"center"}}/>
+                    </div>
+                    <div onClick={()=>majEquipe(i.id,"deplacement",!h.deplacement)} style={{marginTop:8,display:"flex",
+                      alignItems:"center",gap:8,fontSize:11,fontWeight:700,cursor:"pointer",color:h.deplacement?C.bleu:C.gris}}>
+                      <div style={{width:16,height:16,border:`2px solid ${h.deplacement?C.bleu:C.gris}`,
+                        background:h.deplacement?C.bleu:"transparent"}}/>🛏 Logé
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {ajoutOuvert ? (
+            <div style={{marginTop:8,padding:"12px",border:`1.5px dashed ${C.bleu}`}}>
+              <input value={nouveauNom} onChange={e=>setNouveauNom(e.target.value)} placeholder="Nom de l'intérimaire" style={{...champ,marginBottom:8}}/>
+              <select value={nouvelleAgence} onChange={e=>setNouvelleAgence(e.target.value)} style={{...champ,marginBottom:10}}>
+                {AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}
+              </select>
+              <div style={{display:"flex",gap:8}}>
+                <MBtn onClick={creerInterimaire} disabled={nouveauNom.trim().length<2}>AJOUTER</MBtn>
+                <MBtn variant="ghost" onClick={()=>{setAjoutOuvert(false);setNouveauNom("");}}>ANNULER</MBtn>
+              </div>
+            </div>
+          ) : (
+            <button onClick={()=>setAjoutOuvert(true)} style={{width:"100%",padding:"11px",background:"transparent",
+              border:`1.5px dashed ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>+ NOUVEL INTÉRIMAIRE</button>
           )}
         </div>
-
-        {/* Chef d'équipe EN PREMIER */}
-        <div style={{marginBottom:14}}>
-          <div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em",marginBottom:8,fontWeight:700}}>CHEF D'ÉQUIPE</div>
-          {tousChefs.length===0
-            ? <div style={{padding:"10px 12px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11}}>Aucun salarié. Ajoutez-en depuis l'onglet Admin.</div>
-            : <select value={chefId} onChange={e=>onChefChange(e.target.value)} style={{...mInputStyle,width:"100%"}}>
-                <option value="" disabled>— Qui êtes-vous ? —</option>
-                {salaries.length>0&&<optgroup label="── Salariés CHOK BÉTON">{salaries.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}</optgroup>}
-                {interimaires.length>0&&<optgroup label="── Intérimaires">{interimaires.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);return<option key={i.id} value={i.id}>{i.nom} · {ag?.nom}</option>;})}</optgroup>}
-              </select>
-          }
-        </div>
-
-        {/* Date du rapport */}
-        <div style={{marginBottom:14}}>
-          <div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em",marginBottom:8,fontWeight:700}}>DATE DU RAPPORT</div>
-          <div style={{display:"flex",gap:6}}>
-            {optionsDates.map(opt=>(
-              <button key={opt.iso} onClick={()=>setDate(opt.iso)} style={{flex:1,padding:"9px 6px",background:dateRapport===opt.iso?C.encre:C.fond,border:`1.5px solid ${dateRapport===opt.iso?C.encre:C.ligne}`,color:dateRapport===opt.iso?C.jaune:C.encre,fontFamily:FM,fontSize:10,fontWeight:700,cursor:"pointer",textAlign:"center",letterSpacing:"0.05em"}}>
-                <div>{opt.label}</div>
-                <div style={{fontSize:9,fontWeight:400,marginTop:3,color:dateRapport===opt.iso?C.jaune:C.gris}}>{opt.fr}</div>
-              </button>
-            ))}
-          </div>
-          <input type="date" value={dateRapport} max={new Date().toISOString().slice(0,10)} onChange={e=>{ if(e.target.value) setDate(e.target.value); }} style={{marginTop:8,width:"100%",boxSizing:"border-box",padding:"10px 12px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:13,fontWeight:700,color:C.encre,outline:"none"}}/>
-          <div style={{fontSize:10,color:C.gris,marginTop:5,fontWeight:600}}>📅 {new Date(dateRapport+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
-        </div>
-
-        {/* Proposition de reprise */}
-        {proposerReprise && dernierRapport && (
-          <div style={{marginBottom:14,padding:"10px 12px",background:"#FFFDE7",border:`1.5px solid ${C.jaune}`}}>
-            <div style={{fontSize:10,color:C.gris,letterSpacing:"0.1em",fontWeight:700,marginBottom:6}}>💡 DERNIER RAPPORT</div>
-            <div style={{fontSize:12}}>Chantier : <b>{chantiers.find(c=>c.id===dernierRapport.chantierId)?.nom||"—"}</b></div>
-            <div style={{fontSize:11,color:C.gris,marginTop:2}}>{dernierRapport.equipeIds?.length||0} personne(s) · {dernierRapport.date||""}</div>
-            <button onClick={()=>setProposerReprise(false)} style={{marginTop:8,fontSize:10,background:"transparent",border:"none",color:C.gris,cursor:"pointer",textDecoration:"underline",padding:0}}>Ignorer</button>
-          </div>
-        )}
-
-        {/* Chantier du jour */}
-        <div style={{marginBottom:14}}>
-          <div style={{fontSize:10,color:C.gris,letterSpacing:"0.2em",marginBottom:8,fontWeight:700}}>CHANTIER DU JOUR</div>
-          {actifs.length===0
-            ? <div style={{padding:"10px 12px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11,lineHeight:1.5}}>Aucun chantier actif. Créez-en un ci-dessous ou dans l'onglet Admin.</div>
-            : <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                {actifs.map(c=>(
-                  <button key={c.id} onClick={()=>setChSel(c)} style={{background:chSel?.id===c.id?C.papier:C.fond,border:`1.5px solid ${chSel?.id===c.id?C.encre:C.ligne}`,borderLeft:`5px solid ${c.couleur}`,padding:"10px 12px",cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",fontFamily:FM}}>
-                    <div><div style={{fontSize:12,fontWeight:700}}>{c.nom}</div><div style={{fontSize:10,color:C.gris,marginTop:2}}>{c.ville}</div></div>
-                    {chSel?.id===c.id&&<span style={{color:C.vert,fontWeight:700}}>✓</span>}
-                  </button>
-                ))}
-              </div>
-          }
-        </div>
       </div>
 
-      <div style={{flexShrink:0,padding:"0 20px 4px"}}>
-        <button onClick={onNouveau} style={{width:"100%",padding:"14px",background:"transparent",border:`2px solid ${C.encre}`,fontFamily:FM,fontSize:12,fontWeight:700,color:C.encre,cursor:"pointer",marginBottom:8,letterSpacing:"0.05em"}}>+ NOUVEAU CHANTIER</button>
-        <button disabled={!ok} onClick={()=>ok&&onSuite(chSel,trouverChef(chefId))} style={{width:"100%",padding:"16px",background:ok?C.encre:C.ligne,border:"none",color:ok?C.jaune:C.gris,fontFamily:FM,fontSize:13,fontWeight:700,cursor:ok?"pointer":"not-allowed",letterSpacing:"0.1em",marginBottom:8}}>→ COMPOSER L'ÉQUIPE</button>
+      {erreur && <div style={{marginBottom:12,padding:"12px 14px",background:"#FFF0F0",
+        border:`1.5px solid ${C.orange}`,color:C.orange,fontSize:13,fontWeight:700}}>{erreur}</div>}
+
+      <MBtn onClick={envoyer}>✓ ENVOYER LE RAPPORT</MBtn>
+      <div style={{marginTop:10,fontSize:11,color:C.gris,textAlign:"center",lineHeight:1.5}}>
+        Vous déclarez <b>{fmtH(mesHeures)}</b> pour vous
+        {Object.keys(equipe).length>0 && <> et <b>{Object.keys(equipe).length}</b> intérimaire(s)</>}.
       </div>
-    </>
-  );
-}
-
-// ---- Création chantier mobile ----
-function MNouveauChantier({onAnnuler,onCreer}) {
-  const [nom,setNom]=useState("");const [ville,setVille]=useState("");const [client,setClient]=useState("");const ok=nom.length>2;
-  return(<MFormWrap titre="NOUVEAU CHANTIER" onRetour={onAnnuler}>
-    <MChamp label="ADRESSE CHANTIER"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="14 rue de la Paix, Lyon 3e" style={mInputStyle}/></MChamp>
-    <MChamp label="VILLE"><input value={ville} onChange={e=>setVille(e.target.value)} placeholder="Lyon 3e" style={mInputStyle}/></MChamp>
-    <MChamp label="CLIENT"><input value={client} onChange={e=>setClient(e.target.value)} placeholder="Vinci" style={mInputStyle}/></MChamp>
-    <MBtn disabled={!ok} onClick={()=>ok&&onCreer({id:genId("C"),nom,ville:ville||"—",client:client||"—",couleur:"#3D5A80",actif:true})}>✓ CRÉER LE CHANTIER</MBtn>
-  </MFormWrap>);
-}
-
-// ---- Équipe ----
-function MEquipe({chantier,chef,salaries,interimaires,equipe,setEquipe,onRetour,onSuite,onAjoutInt}) {
-  useEffect(()=>{if(chef&&!equipe.find(m=>m.id===chef.id))setEquipe([{id:chef.id,type:"interne",debut:"08:00",fin:"16:00",pause:60}]);},[chef]);
-  const add=(id,type)=>{if(!equipe.find(m=>m.id===id))setEquipe([...equipe,{id,type,debut:"08:00",fin:"16:00",pause:60}]);};
-  const del=(id)=>{if(id!==chef?.id)setEquipe(equipe.filter(m=>m.id!==id));};
-  const getNom=(id)=>{const s=salaries.find(x=>x.id===id);if(s)return s.nom;const i=interimaires.find(x=>x.id===id);return i?i.nom:id;};
-  const getAg=(id)=>{const i=interimaires.find(x=>x.id===id);return i?AGENCES.find(a=>a.id===i.agence):null;};
-  const autreSal=salaries.filter(s=>s.id!==chef?.id&&!equipe.find(m=>m.id===s.id));
-  const autreInt=interimaires.filter(i=>!equipe.find(m=>m.id===i.id));
-  return(
-    <MFormWrap titre="ÉQUIPE DU JOUR" onRetour={onRetour}>
-      <ChantierBandeau chantier={chantier}/>
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {equipe.map(m=>{const ag=m.type==="interim"?getAg(m.id):null;return(
-          <div key={m.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",background:C.fond,border:`1.5px solid ${C.ligne}`}}>
-            <div style={{width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0,background:m.id===chef?.id?"#0A0A0A":ag?.couleur||"#3D5A80",color:"#fff"}}>{initiales(getNom(m.id))}</div>
-            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{getNom(m.id)}</div><div style={{fontSize:10,color:C.gris,marginTop:1}}>{m.id===chef?.id?"Chef d'équipe · TOI":m.type==="interim"?`INTÉRIM · ${ag?.nom||""}`:"Salarié interne"}</div></div>
-            {m.id!==chef?.id&&<button onClick={()=>del(m.id)} style={{background:"transparent",border:`1px solid ${C.gris}`,color:C.gris,width:26,height:26,cursor:"pointer",fontSize:16,lineHeight:1,flexShrink:0}}>×</button>}
-          </div>
-        );})}
-        {autreSal.length>0&&<select defaultValue="" onChange={e=>{if(e.target.value){add(e.target.value,"interne");e.target.value=""}}} style={{...mInputStyle,marginTop:4}}><option value="" disabled>+ Ajouter un salarié CHOK BÉTON</option>{autreSal.map(s=><option key={s.id} value={s.id}>{s.nom}</option>)}</select>}
-        {autreInt.length>0&&<select defaultValue="" onChange={e=>{if(e.target.value){add(e.target.value,"interim");e.target.value=""}}} style={mInputStyle}><option value="" disabled>+ Ajouter un intérimaire</option>{autreInt.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);return<option key={i.id} value={i.id}>{i.nom} · {ag?.nom}</option>;})}</select>}
-        <button onClick={onAjoutInt} style={{padding:"11px",background:"transparent",border:`1.5px dashed ${C.encre}`,fontFamily:FM,fontSize:11,fontWeight:700,color:C.encre,cursor:"pointer"}}>+ NOUVEL INTÉRIMAIRE (pas encore fiché)</button>
-      </div>
-      <MBtn disabled={equipe.length===0} onClick={()=>equipe.length>0&&onSuite()}>→ SAISIR LES HORAIRES</MBtn>
-    </MFormWrap>
-  );
-}
-
-// ---- Nouvel intérimaire ----
-function MNouvelInt({onAnnuler,onCreer}) {
-  const [nom,setNom]=useState("");const [poste,setPoste]=useState("Manœuvre");const [agence,setAgence]=useState(AGENCES[0].id);const ok=nom.trim().length>2;
-  return(<MFormWrap titre="NOUVEL INTÉRIMAIRE" onRetour={onAnnuler}>
-    <MChamp label="NOM COMPLET"><input value={nom} onChange={e=>setNom(e.target.value)} placeholder="Prénom Nom" style={mInputStyle}/></MChamp>
-    <MChamp label="POSTE"><select value={poste} onChange={e=>setPoste(e.target.value)} style={mInputStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></MChamp>
-    <MChamp label="AGENCE"><select value={agence} onChange={e=>setAgence(e.target.value)} style={mInputStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></MChamp>
-    <div style={{padding:"10px 12px",background:"#FFF8E1",border:`1px solid ${C.ligne}`,fontSize:11,lineHeight:1.5}}>💡 Il sera ajouté à la base RH pour les prochaines fois.</div>
-    <MBtn disabled={!ok} onClick={()=>ok&&onCreer({id:genId("I"),nom:nom.trim(),poste,agence})}>✓ AJOUTER À L'ÉQUIPE</MBtn>
-  </MFormWrap>);
-}
-
-// ---- Pointage ----
-function MPointage({chantier,chef,equipe,setEquipe,salaries,interimaires,dateRapport,onRetour,onValider}) {
-  const getNom=(id)=>{const s=salaries.find(x=>x.id===id);if(s)return s.nom;const i=interimaires.find(x=>x.id===id);return i?i.nom:id;};
-  const getAg=(id)=>{const i=interimaires.find(x=>x.id===id);return i?AGENCES.find(a=>a.id===i.agence):null;};
-  const upd=(id,k,v)=>setEquipe(equipe.map(m=>m.id===id?{...m,[k]:k==="pause"?parseInt(v)||0:v}:m));
-  const [validationsInt,setValidationsInt]=useState({});
-  const interimDansEquipe=equipe.filter(m=>m.type==="interim");
-  const tousInterimValides=interimDansEquipe.every(m=>validationsInt[m.id]);
-  const peutEnvoyer=tousInterimValides||interimDansEquipe.length===0;
-  const toggleValidInt=(id)=>setValidationsInt(prev=>({...prev,[id]:!prev[id]}));
-  const dateFrCourt=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
-  return(
-    <MFormWrap titre="HORAIRES PAR PERSONNE" onRetour={onRetour}>
-      <ChantierBandeau chantier={chantier}/>
-      <div style={{padding:"6px 0",fontSize:11,color:C.gris,fontWeight:700,letterSpacing:"0.05em",borderBottom:`1px solid ${C.ligne}`,marginBottom:4}}>📅 {dateFrCourt(dateRapport).toUpperCase()}</div>
-      {estMajore100(dateRapport)&&<div style={{margin:"0 0 8px",padding:"7px 10px",background:"#FDECEA",border:`1.5px solid #C0392B`,fontSize:10,color:"#C0392B",fontWeight:700,lineHeight:1.4}}>🔴 {nomFerie(dateRapport)?`JOUR FÉRIÉ — ${nomFerie(dateRapport).toUpperCase()}`:"DIMANCHE"} · heures majorées à 100 %</div>}
-      <div style={{overflowY:"auto",flex:1,padding:"4px 0 8px"}}>
-        {equipe.map(m=>{const isChef=m.id===chef?.id;const isInt=m.type==="interim";const ag=isInt?getAg(m.id):null;const total=calcHeures(m);const valide=validationsInt[m.id];
-        return(
-          <div key={m.id} style={{marginBottom:12,padding:"12px",background:C.fond,border:`1.5px solid ${isInt&&valide?C.vert:C.ligne}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-              <div style={{width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0,background:isChef?"#0A0A0A":ag?.couleur||"#3D5A80",color:"#fff"}}>{initiales(getNom(m.id))}</div>
-              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700}}>{getNom(m.id)}</div><div style={{fontSize:10,color:C.gris}}>{isChef?"CHEF D'ÉQUIPE":isInt?`INTÉRIM · ${ag?.nom}`:"SALARIÉ CHOK BÉTON"}</div></div>
-              <div style={{fontFamily:FT,fontSize:16,fontWeight:800,background:C.encre,color:C.jaune,padding:"3px 10px"}}>{fmtH(total)}</div>
-            </div>
-            {(()=>{const[dh,dm]=m.debut.split(":").map(Number);const[fh,fm]=m.fin.split(":").map(Number);const passageMinuit=(fh*60+fm)<=(dh*60+dm)&&m.fin!=="";return(<>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:4}}>
-              {[["DÉBUT","time","debut"],["FIN","time","fin"],["PAUSE (min)","number","pause"]].map(([l,t,k])=>(
-                <div key={k}><div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>{l}</div><input type={t} value={m[k]} onChange={e=>upd(m.id,k,e.target.value)} style={{width:"100%",padding:"10px 8px",background:C.papier,border:`1.5px solid ${k==="fin"&&passageMinuit?"#6C3483":C.ligne}`,fontFamily:FM,fontSize:13,outline:"none",textAlign:"center",fontWeight:700,boxSizing:"border-box"}}/></div>
-              ))}
-            </div>
-            {passageMinuit&&<div style={{marginBottom:8,padding:"5px 10px",background:"#F3E5F5",border:"1px solid #6C3483",fontSize:10,color:"#6C3483",fontWeight:700}}>🌙 FIN LE LENDEMAIN — heures de nuit comptabilisées</div>}
-            </>);})()}
-            <div style={{marginBottom:isInt?8:0}}>
-              <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",marginBottom:4,fontWeight:700}}>COMMENTAIRE (OPTIONNEL)</div>
-              <textarea value={m.commentaire||""} onChange={e=>upd(m.id,"commentaire",e.target.value)} placeholder="Remarque, incident..." rows={2} style={{width:"100%",padding:"8px 10px",background:C.papier,border:`1.5px solid ${C.ligne}`,fontFamily:FM,fontSize:11,outline:"none",resize:"vertical",boxSizing:"border-box"}}/>
-            </div>
-            <div onClick={()=>upd(m.id,"deplacement",!m.deplacement)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginTop:8,background:m.deplacement?"#E8F0FE":C.papier,border:`1.5px solid ${m.deplacement?C.bleu:C.ligne}`,cursor:"pointer"}}>
-              <div style={{width:20,height:20,border:`2px solid ${m.deplacement?C.bleu:C.gris}`,background:m.deplacement?C.bleu:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{m.deplacement&&<span style={{color:"#fff",fontSize:13,fontWeight:700,lineHeight:1}}>✓</span>}</div>
-              <div style={{fontSize:11,lineHeight:1.4}}><b>🛏 Déplacement avec logement</b><div style={{color:C.gris,fontSize:10}}>{m.deplacement?"1 nuitée comptabilisée":"Cocher si la personne est logée sur place"}</div></div>
-            </div>
-            {isInt&&(<div onClick={()=>toggleValidInt(m.id)} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px",background:valide?"#E8F5E9":"#FFF8E1",border:`1.5px solid ${valide?C.vert:C.orange}`,cursor:"pointer",marginTop:4}}>
-              <div style={{width:22,height:22,border:`2px solid ${valide?C.vert:C.orange}`,background:valide?C.vert:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{valide&&<span style={{color:"#fff",fontSize:14,fontWeight:700,lineHeight:1}}>✓</span>}</div>
-              <div style={{fontSize:11,lineHeight:1.5}}><b style={{display:"block",marginBottom:3,fontSize:12}}>{valide?"✓ HEURES ACCEPTÉES":"Je certifie exact le relevé ci-dessus"}</b>{!valide&&<span style={{color:C.gris}}>{getNom(m.id)} · {chantier?.nom} · {m.debut}–{m.fin} = <b>{fmtH(total)}</b><br/>En cochant, j'autorise la transmission à <b>{ag?.nom}</b>.</span>}{valide&&<span style={{color:C.vert,fontSize:10}}>Validé · {fmtH(total)} · {ag?.nom}</span>}</div>
-            </div>)}
-          </div>
-        );})}
-      </div>
-      {!peutEnvoyer&&<div style={{margin:"0 0 8px",padding:"10px 14px",background:"#FFF0F0",border:`1px solid ${C.orange}`,fontSize:11,color:C.orange,fontWeight:700}}>⚠ En attente : {interimDansEquipe.filter(m=>!validationsInt[m.id]).map(m=>getNom(m.id)).join(", ")}</div>}
-      <MBtn disabled={!peutEnvoyer} onClick={()=>peutEnvoyer&&onValider(validationsInt)}>✓ ENVOYER LE RAPPORT</MBtn>
-    </MFormWrap>
-  );
-}
-
-// ---- Confirmation ----
-function MConfirm({chantier,equipe,dateRapport,onReset}) {
-  const dateFrCourt=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
-  return(
-    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",padding:"28px 24px 8px"}}>
-      <div style={{width:68,height:68,background:C.vert,color:C.papier,display:"flex",alignItems:"center",justifyContent:"center",fontSize:34,fontWeight:700,marginBottom:18}}>✓</div>
-      <div style={{fontFamily:FT,fontSize:20,fontWeight:800,letterSpacing:"-0.02em",textAlign:"center"}}>RAPPORT ENVOYÉ</div>
-      <div style={{fontSize:12,color:C.gris,textAlign:"center",marginTop:8,lineHeight:1.6}}>{equipe.length} pointage(s) transmis<br/>en attente de validation RH.</div>
-      <div style={{width:"100%",marginTop:18,padding:14,background:C.fond,fontSize:11}}>
-        <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}><span>Chantier</span><b>{chantier?.nom}</b></div>
-        <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}><span>Date</span><b>{dateFrCourt(dateRapport)}</b></div>
-        <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}><span>Équipe</span><b>{equipe.length} pers.</b></div>
-        <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}><span>État</span><b style={{color:C.orange}}>EN ATTENTE RH</b></div>
-      </div>
-      <div style={{flex:1}}/>
-      <MBtn onClick={onReset}>RETOUR ACCUEIL</MBtn>
-    </div>
+    </main>
   );
 }
 
