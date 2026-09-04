@@ -14,7 +14,7 @@
 //     incrémentez le numéro ci-dessous (v3, v4, …).
 //     C'est ce qui force les téléphones à purger l'ancien cache.
 // ============================================================
-const VERSION = "v4";
+const VERSION = "v5";
 const CACHE = `chok-beton-${VERSION}`;
 const ASSETS = ["./index.html", "./icon-192.png", "./icon-512.png", "./manifest.json"];
 
