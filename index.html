@@ -333,7 +333,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v2.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v2.8"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -961,8 +961,8 @@ const setSessionSauvee = s => {
  * l'utilisateur choisit son nom : le temps est ainsi masqué.
  */
 let _reveilLance = false;
-function reveillerServeur() {
-  if (_reveilLance || !getApiUrl()) return;
+function reveillerServeur(forcer) {
+  if (_reveilLance && !forcer || !getApiUrl()) return;
   _reveilLance = true;
   try {
     fetch(getApiUrl(), {
@@ -1259,10 +1259,9 @@ function App() {
   const [infoPeriode, setInfoPeriode] = useState(null);
   const chargerDepuisGoogle = useCallback(async toutCharger => {
     if (MODE() !== "google" || !getJeton()) return;
-    // On ne bloque l'écran QUE si on n'a rien à afficher. Sinon on montre
-    // les dernières données connues et on rafraîchit en arrière-plan.
-    const dejaDesDonnees = (refs.pointages.current || []).length > 0 || (refs.salaries.current || []).length > 0;
-    if (!dejaDesDonnees) setAppLoading(true);
+    // On n'affiche JAMAIS d'écran d'attente bloquant : l'interface s'ouvre
+    // tout de suite et se remplit dès que les données arrivent. L'indicateur
+    // de synchronisation en haut signale le chargement en cours.
     setSyncState("syncing");
     try {
       // On envoie d'abord ce qui attend, pour ne pas écraser des saisies locales.
@@ -1563,6 +1562,7 @@ function EcranConnexion({
   const filtrees = recherche.trim() ? toutes.filter(p => p.nom.toLowerCase().includes(recherche.trim().toLowerCase())) : toutes;
   const personneSel = toutes.find(p => p.id === personneId);
   const choisirPersonne = p => {
+    reveillerServeur(true); // le serveur chauffe pendant la saisie du code
     setPersonneId(p.id);
     setPin("");
     setErreur("");
@@ -1815,6 +1815,7 @@ function EcranConnexion({
     }
   }, APP_VERSION), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
+      reveillerServeur(true);
       setEtape("direction");
       setPin("");
       setErreur("");
