@@ -91,13 +91,65 @@
       body { background: white !important; background-image: none !important; }
       main { padding: 0 !important; max-width: 100% !important; }
       .print-break { page-break-after: always; }
-      @page { margin: 15mm; size: A4 landscape; }
+      @page { margin: 12mm; size: A4 portrait; }
       body[data-print="interne"] .bloc-interim { display: none !important; }
       body[data-print="interim"] .bloc-interne { display: none !important; }
       .print-header { display: block !important; margin-bottom: 20px; border-bottom: 2px solid #0A0A0A; padding-bottom: 12px; }
       .print-header-arch { display: block !important; margin-bottom: 16px; border-bottom: 2px solid #0A0A0A; padding-bottom: 10px; }
     }
     .print-header, .print-header-arch { display: none; }
+
+    /* ---- APERÇU AVANT IMPRESSION ----
+       Reproduit à l'écran exactement ce que donnera le PDF. */
+    body.apercu { background: #E8E6DF !important; }
+    body.apercu header,
+    body.apercu footer,
+    body.apercu .admin-tabs,
+    body.apercu .no-print            { display: none !important; }
+    body.apercu .print-header,
+    body.apercu .print-header-arch   { display: block !important; margin-bottom: 20px;
+                                       border-bottom: 2px solid #0A0A0A; padding-bottom: 12px; }
+    body.apercu[data-print="interne"] .bloc-interim { display: none !important; }
+    body.apercu[data-print="interim"] .bloc-interne { display: none !important; }
+    body.apercu main { max-width: 210mm !important; margin: 96px auto 40px !important;
+                       padding: 12mm !important; background: #fff !important;
+                       box-shadow: 0 2px 12px rgba(0,0,0,.18); }
+    body.apercu .print-break { border-bottom: 1px dashed #B4B2A9; padding-bottom: 18px; margin-bottom: 18px; }
+
+
+    /* ---- MISE EN PAGE A4 PORTRAIT DU RAPPORT ---- */
+    body.apercu .rapport-compact,
+    body.apercu .rapport-compact * { font-size: 9px !important; }
+    body.apercu .rapport-compact table td,
+    body.apercu .rapport-compact table th { padding: 3px 5px !important; }
+    body.apercu .rapport-compact b { font-size: 10px !important; }
+    body.apercu .rapport-compact { margin-bottom: 0 !important; border: 1px solid #0A0A0A !important; }
+    body.apercu .rapport-compact tr { page-break-inside: avoid; }
+    @media print {
+      .rapport-compact,
+      .rapport-compact * { font-size: 9px !important; }
+      .rapport-compact table td,
+      .rapport-compact table th { padding: 3px 5px !important; }
+      .rapport-compact b { font-size: 10px !important; }
+      .rapport-compact { border: 1px solid #0A0A0A !important; margin-bottom: 0 !important; }
+      .rapport-compact tr { page-break-inside: avoid; }
+      .print-break:last-child { page-break-after: auto !important; }
+      table { width: 100% !important; table-layout: fixed; }
+      td, th { overflow: hidden; word-wrap: break-word; }
+    }
+
+    .barre-apercu { position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+                    display: flex; align-items: center; justify-content: space-between;
+                    gap: 16px; padding: 14px 24px; background: #0A0A0A; color: #F5C518;
+                    font-family: 'JetBrains Mono', monospace; font-size: 12px; flex-wrap: wrap; }
+    .barre-apercu button { font-family: inherit; font-size: 12px; font-weight: 700;
+                           padding: 10px 18px; cursor: pointer; border: 1.5px solid #F5C518;
+                           background: transparent; color: #F5C518; letter-spacing: .1em; }
+    .barre-apercu button.principal { background: #F5C518; color: #0A0A0A; }
+    @media print { .barre-apercu { display: none !important; }
+                   body.apercu main { margin: 0 !important; padding: 0 !important;
+                                      box-shadow: none !important; max-width: 100% !important; }
+                   body.apercu .print-break { border-bottom: none; } }
   </style>
 </head>
 <body>
@@ -333,7 +385,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v2.8"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v3.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -4589,7 +4641,12 @@ function OngletPaie({
 }) {
   var _tousLesPersonnes$fin, _tousLesPersonnes$fin2;
   const [personneId, setPersonneId] = useState("tous");
-  const [modeVue, setModeVue] = useState("semaine");
+  const [modeVue, setModeVue] = useState("mois");
+  const auj = new Date().toISOString().slice(0, 10);
+  // Mois sélectionné (par défaut le mois en cours) et période libre
+  const [moisSel, setMoisSel] = useState(auj.slice(0, 7));
+  const [dateDeb, setDateDeb] = useState(auj.slice(0, 8) + "01");
+  const [dateFin, setDateFin] = useState(auj);
   const tousLesPersonnes = [...salaries.map(s => ({
     ...s,
     _type: "interne"
@@ -4597,12 +4654,17 @@ function OngletPaie({
     ...i,
     _type: "interim"
   }))];
-  const auj = new Date().toISOString().slice(0, 10);
+  const joursEntre = (d1, d2) => {
+    const out = [];
+    if (!d1 || !d2 || d1 > d2) return out;
+    for (let d = new Date(d1 + "T12:00:00Z"); d.toISOString().slice(0, 10) <= d2; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
+    return out;
+  };
   const plage = (() => {
-    const d = new Date();
     if (modeVue === "semaine") {
-      const day = d.getDay() || 7;
-      const lundi = new Date(d);
+      const d = new Date(),
+        day = d.getDay() || 7,
+        lundi = new Date(d);
       lundi.setDate(d.getDate() - day + 1);
       return Array.from({
         length: 7
@@ -4613,13 +4675,25 @@ function OngletPaie({
       });
     }
     if (modeVue === "mois") {
-      const dates = [];
-      const debut = new Date(d.getFullYear(), d.getMonth(), 1);
-      const fin = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-      for (let dt = new Date(debut); dt <= fin; dt.setDate(dt.getDate() + 1)) dates.push(new Date(dt).toISOString().slice(0, 10));
-      return dates;
+      const [a, m] = moisSel.split("-").map(Number);
+      const dernier = new Date(Date.UTC(a, m, 0)).getUTCDate();
+      return joursEntre(`${moisSel}-01`, `${moisSel}-${String(dernier).padStart(2, "0")}`);
     }
+    if (modeVue === "perso") return joursEntre(dateDeb, dateFin);
     return [...new Set(pointages.map(p => p.date))].sort();
+  })();
+  const libellePeriode = (() => {
+    if (modeVue === "semaine") return "Semaine en cours";
+    if (modeVue === "mois") {
+      const [a, m] = moisSel.split("-").map(Number);
+      return new Date(Date.UTC(a, m - 1, 1)).toLocaleDateString("fr-FR", {
+        month: "long",
+        year: "numeric",
+        timeZone: "UTC"
+      });
+    }
+    if (modeVue === "perso") return `Du ${new Date(dateDeb + "T00:00:00").toLocaleDateString("fr-FR")} au ${new Date(dateFin + "T00:00:00").toLocaleDateString("fr-FR")}`;
+    return "Tout l'historique";
   })();
   const fmtDate = iso => new Date(iso + "T00:00:00").toLocaleDateString("fr-FR", {
     weekday: "short",
@@ -4628,6 +4702,43 @@ function OngletPaie({
   }).toUpperCase();
   const personnesFiltrees = personneId === "tous" ? tousLesPersonnes : tousLesPersonnes.filter(p => p.id === personneId);
   const ptgPlage = pointages.filter(p => plage.includes(p.date));
+  // ---- Aperçu avant impression ----
+  // Affiche à l'écran exactement ce qui sera imprimé, avant de lancer le PDF.
+  const [apercu, setApercu] = useState(null); // null | "interne" | "interim" | "personne"
+  const ouvrirApercu = cible => {
+    document.body.setAttribute("data-print", cible);
+    document.body.classList.add("apercu");
+    window.scrollTo(0, 0);
+    setApercu(cible);
+  };
+  const fermerApercu = () => {
+    document.body.classList.remove("apercu");
+    document.body.removeAttribute("data-print");
+    setApercu(null);
+  };
+  const imprimerDepuisApercu = () => {
+    window.print();
+  };
+  // Sécurité : on nettoie si le composant disparaît pendant l'aperçu
+  useEffect(() => () => {
+    document.body.classList.remove("apercu");
+    document.body.removeAttribute("data-print");
+  }, []);
+  // Échap ferme l'aperçu
+  useEffect(() => {
+    if (!apercu) return;
+    const t = e => {
+      if (e.key === "Escape") fermerApercu();
+    };
+    window.addEventListener("keydown", t);
+    return () => window.removeEventListener("keydown", t);
+  }, [apercu]);
+  const libelleCible = {
+    interne: "tous les salariés",
+    interim: "tous les intérimaires",
+    personne: (tousLesPersonnes.find(x => x.id === personneId) || {}).nom || "cette personne"
+  };
+  const nbBlocs = apercu === "interne" ? personnesFiltrees.filter(p => p._type !== "interim").length : apercu === "interim" ? personnesFiltrees.filter(p => p._type === "interim").length : personnesFiltrees.length;
   const exportPDF = cible => {
     document.body.setAttribute("data-print", cible);
     window.print();
@@ -4646,6 +4757,7 @@ function OngletPaie({
   return /*#__PURE__*/React.createElement(Section, {
     titre: "Rapport détaillé — Heures & Chantiers",
     actions: /*#__PURE__*/React.createElement("div", {
+      className: "no-print",
       style: {
         display: "flex",
         gap: 8,
@@ -4668,7 +4780,7 @@ function OngletPaie({
     }, interimaires.map(i => /*#__PURE__*/React.createElement("option", {
       key: i.id,
       value: i.id
-    }, i.nom)))), ["semaine", "mois", "tout"].map(m => /*#__PURE__*/React.createElement("button", {
+    }, i.nom)))), ["semaine", "mois", "perso", "tout"].map(m => /*#__PURE__*/React.createElement("button", {
       key: m,
       onClick: () => setModeVue(m),
       style: {
@@ -4685,17 +4797,58 @@ function OngletPaie({
     }, {
       "semaine": "SEMAINE",
       mois: "MOIS",
+      perso: "DATES LIBRES",
       tout: "TOUT"
-    }[m])), personneId === "tous" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+    }[m])), modeVue === "mois" && /*#__PURE__*/React.createElement("input", {
+      type: "month",
+      value: moisSel,
+      max: auj.slice(0, 7),
+      onChange: e => e.target.value && setMoisSel(e.target.value),
+      style: {
+        ...inputStyle,
+        padding: "7px 10px",
+        fontWeight: 700
+      }
+    }), modeVue === "perso" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: C.gris
+      }
+    }, "du"), /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      value: dateDeb,
+      max: dateFin,
+      onChange: e => e.target.value && setDateDeb(e.target.value),
+      style: {
+        ...inputStyle,
+        padding: "7px 10px",
+        fontWeight: 700
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: C.gris
+      }
+    }, "au"), /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      value: dateFin,
+      min: dateDeb,
+      onChange: e => e.target.value && setDateFin(e.target.value),
+      style: {
+        ...inputStyle,
+        padding: "7px 10px",
+        fontWeight: 700
+      }
+    })), personneId === "tous" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
-      onClick: () => exportPDF("interne")
-    }, "↓ PDF — TOUS LES SALARIÉS"), /*#__PURE__*/React.createElement(Btn, {
+      onClick: () => ouvrirApercu("interne")
+    }, "👁 APERÇU — TOUS LES SALARIÉS"), /*#__PURE__*/React.createElement(Btn, {
       variant: "export",
-      onClick: () => exportPDF("interim")
-    }, "↓ PDF — TOUS LES INTÉRIMAIRES")) : /*#__PURE__*/React.createElement(Btn, {
+      onClick: () => ouvrirApercu("interim")
+    }, "👁 APERÇU — TOUS LES INTÉRIMAIRES")) : /*#__PURE__*/React.createElement(Btn, {
       variant: "export",
-      onClick: () => exportPDF("personne")
-    }, "↓ PDF — ", (((_tousLesPersonnes$fin = tousLesPersonnes.find(x => x.id === personneId)) === null || _tousLesPersonnes$fin === void 0 ? void 0 : _tousLesPersonnes$fin.nom) || "CETTE PERSONNE").toUpperCase()))
+      onClick: () => ouvrirApercu("personne")
+    }, "👁 APERÇU — ", (((_tousLesPersonnes$fin = tousLesPersonnes.find(x => x.id === personneId)) === null || _tousLesPersonnes$fin === void 0 ? void 0 : _tousLesPersonnes$fin.nom) || "CETTE PERSONNE").toUpperCase()))
   }, /*#__PURE__*/React.createElement("div", {
     className: "no-print",
     style: {
@@ -4734,7 +4887,26 @@ function OngletPaie({
       color: "#C0392B",
       fontWeight: 700
     }
-  }, "+100 %"), " (ces heures ne sont pas recomptées en heures supplémentaires).")), /*#__PURE__*/React.createElement("style", null, `@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:15mm;size:A4 landscape}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header{display:block!important}}.print-header{display:none}`), /*#__PURE__*/React.createElement("div", {
+  }, "+100 %"), " (ces heures ne sont pas recomptées en heures supplémentaires).")), /*#__PURE__*/React.createElement("style", null, `@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:12mm;size:A4 portrait}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header{display:block!important}}.print-header{display:none}`), apercu && /*#__PURE__*/React.createElement("div", {
+    className: "barre-apercu"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "APERÇU AVANT IMPRESSION"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      opacity: .85,
+      marginTop: 3
+    }
+  }, libelleCible[apercu], " · ", nbBlocs, " fiche(s) · ", libellePeriode, " · A4 portrait")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "principal",
+    onClick: imprimerDepuisApercu
+  }, "🖨 IMPRIMER / ENREGISTRER EN PDF"), /*#__PURE__*/React.createElement("button", {
+    onClick: fermerApercu
+  }, "✕ FERMER (Échap)"))), /*#__PURE__*/React.createElement("div", {
     className: "print-header"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -4748,11 +4920,11 @@ function OngletPaie({
       color: "#888",
       marginTop: 4
     }
-  }, "Généré le ", new Date().toLocaleDateString("fr-FR", {
+  }, "Période : ", /*#__PURE__*/React.createElement("b", null, libellePeriode), personneId !== "tous" ? ` · ${((_tousLesPersonnes$fin2 = tousLesPersonnes.find(x => x.id === personneId)) === null || _tousLesPersonnes$fin2 === void 0 ? void 0 : _tousLesPersonnes$fin2.nom) || ""}` : "", " · Généré le ", new Date().toLocaleDateString("fr-FR", {
     day: "numeric",
     month: "long",
     year: "numeric"
-  }), " · Période : ", modeVue.toUpperCase(), personneId !== "tous" ? ` · ${((_tousLesPersonnes$fin2 = tousLesPersonnes.find(x => x.id === personneId)) === null || _tousLesPersonnes$fin2 === void 0 ? void 0 : _tousLesPersonnes$fin2.nom) || ""}` : ""), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 10,
       color: "#888",
@@ -4803,7 +4975,7 @@ function OngletPaie({
     });
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
-      className: `print-break ${p._type === "interim" ? "bloc-interim" : "bloc-interne"}`,
+      className: `print-break rapport-compact ${p._type === "interim" ? "bloc-interim" : "bloc-interne"}`,
       style: {
         background: C.papier,
         border: `1.5px solid ${C.encre}`,
@@ -5370,7 +5542,7 @@ function OngletArchives({
   }, bandeauPeriode, /*#__PURE__*/React.createElement(EmptyState, null, "Aucune semaine archivée pour le moment."));
   return /*#__PURE__*/React.createElement(Section, {
     titre: "Archives — Semaines passées"
-  }, bandeauPeriode, /*#__PURE__*/React.createElement("style", null, `@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:15mm;size:A4 landscape}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header-arch{display:block!important}}.print-header-arch{display:none}`), /*#__PURE__*/React.createElement("div", {
+  }, bandeauPeriode, /*#__PURE__*/React.createElement("style", null, `@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:12mm;size:A4 portrait}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header-arch{display:block!important}}.print-header-arch{display:none}`), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 20,
@@ -5622,7 +5794,7 @@ function SemaineArchive({
     const totalPNuit = mesP.reduce((s, x) => s + calcHNuit(x), 0);
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
-      className: `print-break ${p._type === "interim" ? "bloc-interim" : "bloc-interne"}`,
+      className: `print-break rapport-compact ${p._type === "interim" ? "bloc-interim" : "bloc-interne"}`,
       style: {
         background: C.papier,
         border: `1.5px solid ${C.encre}`,
