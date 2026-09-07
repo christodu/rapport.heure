@@ -333,7 +333,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v2.6"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v2.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -1523,10 +1523,18 @@ function EcranConnexion({
   const [erreur, setErreur] = useState("");
   const [enCours, setEnCours] = useState(false);
 
-  // Liste des noms : affichée IMMÉDIATEMENT depuis le cache local,
-  // puis rafraîchie en arrière-plan. Plus aucune attente à l'ouverture.
-  const [personnesServeur, setPersonnesServeur] = useState(() => load("chok_personnes", null));
-  const [chargementListe, setChargementListe] = useState(MODE() === "google" && !load("chok_personnes", null));
+  // Liste des noms : affichée IMMÉDIATEMENT depuis le cache local, puis
+  // rafraîchie en arrière-plan. Le cache expire au bout de 24 h pour qu'une
+  // liste périmée (salariés partis, doublons) ne puisse jamais s'installer.
+  const CACHE_PERSONNES_H = 24;
+  const lireCachePersonnes = () => {
+    const c = load("chok_personnes_v2", null);
+    if (!c || !c.le || !Array.isArray(c.liste)) return null;
+    const ageH = (Date.now() - c.le) / 3600000;
+    return ageH < CACHE_PERSONNES_H ? c.liste : null;
+  };
+  const [personnesServeur, setPersonnesServeur] = useState(() => lireCachePersonnes());
+  const [chargementListe, setChargementListe] = useState(MODE() === "google" && !lireCachePersonnes());
   useEffect(() => {
     if (MODE() !== "google") {
       setChargementListe(false);
@@ -1534,9 +1542,15 @@ function EcranConnexion({
     }
     api("listePersonnes", {}).then(r => {
       const p = r.personnes || [];
-      setPersonnesServeur(p);
-      save("chok_personnes", p);
-    }).catch(() => {}) // en cas d'échec on garde la liste en cache
+      setPersonnesServeur(p); // la liste du serveur fait foi
+      save("chok_personnes_v2", {
+        le: Date.now(),
+        liste: p
+      });
+      try {
+        localStorage.removeItem("chok_personnes");
+      } catch (e) {} // ancien cache
+    }).catch(() => {}) // hors ligne : on garde la dernière liste connue
     .finally(() => setChargementListe(false));
   }, []);
   const toutes = personnesServeur ? personnesServeur : [...salaries.map(s => ({
