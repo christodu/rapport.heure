@@ -385,7 +385,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v3.1"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v3.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -966,7 +966,19 @@ const normaliserUrlApi = u => {
   if (d !== -1) return s.slice(0, d + 4); // détecté plus loin pour message dédié
   return s.replace(/\/+$/, "");
 };
-const getApiUrl = () => (localStorage.getItem("chok_api_url") || "").trim();
+/**
+ * ADRESSE DU SERVEUR — inscrite dans l'application.
+ *
+ * Elle DOIT figurer ici : sans elle, un appareil neuf (téléphone d'un chef)
+ * démarre en mode local, accepte les saisies et ne les envoie jamais.
+ * C'est sans risque : cette adresse ne donne accès à rien sans code personnel,
+ * et le serveur ne renvoie à chacun que ses propres données.
+ *
+ * ⚠ À changer uniquement si vous créez un NOUVEAU déploiement Apps Script
+ *   (un simple « Nouvelle version » conserve la même adresse).
+ */
+const API_URL_DEFAUT = "https://script.google.com/macros/s/AKfycbyzWXVD1T3Fsin6GoKntcrO6BhAMfZCpDypjIpaVhNzEwwrdZqaBM8EzWTfE93TIgvC/exec";
+const getApiUrl = () => (localStorage.getItem("chok_api_url") || API_URL_DEFAUT).trim();
 const setApiUrl = u => {
   try {
     localStorage.setItem("chok_api_url", (u || "").trim());
@@ -1320,12 +1332,29 @@ function App() {
       await viderOutbox();
       // Par défaut on ne charge que les 90 derniers jours : l'historique
       // complet se demande explicitement (bouton dans l'onglet Archives).
+      // Saisies éventuellement piégées sur l'appareil (enregistrées alors que
+      // l'adresse du serveur n'était pas connue : elles n'ont jamais été envoyées).
+      const avantChargement = load("chok_pointages", []) || [];
       const rep = await api("charger", {
         jeton: getJeton(),
         tout: !!toutCharger
       });
       const d = rep.donnees || {};
       if (rep.meta) setInfoPeriode(rep.meta);
+
+      // Récupération : ce que l'appareil connaît et que le serveur ignore.
+      try {
+        if (!load("chok_recuperation_faite", false)) {
+          const idsServeur = new Set((d.pointages || []).map(p => p.id));
+          const orphelins = avantChargement.filter(p => p && p.id && !idsServeur.has(p.id));
+          if (orphelins.length) {
+            empilerOutbox("pointages", orphelins, []);
+            const r = await viderOutbox();
+            window.alert(`${orphelins.length} saisie(s) enregistrée(s) sur cet appareil n'avaient jamais été envoyées.\n\n` + (r.restants ? `Envoi en cours, ${r.restants} en attente.` : `Elles viennent d'être transmises.`));
+          }
+          save("chok_recuperation_faite", true);
+        }
+      } catch (e) {/* la récupération ne doit jamais bloquer l'ouverture */}
       const pose = (arr, setter, cle) => {
         const v = arr || [];
         setter(v);
@@ -1341,9 +1370,8 @@ function App() {
       setSyncState("err");
       if (e && e.expire) {
         setJeton(null);
-        setSessionSauvee(null);
         setSession(null);
-      }
+      } // on garde le nom : retour direct à l'écran du code
     } finally {
       setAppLoading(false);
     }
@@ -1567,9 +1595,12 @@ function EcranConnexion({
   pinChef,
   onConnexion
 }) {
-  const [etape, setEtape] = useState("nom"); // nom → code | direction
+  // Si l'appareil connaît déjà la personne (session expirée), on lui demande
+  // directement son code plutôt que de lui refaire dérouler toute la liste.
+  const _sessionConnue = getSessionSauvee();
+  const [etape, setEtape] = useState(_sessionConnue && _sessionConnue.personneId ? "code" : "nom");
   const [pin, setPin] = useState("");
-  const [personneId, setPersonneId] = useState("");
+  const [personneId, setPersonneId] = useState(_sessionConnue && _sessionConnue.personneId ? _sessionConnue.personneId : "");
   const [recherche, setRecherche] = useState("");
   const [erreur, setErreur] = useState("");
   const [enCours, setEnCours] = useState(false);
