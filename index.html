@@ -385,7 +385,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v3.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v3.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -1108,22 +1108,58 @@ function empilerOutbox(table, upserts, suppressions) {
 }
 let _envoiEnCours = false;
 /** Vide la file d'attente. Renvoie {envoyes, restants, erreur}. */
+// Envois définitivement refusés : mis de côté pour ne PAS bloquer les suivants.
+const BLOQUES_CLE = "chok_outbox_bloques";
+const MAX_ESSAIS = 5;
+const lireBloques = () => {
+  try {
+    return JSON.parse(localStorage.getItem(BLOQUES_CLE) || "[]");
+  } catch (e) {
+    return [];
+  }
+};
+const ecrireBloques = l => {
+  try {
+    localStorage.setItem(BLOQUES_CLE, JSON.stringify(l));
+  } catch (e) {}
+};
+const bloquesCount = () => lireBloques().length;
+/** Remet les envois bloqués dans la file, pour un nouvel essai manuel. */
+function rejouerBloques() {
+  const b = lireBloques();
+  if (!b.length) return 0;
+  const file = lireOutbox();
+  b.forEach(op => {
+    op.essais = 0;
+    delete op.derniereErreur;
+    file.push(op);
+  });
+  ecrireOutbox(file);
+  ecrireBloques([]);
+  return b.length;
+}
 async function viderOutbox() {
   if (_envoiEnCours) return {
     envoyes: 0,
-    restants: outboxCount()
+    restants: outboxCount(),
+    bloques: bloquesCount()
   };
   if (MODE() !== "google" || !getJeton()) return {
     envoyes: 0,
-    restants: outboxCount()
+    restants: outboxCount(),
+    bloques: bloquesCount()
   };
   _envoiEnCours = true;
   let envoyes = 0,
-    erreur = null;
+    erreur = null,
+    nouveauxBloques = 0;
   try {
     let file = lireOutbox();
-    while (file.length) {
-      const op = file[0];
+    let i = 0;
+    // On parcourt TOUTE la file : un envoi qui échoue ne doit plus empêcher
+    // les autres de partir (une saisie refusée bloquait tout, indéfiniment).
+    while (i < file.length) {
+      const op = file[i];
       try {
         await api("enregistrer", {
           jeton: getJeton(),
@@ -1132,17 +1168,26 @@ async function viderOutbox() {
           suppressions: op.suppressions,
           confirmerSuppressionMassive: !!op.confirmerSuppressionMassive
         });
-        file.shift();
+        file.splice(i, 1);
         ecrireOutbox(file);
         envoyes++;
       } catch (e) {
-        // On conserve l'opération pour un nouvel essai plus tard.
         op.essais = (op.essais || 0) + 1;
         op.derniereErreur = e.message;
-        file[0] = op;
-        ecrireOutbox(file);
         erreur = e;
-        break;
+        const definitif = !!e.codeErreur; // refus métier : inutile d'insister
+        if (definitif || op.essais >= MAX_ESSAIS) {
+          const b = lireBloques();
+          b.push(op);
+          ecrireBloques(b);
+          file.splice(i, 1);
+          ecrireOutbox(file);
+          nouveauxBloques++;
+        } else {
+          file[i] = op;
+          ecrireOutbox(file);
+          i++; // on tente les suivants
+        }
       }
     }
   } finally {
@@ -1151,6 +1196,8 @@ async function viderOutbox() {
   return {
     envoyes,
     restants: outboxCount(),
+    bloques: bloquesCount(),
+    nouveauxBloques,
     erreur
   };
 }
@@ -7388,6 +7435,91 @@ function VueMobile({
     setErreur("");
   };
 
+  // ---- Récapitulatif du chef (lui + ses intérimaires) ----
+  const [vueRecap, setVueRecap] = useState("semaine");
+  const recap = (() => {
+    const d = new Date();
+    let debut, fin;
+    if (vueRecap === "semaine") {
+      const jour = d.getDay() || 7;
+      const lundi = new Date(d);
+      lundi.setDate(d.getDate() - jour + 1);
+      const dim = new Date(lundi);
+      dim.setDate(lundi.getDate() + 6);
+      debut = lundi.toISOString().slice(0, 10);
+      fin = dim.toISOString().slice(0, 10);
+    } else {
+      debut = auj.slice(0, 8) + "01";
+      fin = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    }
+    const idsMoi = new Set([moi.id, ...mesInterimaires.map(i => i.id)]);
+    const lignes = pointages.filter(p => idsMoi.has(p.salarie) && p.date >= debut && p.date <= fin);
+    // Majorations : le seuil de 35 h est INDIVIDUEL et HEBDOMADAIRE.
+    // On regroupe donc par personne PUIS par semaine — additionner les heures
+    // du chef et de ses intérimaires fausserait le calcul des heures sup.
+    const r = n => Math.round(n * 100) / 100;
+    const parPersonneSem = {};
+    lignes.forEach(p => {
+      const cle = p.salarie + "|" + infoSemaine(p.date).cle;
+      (parPersonneSem[cle] = parPersonneSem[cle] || []).push(p);
+    });
+    const maj = Object.values(parPersonneSem).reduce((a, l) => {
+      const m = calcMajorations(l);
+      return {
+        hBase: a.hBase + m.hBase,
+        h25: a.h25 + m.h25,
+        h50: a.h50 + m.h50,
+        h100: a.h100 + m.h100
+      };
+    }, {
+      hBase: 0,
+      h25: 0,
+      h50: 0,
+      h100: 0
+    });
+    Object.keys(maj).forEach(k => maj[k] = r(maj[k]));
+    return {
+      total: r(lignes.reduce((s, p) => s + calcHeures(p), 0)),
+      nuit: r(lignes.reduce((s, p) => s + calcHNuit(p), 0)),
+      nuitees: calcNuitees(lignes),
+      jours: new Set(lignes.map(p => p.date)).size,
+      interim: lignes.filter(p => p.salarie !== moi.id).length,
+      enAttente: lignes.filter(p => !p.valide).length,
+      maj
+    };
+  })();
+
+  // ---- Renvoi des rapports non transmis ----
+  const [nbAttente, setNbAttente] = useState(outboxCount());
+  const [nbBloques, setNbBloques] = useState(bloquesCount());
+  const [renvoiEnCours, setRenvoi] = useState(false);
+  const [msgRenvoi, setMsgRenvoi] = useState("");
+  useEffect(() => {
+    const t = setInterval(() => {
+      setNbAttente(outboxCount());
+      setNbBloques(bloquesCount());
+    }, 3000);
+    return () => clearInterval(t);
+  }, []);
+  const renvoyer = async () => {
+    setRenvoi(true);
+    setMsgRenvoi("");
+    rejouerBloques(); // on redonne leur chance aux refusés
+    const r = await viderOutbox();
+    setNbAttente(outboxCount());
+    setNbBloques(bloquesCount());
+    if (outboxCount() === 0 && bloquesCount() === 0) {
+      setMsgRenvoi(`✓ Tout est envoyé${r.envoyes ? ` (${r.envoyes} envoi(s))` : ""}.`);
+    } else if (bloquesCount() > 0) {
+      const b = lireBloques()[0];
+      setMsgRenvoi(`Refusé par le serveur :\n${b && b.derniereErreur || "raison inconnue"}\n\nPrévenez la direction en lui montrant ce message.`);
+    } else {
+      setMsgRenvoi(`Pas de réseau pour le moment. ${outboxCount()} envoi(s) en attente — ils partiront automatiquement.`);
+    }
+    setRenvoi(false);
+    setTimeout(() => setMsgRenvoi(""), 15000);
+  };
+
   // ---- Correction d'un rapport déjà envoyé ----
   const [correctionId, setCorrectionId] = useState(null);
   const [corr, setCorr] = useState({
@@ -7537,7 +7669,131 @@ function VueMobile({
       color: C.gris,
       marginTop: 4
     }
-  }, "Déclarez vos heures du jour")), /*#__PURE__*/React.createElement("div", {
+  }, "Déclarez vos heures du jour")), (nbAttente > 0 || nbBloques > 0) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14,
+      padding: "14px 16px",
+      background: nbBloques > 0 ? "#FFF0F0" : "#FFF8E1",
+      border: `2px solid ${nbBloques > 0 ? C.orange : "#B7770D"}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: nbBloques > 0 ? C.orange : "#B7770D",
+      marginBottom: 6
+    }
+  }, nbBloques > 0 ? "⚠ ENVOI REFUSÉ" : "⏳ RAPPORT PAS ENCORE ENVOYÉ"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.6,
+      marginBottom: 10
+    }
+  }, nbAttente > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, nbAttente, " envoi(s) attendent le réseau. Vos heures sont ", /*#__PURE__*/React.createElement("b", null, "enregistrées sur le téléphone"), ", rien n'est perdu.", /*#__PURE__*/React.createElement("br", null)), nbBloques > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, nbBloques, " envoi(s) ont été refusés par le serveur.", msgRenvoi ? "" : " Touchez « Renvoyer » ; si le refus persiste, prévenez la direction.")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(MBtn, {
+    onClick: renvoyer,
+    disabled: renvoiEnCours
+  }, renvoiEnCours ? "ENVOI EN COURS…" : "📤 RENVOYER MAINTENANT")), msgRenvoi && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      fontSize: 12,
+      fontWeight: 700,
+      whiteSpace: "pre-wrap",
+      color: msgRenvoi.startsWith("✓") ? C.vert : C.orange
+    }
+  }, msgRenvoi)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...boiteStyle,
+      borderWidth: 2
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...titreBoite,
+      color: C.encre
+    }
+  }, "MON RÉCAPITULATIF"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 16px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 12
+    }
+  }, [["semaine", "Cette semaine"], ["mois", "Ce mois"]].map(([k, lib]) => {
+    const actif = vueRecap === k;
+    return /*#__PURE__*/React.createElement("button", {
+      key: k,
+      onClick: () => setVueRecap(k),
+      style: {
+        flex: 1,
+        padding: "9px 4px",
+        background: actif ? C.encre : C.fond,
+        color: actif ? C.jaune : C.encre,
+        border: `1.5px solid ${actif ? C.encre : C.ligne}`,
+        fontFamily: FM,
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, lib);
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit,minmax(88px,1fr))",
+      gap: 8
+    }
+  }, [["TOTAL", fmtH(recap.total), C.encre], ...(recap.maj.h25 > 0 ? [["+25 %", fmtH(recap.maj.h25), "#B7770D"]] : []), ...(recap.maj.h50 > 0 ? [["+50 %", fmtH(recap.maj.h50), C.orange]] : []), ...(recap.maj.h100 > 0 ? [["+100 %", fmtH(recap.maj.h100), "#C0392B"]] : []), ...(recap.nuit > 0 ? [["NUIT", fmtH(recap.nuit), "#6C3483"]] : []), ...(recap.nuitees > 0 ? [["NUITÉES", String(recap.nuitees), C.bleu]] : [])].map(([l, v, col]) => /*#__PURE__*/React.createElement("div", {
+    key: l,
+    style: {
+      textAlign: "center",
+      padding: "9px 4px",
+      background: C.fond,
+      border: `1px solid ${C.ligne}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 8,
+      color: C.gris,
+      letterSpacing: "0.12em",
+      fontWeight: 700
+    }
+  }, l), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: FT,
+      fontSize: 18,
+      fontWeight: 800,
+      color: col,
+      marginTop: 2
+    }
+  }, v)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      fontSize: 11,
+      color: C.gris,
+      lineHeight: 1.5
+    }
+  }, recap.jours, " jour(s) déclaré(s)", recap.interim > 0 ? ` · dont ${recap.interim} ligne(s) intérimaire` : "", recap.enAttente > 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.orange,
+      fontWeight: 700
+    }
+  }, " · ", recap.enAttente, " en attente de validation")), recap.total === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: "9px 12px",
+      background: "#FFF8E1",
+      border: `1.5px solid ${C.jaune}`,
+      fontSize: 11,
+      fontWeight: 600
+    }
+  }, "Aucune heure déclarée sur cette période."))), /*#__PURE__*/React.createElement("div", {
     style: boiteStyle
   }, /*#__PURE__*/React.createElement("div", {
     style: titreBoite
