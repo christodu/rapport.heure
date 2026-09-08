@@ -385,7 +385,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v3.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v3.1"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -6705,12 +6705,28 @@ function OngletParametres({
       setMsgEmail("Échec : " + e.message);
     }
   };
-  const reinitialiserTout = () => {
-    if (!window.confirm("⚠ Effacer TOUTES les données (pointages, absences, chantiers) ? Les salariés seront conservés.")) return;
-    setPointages([]);
-    setAbsences([]);
-    setChantiers([]);
-    setInterimaires([]);
+  const reinitialiserTout = async () => {
+    if (!window.confirm("⚠ Effacer TOUTES les données (pointages, absences, chantiers, intérimaires) ?\n\nLes salariés seront conservés. Une sauvegarde est créée avant l'effacement.")) return;
+    if (MODE() !== "google") {
+      setPointages([]);
+      setAbsences([]);
+      setChantiers([]);
+      setInterimaires([]);
+      return;
+    }
+    try {
+      const r = await api("reinitialiser", {
+        jeton: getJeton(),
+        tables: ["pointages", "absences", "chantiers", "interimaires"]
+      });
+      setPointages([]);
+      setAbsences([]);
+      setChantiers([]);
+      setInterimaires([]);
+      window.alert("Effacement effectué.\nSauvegarde créée : " + (r.sauvegarde || "—"));
+    } catch (e) {
+      window.alert("Échec : " + e.message + "\nAucune donnée n'a été effacée.");
+    }
   };
   const [msgReset, setMsgReset] = useState("");
 
@@ -6801,13 +6817,33 @@ function OngletParametres({
       setMigrationEnCours(false);
     }
   };
-  const remettreHeuresAZero = () => {
-    if (!window.confirm(`⚠ Remettre les HEURES à zéro ?\n\nCela effacera ${pointages.length} pointage(s) et ${absences.length} absence(s) sur TOUS les appareils.\n\nLes salariés, chantiers et intérimaires sont conservés.\n\nCette action est définitive.`)) return;
-    if (!window.confirm("Dernière confirmation : effacer tous les pointages et absences ?")) return;
-    setPointages([]);
-    setAbsences([]);
-    setMsgReset("✓ Heures remises à zéro. L'app est prête pour une nouvelle saisie.");
-    setTimeout(() => setMsgReset(""), 6000);
+  // La remise à zéro est faite PAR LE SERVEUR : l'application n'ayant en
+  // mémoire que les 90 derniers jours, un effacement piloté ici ne toucherait
+  // pas l'historique ancien. Le serveur sauvegarde puis vide réellement.
+  const remettreHeuresAZero = async () => {
+    if (!window.confirm(`⚠ Remettre les HEURES à zéro ?\n\nCela effacera TOUS les pointages et TOUTES les absences, y compris l'historique ancien non affiché à l'écran.\n\nLes salariés, chantiers et intérimaires sont conservés.\n\nUne sauvegarde complète est créée automatiquement avant l'effacement.`)) return;
+    if (!window.confirm("Dernière confirmation : effacer tout l'historique des heures ?")) return;
+    if (MODE() !== "google") {
+      setPointages([]);
+      setAbsences([]);
+      setMsgReset("✓ Heures remises à zéro sur cet appareil.");
+      setTimeout(() => setMsgReset(""), 8000);
+      return;
+    }
+    setMsgReset("Sauvegarde puis effacement en cours…");
+    try {
+      const r = await api("reinitialiser", {
+        jeton: getJeton(),
+        tables: ["pointages", "absences"]
+      });
+      const d = r.efface || {};
+      setPointages([]);
+      setAbsences([]);
+      setMsgReset(`✓ Remise à zéro effectuée : ${d.pointages || 0} pointage(s) et ${d.absences || 0} absence(s) effacés.\nSauvegarde créée : ${r.sauvegarde || "—"}`);
+    } catch (e) {
+      setMsgReset("Échec : " + e.message + "\nAucune donnée n'a été effacée.");
+    }
+    setTimeout(() => setMsgReset(""), 12000);
   };
   return /*#__PURE__*/React.createElement("div", {
     style: {
