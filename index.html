@@ -385,7 +385,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v3.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v3.5"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 const CONGES_DEFAUT = 25; // jours ouvrés par an
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
@@ -1041,42 +1041,91 @@ function reveillerServeur(forcer) {
     }).catch(() => {});
   } catch (e) {}
 }
+const DELAI_MAX_MS = 60000; // un serveur qui se réveille peut mettre ~35 s
+const TENTATIVES = 3; // réessais automatiques avant d'abandonner
 
-/** Appel au serveur Google. Renvoie l'objet JSON ou lève une erreur lisible. */
-async function api(action, params) {
+const pause = ms => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Appel au serveur Google, tolérant aux aléas réseau.
+ *
+ * Pourquoi des réessais : la première requête après une période d'inactivité
+ * peut demander 30 secondes au serveur Google. Certains navigateurs — iOS en
+ * particulier — abandonnent avant. L'échec ressemble alors à une panne réseau
+ * alors que la connexion est parfaite.
+ *
+ * Réessayer est SANS DANGER : chaque ligne porte un identifiant et l'écriture
+ * est un « remplacer si existe ». Un rapport envoyé deux fois ne crée pas de
+ * doublon, il réécrit simplement la même ligne.
+ */
+async function api(action, params, options) {
   const url = getApiUrl();
-  if (!url) throw new Error("Adresse du serveur Google non renseignée (Paramètres).");
-  let rep;
-  try {
-    rep = await fetch(url, {
-      method: "POST",
-      // text/plain : évite le pré-vol CORS, qu'Apps Script ne gère pas.
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8"
-      },
-      redirect: "follow",
-      body: JSON.stringify(Object.assign({
-        action
-      }, params || {}))
-    });
-  } catch (e) {
-    throw new Error("Connexion au serveur impossible (réseau ou adresse incorrecte).");
+  if (!url) throw new Error("Adresse du serveur non renseignée (Paramètres).");
+  const opts = options || {};
+  const corps = JSON.stringify(Object.assign({
+    action
+  }, params || {}));
+  let dernierEchec = null;
+  for (let essai = 1; essai <= (opts.tentatives || TENTATIVES); essai++) {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const minuteur = ctrl ? setTimeout(() => ctrl.abort(), opts.delai || DELAI_MAX_MS) : null;
+    try {
+      const rep = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        redirect: "follow",
+        body: corps,
+        signal: ctrl ? ctrl.signal : undefined,
+        // keepalive : l'envoi se poursuit même si l'utilisateur verrouille
+        // son téléphone ou change d'application juste après avoir validé.
+        keepalive: corps.length < 60000
+      });
+      if (minuteur) clearTimeout(minuteur);
+      if (rep.status >= 500 || rep.status === 429) {
+        // incident passager côté Google
+        dernierEchec = new Error(`Le serveur Google a répondu ${rep.status}.`);
+        if (essai < (opts.tentatives || TENTATIVES)) {
+          await pause(essai * 1500);
+          continue;
+        }
+        throw dernierEchec;
+      }
+      if (!rep.ok) throw new Error(`Serveur Google : erreur ${rep.status}.`);
+      const texte = await rep.text();
+      let data;
+      try {
+        data = JSON.parse(texte);
+      } catch (e) {
+        throw new Error("Réponse inattendue du serveur. Vérifiez que le déploiement est accessible à « Tout le monde ».");
+      }
+      if (!data.ok) {
+        const err = new Error(data.erreur || "Erreur inconnue du serveur.");
+        err.codeErreur = data.codeErreur;
+        err.expire = data.expire;
+        throw err; // refus métier : inutile de réessayer
+      }
+      return data;
+    } catch (e) {
+      if (minuteur) clearTimeout(minuteur);
+      if (e.codeErreur || e.expire) throw e; // refus du serveur : on n'insiste pas
+      const abandon = e.name === "AbortError";
+      dernierEchec = e;
+      if (essai < (opts.tentatives || TENTATIVES)) {
+        await pause(essai * 1500);
+        continue;
+      }
+
+      // Message honnête : on distingue l'absence de réseau du serveur muet.
+      const horsLigne = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (horsLigne) {
+        throw new Error("Aucune connexion internet. L'envoi repartira automatiquement.");
+      }
+      throw new Error(abandon ? "Le serveur Google n'a pas répondu à temps (il se réveillait peut-être). Votre saisie est conservée, retentez dans un instant." : "Le serveur Google n'a pas répondu. Votre saisie est conservée, elle sera renvoyée automatiquement.");
+    }
   }
-  if (!rep.ok) throw new Error(`Serveur Google : erreur ${rep.status}.`);
-  const texte = await rep.text();
-  let data;
-  try {
-    data = JSON.parse(texte);
-  } catch (e) {
-    throw new Error("Réponse inattendue du serveur. Vérifiez que le déploiement est accessible à « Tout le monde ».");
-  }
-  if (!data.ok) {
-    const err = new Error(data.erreur || "Erreur inconnue du serveur.");
-    err.codeErreur = data.codeErreur;
-    err.expire = data.expire;
-    throw err;
-  }
-  return data;
+  throw dernierEchec || new Error("Envoi impossible.");
 }
 
 // ---- File d'attente : aucune saisie perdue même sans réseau ----
@@ -1154,7 +1203,29 @@ async function viderOutbox() {
     erreur = null,
     nouveauxBloques = 0;
   try {
+    // ---- REGROUPEMENT ----
+    // Plusieurs modifications d'affilée sur la même table (corriger deux
+    // lignes, ajouter un intérimaire puis ses heures) partaient en autant
+    // d'allers-retours. On les fusionne : un seul appel au lieu de N.
     let file = lireOutbox();
+    if (file.length > 1) {
+      const fusion = [];
+      file.forEach(op => {
+        const prec = fusion[fusion.length - 1];
+        if (prec && prec.table === op.table && !prec.confirmerSuppressionMassive && !op.confirmerSuppressionMassive && (prec.essais || 0) === 0 && (op.essais || 0) === 0) {
+          // Une ligne réécrite plus tard remplace la précédente
+          const ids = new Set((op.upserts || []).map(u => u.id));
+          prec.upserts = (prec.upserts || []).filter(u => !ids.has(u.id)).concat(op.upserts || []);
+          prec.suppressions = (prec.suppressions || []).concat(op.suppressions || []);
+        } else {
+          fusion.push(op);
+        }
+      });
+      if (fusion.length < file.length) {
+        file = fusion;
+        ecrireOutbox(file);
+      }
+    }
     let i = 0;
     // On parcourt TOUTE la file : un envoi qui échoue ne doit plus empêcher
     // les autres de partir (une saisie refusée bloquait tout, indéfiniment).
@@ -1176,6 +1247,30 @@ async function viderOutbox() {
         op.derniereErreur = e.message;
         erreur = e;
         const definitif = !!e.codeErreur; // refus métier : inutile d'insister
+
+        // Un lot regroupé qui se fait refuser : on le redécoupe ligne par ligne
+        // pour n'écarter QUE la ligne fautive, sans pénaliser les bonnes.
+        const groupe = (op.upserts || []).length + (op.suppressions || []).length > 1;
+        if (definitif && groupe) {
+          const morceaux = [];
+          (op.upserts || []).forEach(u => morceaux.push({
+            cle: op.cle + "-u" + u.id,
+            table: op.table,
+            upserts: [u],
+            suppressions: [],
+            essais: 0
+          }));
+          (op.suppressions || []).forEach(id => morceaux.push({
+            cle: op.cle + "-s" + id,
+            table: op.table,
+            upserts: [],
+            suppressions: [id],
+            essais: 0
+          }));
+          file.splice(i, 1, ...morceaux);
+          ecrireOutbox(file);
+          continue; // on retente chaque ligne séparément
+        }
         if (definitif || op.essais >= MAX_ESSAIS) {
           const b = lireBloques();
           b.push(op);
@@ -7501,6 +7596,30 @@ function VueMobile({
     }, 3000);
     return () => clearInterval(t);
   }, []);
+  // Diagnostic : mesure le temps de réponse du serveur et dit ce qui cloche.
+  const [testEnCours, setTestEnCours] = useState(false);
+  const testerConnexion = async () => {
+    setTestEnCours(true);
+    setMsgRenvoi("Test en cours…");
+    const enLigne = typeof navigator !== "undefined" && navigator.onLine !== false;
+    if (!enLigne) {
+      setMsgRenvoi("✕ Aucune connexion internet détectée sur cet appareil.");
+      setTestEnCours(false);
+      return;
+    }
+    const t0 = Date.now();
+    try {
+      await api("ping", {}, {
+        tentatives: 1,
+        delai: 60000
+      });
+      const ms = Date.now() - t0;
+      setMsgRenvoi(ms < 3000 ? `✓ Serveur joignable en ${(ms / 1000).toFixed(1)} s. La liaison est bonne.` : `✓ Serveur joignable, mais lent : ${(ms / 1000).toFixed(1)} s.\nIl sortait probablement de veille. Retentez l'envoi maintenant, ce sera rapide.`);
+    } catch (e) {
+      setMsgRenvoi(`✕ ${e.message}\n\nVotre connexion fonctionne : le problème vient du serveur. Prévenez la direction.`);
+    }
+    setTestEnCours(false);
+  };
   const renvoyer = async () => {
     setRenvoi(true);
     setMsgRenvoi("");
@@ -7698,7 +7817,11 @@ function VueMobile({
   }, /*#__PURE__*/React.createElement(MBtn, {
     onClick: renvoyer,
     disabled: renvoiEnCours
-  }, renvoiEnCours ? "ENVOI EN COURS…" : "📤 RENVOYER MAINTENANT")), msgRenvoi && /*#__PURE__*/React.createElement("div", {
+  }, renvoiEnCours ? "ENVOI EN COURS…" : "📤 RENVOYER MAINTENANT"), /*#__PURE__*/React.createElement(MBtn, {
+    variant: "ghost",
+    onClick: testerConnexion,
+    disabled: testEnCours
+  }, testEnCours ? "TEST…" : "🔍 TESTER LA CONNEXION")), msgRenvoi && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       fontSize: 12,
