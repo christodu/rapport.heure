@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v3.8"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v3.9"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 
 /**
@@ -1198,19 +1198,35 @@ const ecrireBloques = l => {
   } catch (e) {}
 };
 const bloquesCount = () => lireBloques().length;
-/** Remet les envois bloqués dans la file, pour un nouvel essai manuel. */
-function rejouerBloques() {
+/**
+ * Remet les envois bloqués dans la file, pour un nouvel essai manuel.
+ * @param {boolean} forcer  passe outre les refus « doublon » du serveur.
+ */
+function rejouerBloques(forcer) {
   const b = lireBloques();
   if (!b.length) return 0;
   const file = lireOutbox();
   b.forEach(op => {
     op.essais = 0;
     delete op.derniereErreur;
+    if (forcer) {
+      op.confirmerDoublon = true;
+    }
     file.push(op);
   });
   ecrireOutbox(file);
   ecrireBloques([]);
   return b.length;
+}
+
+/** Raison du premier envoi bloqué, pour l'afficher à l'utilisateur. */
+function raisonBlocage() {
+  const b = lireBloques();
+  return b.length ? b[0].derniereErreur || "Raison inconnue." : "";
+}
+/** Un blocage dû à une double déclaration peut être confirmé par l'utilisateur. */
+function blocageConfirmable() {
+  return lireBloques().some(o => /déjà été déclarées/i.test(o.derniereErreur || ""));
 }
 async function viderOutbox() {
   if (_envoiEnCours) return {
@@ -1262,6 +1278,7 @@ async function viderOutbox() {
           table: op.table,
           upserts: op.upserts,
           suppressions: op.suppressions,
+          confirmerDoublon: !!op.confirmerDoublon,
           confirmerSuppressionMassive: !!op.confirmerSuppressionMassive
         });
         file.splice(i, 1);
@@ -7784,6 +7801,24 @@ function VueMobile({
     }
     setTestEnCours(false);
   };
+  const [peutForcer, setPeutForcer] = useState(false);
+  useEffect(() => {
+    setPeutForcer(blocageConfirmable());
+  }, [nbBloques]);
+
+  /** Renvoi en assumant la double déclaration (l'utilisateur confirme). */
+  const forcerEnvoi = async () => {
+    if (!window.confirm("Ces heures ont déjà été déclarées par quelqu'un d'autre.\n\n" + "Les envoyer quand même risque de les compter DEUX FOIS sur la paie.\n\nConfirmer l'envoi ?")) return;
+    setRenvoi(true);
+    setMsgRenvoi("");
+    rejouerBloques(true);
+    const r = await viderOutbox();
+    setNbAttente(outboxCount());
+    setNbBloques(bloquesCount());
+    setPeutForcer(blocageConfirmable());
+    setMsgRenvoi(bloquesCount() === 0 && outboxCount() === 0 ? "✓ Envoyé. Signalez-le à la direction pour qu'elle vérifie les doublons." : "Toujours refusé : " + raisonBlocage());
+    setRenvoi(false);
+  };
   const renvoyer = async () => {
     setRenvoi(true);
     setMsgRenvoi("");
@@ -7791,6 +7826,7 @@ function VueMobile({
     const r = await viderOutbox();
     setNbAttente(outboxCount());
     setNbBloques(bloquesCount());
+    setPeutForcer(blocageConfirmable());
     if (outboxCount() === 0 && bloquesCount() === 0) {
       setMsgRenvoi(`✓ Tout est envoyé${r.envoyes ? ` (${r.envoyes} envoi(s))` : ""}.`);
     } else if (bloquesCount() > 0) {
@@ -7972,7 +8008,16 @@ function VueMobile({
       lineHeight: 1.6,
       marginBottom: 10
     }
-  }, nbAttente > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, nbAttente, " envoi(s) attendent le réseau. Vos heures sont ", /*#__PURE__*/React.createElement("b", null, "enregistrées sur le téléphone"), ", rien n'est perdu.", /*#__PURE__*/React.createElement("br", null)), nbBloques > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, nbBloques, " envoi(s) ont été refusés par le serveur.", msgRenvoi ? "" : " Touchez « Renvoyer » ; si le refus persiste, prévenez la direction.")), /*#__PURE__*/React.createElement("div", {
+  }, nbAttente > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, nbAttente, " envoi(s) attendent le réseau. Vos heures sont ", /*#__PURE__*/React.createElement("b", null, "enregistrées sur le téléphone"), ", rien n'est perdu.", /*#__PURE__*/React.createElement("br", null)), nbBloques > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", null, "Motif du refus :"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 4,
+      padding: "8px 10px",
+      background: C.papier,
+      border: `1px solid ${C.orange}`,
+      fontSize: 11,
+      whiteSpace: "pre-wrap"
+    }
+  }, raisonBlocage()))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -7981,11 +8026,21 @@ function VueMobile({
   }, /*#__PURE__*/React.createElement(MBtn, {
     onClick: renvoyer,
     disabled: renvoiEnCours
-  }, renvoiEnCours ? "ENVOI EN COURS…" : "📤 RENVOYER MAINTENANT"), /*#__PURE__*/React.createElement(MBtn, {
+  }, renvoiEnCours ? "ENVOI EN COURS…" : "📤 RENVOYER MAINTENANT"), peutForcer && /*#__PURE__*/React.createElement(MBtn, {
+    onClick: forcerEnvoi,
+    disabled: renvoiEnCours
+  }, "✓ ENVOYER QUAND MÊME"), /*#__PURE__*/React.createElement(MBtn, {
     variant: "ghost",
     onClick: testerConnexion,
     disabled: testEnCours
-  }, testEnCours ? "TEST…" : "🔍 TESTER LA CONNEXION")), msgRenvoi && /*#__PURE__*/React.createElement("div", {
+  }, testEnCours ? "TEST…" : "🔍 TESTER LA CONNEXION")), peutForcer && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      fontSize: 11,
+      color: C.gris,
+      lineHeight: 1.5
+    }
+  }, "Ces heures semblent avoir déjà été déclarées par quelqu'un d'autre. N'envoyez quand même que si vous êtes sûr qu'il s'agit de journées différentes — sinon elles seraient ", /*#__PURE__*/React.createElement("b", null, "comptées deux fois"), "."), msgRenvoi && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       fontSize: 12,
