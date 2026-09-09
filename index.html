@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v4.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v5.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 
 /**
@@ -456,182 +456,6 @@ const heureFr = () => new Date().toLocaleTimeString("fr-FR", {
   hour: "2-digit",
   minute: "2-digit"
 });
-
-// ============================================================
-//  PASSERELLE PLANNING  →  RAPPORT HEURE
-//  Lit le planning (Google Apps Script) et propose de créer
-//  les pointages de la semaine. Rapprochement par nom.
-// ============================================================
-
-// URL de l'API Apps Script du planning (modifiable dans Paramètres)
-const PLANNING_GAS_URL_DEFAUT = "https://script.google.com/macros/s/AKfycbyovrVtwNYaZhBnQewdHxfZhUSRvKEvWgOpmYTiZ2Sdx494FhusobScjWg-tdko93Nq/exec";
-const getPlanningUrl = () => typeof localStorage !== "undefined" && localStorage.getItem("chok_planning_url") || PLANNING_GAS_URL_DEFAUT;
-
-// Heures par défaut appliquées aux pointages importés (le chef confirmera)
-const PLANNING_DEBUT_DEFAUT = "08:00";
-const PLANNING_FIN_DEFAUT = "16:00";
-const PLANNING_PAUSE_DEFAUT = 60;
-
-// Normalisation d'un nom : majuscules sans accents, ponctuation retirée
-const normNom = s => (s || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-const tokensNom = s => normNom(s).split(" ").filter(t => t.length > 1);
-
-// Rapproche un nom du planning avec la liste des salariés.
-// Renvoie {id, score} du meilleur candidat, ou null.
-function matchSalarie(nomPlanning, salaries) {
-  const cible = normNom(nomPlanning);
-  if (!cible) return null;
-  const tCible = tokensNom(nomPlanning);
-  let best = null;
-  salaries.forEach(sal => {
-    const nSal = normNom(sal.nom);
-    const tSal = tokensNom(sal.nom);
-    let score = 0;
-    if (nSal === cible) score = 100;else {
-      // tous les tokens du nom le plus court présents dans l'autre
-      const court = tCible.length <= tSal.length ? tCible : tSal;
-      const long = tCible.length <= tSal.length ? tSal : tCible;
-      const tousPresents = court.length > 0 && court.every(t => long.includes(t));
-      const communs = tCible.filter(t => tSal.includes(t)).length;
-      if (tousPresents) score = 60 + communs * 10;else if (communs > 0) score = communs * 10;
-    }
-    if (score > 0 && (!best || score > best.score)) best = {
-      id: sal.id,
-      score,
-      nom: sal.nom
-    };
-  });
-  return best && best.score >= 20 ? best : null;
-}
-
-// Rapproche un nom de chantier (texte libre) avec la liste des chantiers
-function matchChantier(noteChantier, chantiers) {
-  const cible = normNom(noteChantier);
-  if (!cible) return null;
-  let best = null;
-  chantiers.forEach(ch => {
-    const nCh = normNom(ch.nom);
-    let score = 0;
-    if (nCh === cible) score = 100;else if (nCh && (nCh.includes(cible) || cible.includes(nCh))) score = 70;else {
-      const tC = tokensNom(noteChantier),
-        tH = tokensNom(ch.nom);
-      const communs = tC.filter(t => tH.includes(t)).length;
-      if (communs > 0) score = communs * 15;
-    }
-    if (score > 0 && (!best || score > best.score)) best = {
-      id: ch.id,
-      score,
-      nom: ch.nom
-    };
-  });
-  return best && best.score >= 30 ? best : null;
-}
-
-// ---- Dates : reconstruire la date depuis la clé de cellule du planning ----
-// Clé planning : w{AAAASS}_d{0-5}_c{idChef}   (jour 0=lundi … 5=samedi)
-function planningAbsWkToMonday(idx) {
-  const y = parseInt(String(idx).slice(0, 4), 10),
-    w = parseInt(String(idx).slice(4), 10);
-  const j4 = new Date(y, 0, 4),
-    s = new Date(j4);
-  s.setDate(j4.getDate() - (j4.getDay() || 7) + 1);
-  const r = new Date(s);
-  r.setDate(s.getDate() + (w - 1) * 7);
-  return r;
-}
-const planningWeekNum = d => {
-  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
-  return Math.ceil(((t - new Date(Date.UTC(t.getUTCFullYear(), 0, 1))) / 86400000 + 1) / 7);
-};
-const planningAbsWk = d => `${d.getFullYear()}${String(planningWeekNum(d)).padStart(2, "0")}`;
-const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-// Lundi d'une semaine décalée de "off" semaines par rapport à aujourd'hui
-function planningMonday(off = 0) {
-  const n = new Date(),
-    day = n.getDay(),
-    diff = day === 0 ? -6 : 1 - day;
-  n.setHours(0, 0, 0, 0);
-  n.setDate(n.getDate() + diff + off * 7);
-  return n;
-}
-
-// Charge le planning via JSONP (contourne CORS sur Apps Script)
-function chargerPlanning() {
-  return new Promise((resolve, reject) => {
-    const url = getPlanningUrl();
-    if (!url) {
-      reject(new Error("URL du planning non configurée"));
-      return;
-    }
-    const cb = "chokPlanningCb_" + Date.now().toString(36) + Math.floor(Math.random() * 1e6);
-    const script = document.createElement("script");
-    const minuteur = setTimeout(() => {
-      nettoyer();
-      reject(new Error("Délai dépassé — vérifiez l'URL du planning"));
-    }, 15000);
-    function nettoyer() {
-      clearTimeout(minuteur);
-      delete window[cb];
-      if (script.parentNode) script.parentNode.removeChild(script);
-    }
-    window[cb] = data => {
-      nettoyer();
-      resolve(data);
-    };
-    script.onerror = () => {
-      nettoyer();
-      reject(new Error("Connexion impossible au planning"));
-    };
-    script.src = url + (url.includes("?") ? "&" : "?") + "action=load&callback=" + cb;
-    document.body.appendChild(script);
-  });
-}
-
-// Transforme les cellules CHANTIER du planning d'une semaine en lignes d'import
-function planningVersLignes(data, lundi, salaries, chantiers, pointagesExistants) {
-  const cells = data && data.cells || {};
-  const semaineWk = planningAbsWk(lundi);
-  const chefsParId = {};
-  (data.chefs || []).forEach(c => {
-    if (c.id) chefsParId[c.id] = c.name;
-  });
-  const lignes = [];
-  Object.keys(cells).forEach(key => {
-    const m = String(key).match(/^w([^_]+)_d(\d+)_c(.+)$/);
-    if (!m) return;
-    if (m[1] !== semaineWk) return; // semaine demandée uniquement
-    const cell = cells[key];
-    if (!cell || cell.type !== "CHANTIER") return; // on ignore absences/congés ici
-    const jour = parseInt(m[2], 10);
-    if (jour > 5) return; // dimanche ignoré
-    const date = new Date(lundi);
-    date.setDate(lundi.getDate() + jour);
-    const dateIso = isoLocal(date);
-    const nomChef = chefsParId[m[3]] || cell.directorId || m[3];
-    const sal = matchSalarie(nomChef, salaries);
-    const noteCh = cell.note || "";
-    const ch = noteCh ? matchChantier(noteCh, chantiers) : null;
-    const doublon = !!sal && pointagesExistants.some(p => p.salarie === sal.id && p.date === dateIso);
-    lignes.push({
-      key,
-      dateIso,
-      jour,
-      nomChef,
-      noteChantier: noteCh,
-      manoeuvre: cell.manoeuvre || "",
-      activite: cell.activite || "",
-      salarieId: sal ? sal.id : "",
-      chantierId: ch ? ch.id : "",
-      inclure: !!sal && !doublon,
-      // pré-coché si rapproché et non doublon
-      doublon
-    });
-  });
-  // tri par date puis chef
-  lignes.sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.nomChef.localeCompare(b.nomChef));
-  return lignes;
-}
 
 // ============================================================
 //  COULEURS & TYPO
@@ -960,58 +784,63 @@ const DEMO = {
 };
 
 // ============================================================
-//  ANCIEN BACKEND SUPABASE — RETIRÉ
-//  La bibliothèque Supabase n'est plus chargée : aucune clé d'accès
-//  ne figure dans cette page, et l'application démarre plus vite.
-//  getSb() est conservé (renvoie toujours null) pour que le mode
-//  « local » continue de fonctionner sans réseau.
-// ============================================================
-function getSb() {
-  return null;
-}
-
-// ---- Correspondance noms JS (camelCase) <-> colonnes SQL (snake_case) ----
-// Sans cette traduction, les colonnes chef_nom / date_debut / ... ne sont pas
-// reconnues par Supabase et l'enregistrement échoue silencieusement.
-// ============================================================
-//  BACKEND GOOGLE APPS SCRIPT
-//  Les codes d'accès et le cloisonnement sont gérés par le serveur.
-//  Aucune clé de base de données n'est présente dans cette page.
+//  BACKEND SUPABASE
+//
+//  L'application ne touche JAMAIS aux tables. Elle n'appelle qu'une
+//  seule fonction publiée, chok_api, qui vérifie le code personnel et
+//  ne renvoie à chacun que ses propres données. Les tables elles-mêmes
+//  vivent dans un schéma non exposé et verrouillé par RLS : la clé
+//  ci-dessous ne permet donc rien d'autre qu'appeler cette fonction.
+//
+//  C'est le modèle de sécurité du serveur précédent, transposé dans la
+//  base. Ce qui change est le temps de réponse : environ 200 ms au lieu
+//  d'une seconde, et plus aucun réveil de 30 secondes.
 // ============================================================
 /**
- * Nettoie une adresse collée par l'utilisateur :
- * espaces/retours à la ligne, "?action=etat" collé après /exec, barre finale…
+ * Nettoie une adresse collée par l'utilisateur : espaces, barre finale,
+ * suffixe /rest/v1 copié par erreur depuis le tableau de bord Supabase.
  */
 const normaliserUrlApi = u => {
-  let s = String(u || "").replace(/[\s ]+/g, "").trim();
+  let s = String(u || "").replace(/\s+/g, "").trim();
   if (!s) return "";
-  const i = s.indexOf("/exec");
-  if (i !== -1) return s.slice(0, i + 5); // on ne garde que jusqu'à /exec
-  const d = s.indexOf("/dev");
-  if (d !== -1) return s.slice(0, d + 4); // détecté plus loin pour message dédié
+  if (!/^https?:\/\//i.test(s)) s = "https://" + s;
+  const i = s.indexOf("/rest/");
+  if (i !== -1) s = s.slice(0, i);
   return s.replace(/\/+$/, "");
 };
+
 /**
- * ADRESSE DU SERVEUR — inscrite dans l'application.
+ * ADRESSE ET CLÉ DU PROJET — inscrites dans l'application.
  *
- * Elle DOIT figurer ici : sans elle, un appareil neuf (téléphone d'un chef)
- * démarre en mode local, accepte les saisies et ne les envoie jamais.
- * C'est sans risque : cette adresse ne donne accès à rien sans code personnel,
- * et le serveur ne renvoie à chacun que ses propres données.
+ * Elles DOIVENT figurer ici : sans elles, un appareil neuf (téléphone d'un
+ * chef) démarre en mode local, accepte les saisies et ne les envoie jamais.
+ * C'est sans risque : cette clé est publique par conception et ne donne
+ * accès à rien sans code personnel.
  *
- * ⚠ À changer uniquement si vous créez un NOUVEAU déploiement Apps Script
- *   (un simple « Nouvelle version » conserve la même adresse).
+ * ⚠ À renseigner une fois le projet Supabase créé :
+ *   Tableau de bord → Project Settings → API
+ *     • Project URL   → SUPABASE_URL_DEFAUT
+ *     • clé « anon / public » → SUPABASE_KEY_DEFAUT
+ *   Elles restent modifiables dans Paramètres, depuis un poste.
  */
-const API_URL_DEFAUT = "https://script.google.com/macros/s/AKfycbyzWXVD1T3Fsin6GoKntcrO6BhAMfZCpDypjIpaVhNzEwwrdZqaBM8EzWTfE93TIgvC/exec";
-const getApiUrl = () => (localStorage.getItem("chok_api_url") || API_URL_DEFAUT).trim();
+const SUPABASE_URL_DEFAUT = "https://ifdvvagrvkelojgzgjha.supabase.co";
+const SUPABASE_KEY_DEFAUT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmZHZ2YWdydmtlbG9qZ3pnamhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjUyMzcsImV4cCI6MjEwNDU0MTIzN30.PKG-TpXgZI5bGAnFcaTnuIA-C-DW-1QBBeiX7CqUj60";
+const getApiUrl = () => normaliserUrlApi(localStorage.getItem("chok_api_url") || SUPABASE_URL_DEFAUT);
 const setApiUrl = u => {
   try {
-    localStorage.setItem("chok_api_url", (u || "").trim());
+    localStorage.setItem("chok_api_url", normaliserUrlApi(u));
   } catch (e) {}
 };
-// Sans adresse Google : mode "local" (données sur cet appareil uniquement).
-// Avec adresse : mode "google", tout est enregistré sur le serveur.
-const MODE = () => getApiUrl() ? "google" : "local";
+const getApiKey = () => (localStorage.getItem("chok_api_key") || SUPABASE_KEY_DEFAUT).trim();
+const setApiKey = k => {
+  try {
+    localStorage.setItem("chok_api_key", (k || "").trim());
+  } catch (e) {}
+};
+
+// Sans adresse ni clé : mode "local" (données sur cet appareil uniquement).
+// Avec les deux : mode "serveur", tout est enregistré dans la base.
+const MODE = () => getApiUrl() && getApiKey() ? "serveur" : "local";
 
 // Session conservée sur l'appareil : un rafraîchissement (F5) ou la fermeture
 // de l'application ne déconnecte plus. La sécurité repose sur l'expiration du
@@ -1076,66 +905,54 @@ function purgerAncienStockage() {
 }
 
 /**
- * Réveil du serveur.
- * Un serveur Google endormi met jusqu'à 30 secondes à répondre au premier
- * appel. On le réveille dès l'ouverture de l'application, pendant que
- * l'utilisateur choisit son nom : le temps est ainsi masqué.
+ * Réveil du serveur — devenu inutile.
+ *
+ * La base Supabase est allumée en permanence : il n'y a plus de premier
+ * appel lent à masquer. La fonction est conservée (sans effet) pour ne
+ * pas modifier les endroits qui l'appelaient.
  */
-let _reveilLance = false;
-function reveillerServeur(forcer) {
-  if (_reveilLance && !forcer || !getApiUrl()) return;
-  _reveilLance = true;
-  try {
-    fetch(getApiUrl(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8"
-      },
-      body: JSON.stringify({
-        action: "ping"
-      }),
-      keepalive: true
-    }).catch(() => {});
-  } catch (e) {}
-}
+function reveillerServeur() {/* plus de mise en veille : rien à faire */}
 
-// Un serveur qui sort de veille met 20 à 35 s. On attend donc 45 s au premier
-// essai, puis on abrège : inutile d'immobiliser l'utilisateur trois minutes,
-// la file d'attente reprendra la main en arrière-plan.
-const DELAI_MAX_MS = 45000;
+// La base répond en 150 à 300 ms. Au-delà de 12 s, c'est le réseau du
+// chantier qui manque, pas le serveur : on rend la main sans immobiliser
+// l'utilisateur, la file d'attente reprendra seule.
+const DELAI_MAX_MS = 12000;
 const TENTATIVES = 2;
 const pause = ms => new Promise(r => setTimeout(r, ms));
 
 /**
- * Appel au serveur Google, tolérant aux aléas réseau.
+ * Appel au serveur, tolérant aux aléas réseau.
  *
- * Pourquoi des réessais : la première requête après une période d'inactivité
- * peut demander 30 secondes au serveur Google. Certains navigateurs — iOS en
- * particulier — abandonnent avant. L'échec ressemble alors à une panne réseau
- * alors que la connexion est parfaite.
+ * Tout passe par l'unique fonction publiée chok_api : l'action et ses
+ * paramètres sont transmis tels quels, et le serveur décide de ce qu'il
+ * renvoie en fonction du jeton de session.
  *
- * Réessayer est SANS DANGER : chaque ligne porte un identifiant et l'écriture
- * est un « remplacer si existe ». Un rapport envoyé deux fois ne crée pas de
- * doublon, il réécrit simplement la même ligne.
+ * Réessayer est SANS DANGER : chaque ligne porte un identifiant et
+ * l'écriture est un « remplacer si existe ». Un rapport envoyé deux fois
+ * ne crée pas de doublon, il réécrit simplement la même ligne.
  */
 async function api(action, params, options) {
   const url = getApiUrl();
-  if (!url) throw new Error("Adresse du serveur non renseignée (Paramètres).");
+  const cle = getApiKey();
+  if (!url || !cle) throw new Error("Adresse ou clé du serveur non renseignée (Paramètres).");
   const opts = options || {};
-  const corps = JSON.stringify(Object.assign({
-    action
-  }, params || {}));
+  const corps = JSON.stringify({
+    p: Object.assign({
+      action
+    }, params || {})
+  });
   let dernierEchec = null;
   for (let essai = 1; essai <= (opts.tentatives || TENTATIVES); essai++) {
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const minuteur = ctrl ? setTimeout(() => ctrl.abort(), opts.delai || DELAI_MAX_MS) : null;
     try {
-      const rep = await fetch(url, {
+      const rep = await fetch(url + "/rest/v1/rpc/chok_api", {
         method: "POST",
         headers: {
-          "Content-Type": "text/plain;charset=utf-8"
+          "Content-Type": "application/json",
+          "apikey": cle,
+          "Authorization": "Bearer " + cle
         },
-        redirect: "follow",
         body: corps,
         signal: ctrl ? ctrl.signal : undefined,
         // keepalive : l'envoi se poursuit même si l'utilisateur verrouille
@@ -1144,21 +961,34 @@ async function api(action, params, options) {
       });
       if (minuteur) clearTimeout(minuteur);
       if (rep.status >= 500 || rep.status === 429) {
-        // incident passager côté Google
-        dernierEchec = new Error(`Le serveur Google a répondu ${rep.status}.`);
+        // incident passager
+        dernierEchec = new Error(`Le serveur a répondu ${rep.status}.`);
         if (essai < (opts.tentatives || TENTATIVES)) {
-          await pause(essai * 1500);
+          await pause(essai * 800);
           continue;
         }
         throw dernierEchec;
       }
-      if (!rep.ok) throw new Error(`Serveur Google : erreur ${rep.status}.`);
+      if (rep.status === 401 || rep.status === 403) {
+        throw Object.assign(new Error("Clé d'accès refusée. Vérifiez la clé « anon » dans Paramètres."), {
+          explicite: true
+        });
+      }
+      if (rep.status === 404) {
+        throw Object.assign(new Error("Fonction chok_api introuvable : le script SQL n'a pas encore été exécuté dans Supabase."), {
+          explicite: true
+        });
+      }
+      if (!rep.ok) throw new Error(`Serveur : erreur ${rep.status}.`);
       const texte = await rep.text();
       let data;
       try {
         data = JSON.parse(texte);
       } catch (e) {
-        throw new Error("Réponse inattendue du serveur. Vérifiez que le déploiement est accessible à « Tout le monde ».");
+        throw new Error("Réponse inattendue du serveur. Vérifiez l'adresse du projet dans Paramètres.");
+      }
+      if (!data || typeof data !== "object") {
+        throw new Error("Réponse inattendue du serveur.");
       }
       if (!data.ok) {
         const err = new Error(data.erreur || "Erreur inconnue du serveur.");
@@ -1173,7 +1003,7 @@ async function api(action, params, options) {
       const abandon = e.name === "AbortError";
       dernierEchec = e;
       if (essai < (opts.tentatives || TENTATIVES)) {
-        await pause(essai * 1500);
+        await pause(essai * 800);
         continue;
       }
 
@@ -1182,7 +1012,8 @@ async function api(action, params, options) {
       if (horsLigne) {
         throw new Error("Aucune connexion internet. L'envoi repartira automatiquement.");
       }
-      throw new Error(abandon ? "Le serveur Google n'a pas répondu à temps (il se réveillait peut-être). Votre saisie est conservée, retentez dans un instant." : "Le serveur Google n'a pas répondu. Votre saisie est conservée, elle sera renvoyée automatiquement.");
+      if (e.explicite) throw e; // message de configuration : il faut le lire tel quel
+      throw new Error(abandon ? "Le serveur n'a pas répondu à temps. Votre saisie est conservée, retentez dans un instant." : "Le serveur n'a pas répondu. Votre saisie est conservée, elle sera renvoyée automatiquement.");
     }
   }
   throw dernierEchec || new Error("Envoi impossible.");
@@ -1247,7 +1078,7 @@ async function viderOutbox() {
     restants: outboxCount(),
     bloques: bloquesCount()
   };
-  if (MODE() !== "google" || !getJeton()) return {
+  if (MODE() !== "serveur" || !getJeton()) return {
     envoyes: 0,
     restants: outboxCount(),
     bloques: bloquesCount()
@@ -1351,60 +1182,15 @@ async function viderOutbox() {
     erreur
   };
 }
-const _JS2DB = {
-  valideParInterimaire: "valide_par_interimaire",
-  horodatageValidation: "horodatage_validation",
-  chefNom: "chef_nom",
-  dateDebut: "date_debut",
-  dateFin: "date_fin",
-  typeLabel: "type_label",
-  typeIcone: "type_icone",
-  saisieParRH: "saisie_par_rh",
-  saisieDate: "saisie_date",
-  accesPlateforme: "accesplateforme",
-  modifiePar: "modifie_par",
-  modifieLe: "modifie_le"
-};
-const _DB2JS = Object.fromEntries(Object.entries(_JS2DB).map(([k, v]) => [v, k]));
-const versDB = o => {
-  const r = {};
-  Object.entries(o || {}).forEach(([k, v]) => {
-    r[_JS2DB[k] || k] = v;
-  });
-  return r;
-};
-const versJS = o => {
-  const r = {};
-  Object.entries(o || {}).forEach(([k, v]) => {
-    r[_DB2JS[k] || k] = v;
-  });
-  return r;
-};
-const listeVersJS = arr => (arr || []).map(versJS);
-async function sbSync(table, newData, prevData) {
-  const sb = getSb();
-  if (!sb) return;
-  const prevIds = new Set((prevData || []).map(r => r.id));
-  const newIds = new Set((newData || []).map(r => r.id));
-  const toUpsert = newData.filter(r => !prevIds.has(r.id) || JSON.stringify(r) !== JSON.stringify((prevData || []).find(p => p.id === r.id)));
-  const toDelete = [...prevIds].filter(id => !newIds.has(id));
-  if (toUpsert.length) {
-    const {
-      error
-    } = await sb.from(table).upsert(toUpsert.map(versDB));
-    if (error) throw new Error(`${table} : ${error.message}`);
-  }
-  if (toDelete.length) {
-    const {
-      error
-    } = await sb.from(table).delete().in("id", toDelete);
-    if (error) throw new Error(`${table} : ${error.message}`);
-  }
-}
+
+// Les colonnes de la base portent EXACTEMENT les mêmes noms que dans
+// l'application. Il n'y a donc plus aucune traduction à faire : ce qui
+// part du téléphone est ce qui arrive dans la base. C'était la source
+// d'écritures perdues en silence la première fois.
 
 /**
  * Sortie unique pour toute écriture, quel que soit le backend.
- * En mode Google : la donnée est déjà enregistrée en local, on empile
+ * En mode serveur : la donnée est déjà enregistrée en local, on empile
  * l'opération puis on tente de l'envoyer. Si le réseau manque, elle
  * reste en file d'attente et repartira plus tard — rien n'est perdu.
  */
@@ -1417,15 +1203,15 @@ async function syncSortie(table, newData, prevData) {
     envoyes: 0,
     restants: outboxCount()
   };
-  if (MODE() === "google") {
+  if (MODE() === "serveur") {
     empilerOutbox(table, upserts, suppressions);
     const r = await viderOutbox();
     if (r.erreur) throw r.erreur;
     return r;
   }
-  await sbSync(table, newData, prevData);
+  // Mode local (aucun serveur configuré) : la donnée reste sur l'appareil.
   return {
-    envoyes: 1,
+    envoyes: 0,
     restants: 0
   };
 }
@@ -1437,13 +1223,16 @@ function App() {
   const [pinRH, setPinRH] = usePersist("chok_pin_rh", "010126");
   const [pinChef, setPinChef] = usePersist("chok_pin_chef", "2026");
 
-  // En mode Google, on n'affiche JAMAIS la liste figée dans le code : seul le
+  // En mode serveur, on n'affiche JAMAIS la liste figée dans le code : seul le
   // serveur décide de ce que cette personne a le droit de voir. Sans cela, un
   // manœuvre voyait les 31 noms tant que la réponse du serveur n'arrivait pas.
   const [salaries, setSalariesRaw] = useState(() => {
     const s = loadU("salaries", null);
     if (s && s.length > 0) return s;
-    return MODE() === "google" ? [] : REAL_SALARIES;
+    // Aucun repli sur une liste écrite en dur : seul le serveur décide de ce
+    // que cette personne a le droit de voir. Sans cela, un manœuvre voyait
+    // les 31 noms tant que la réponse n'était pas arrivée.
+    return [];
   });
   const [interimaires, setInterimairesRaw] = useState(() => loadU("interimaires", []));
   const [chantiers, setChantiersRaw] = useState(() => load("chantiers", []));
@@ -1473,58 +1262,14 @@ function App() {
   useEffect(() => {
     refs.absences.current = absences;
   }, [absences]);
-  const chargerDepuisSupabase = useCallback(async () => {
-    const sb = getSb();
-    if (!sb) return;
-    setAppLoading(true);
-    setSyncState("syncing");
-    try {
-      const [s, i, c, p, a] = await Promise.all([sb.from("salaries").select("*"), sb.from("interimaires").select("*"), sb.from("chantiers").select("*"), sb.from("pointages").select("*"), sb.from("absences").select("*")]);
-      if (!s.error && s.data.length) {
-        // Supprimer les salariés retirés de la liste officielle
-        const SUPPRIMES = ["S-007"];
-        await Promise.all(SUPPRIMES.map(id => sb.from("salaries").delete().eq("id", id)));
-        const filtered = listeVersJS(s.data).filter(sal => !SUPPRIMES.includes(sal.id));
-        setSalariesRaw(filtered);
-        saveU("salaries", filtered);
-      } else if (!s.error && s.data.length === 0) {
-        // Table vide → pousser les 32 salariés réels vers Supabase
-        await sb.from("salaries").upsert(REAL_SALARIES);
-        setSalariesRaw(REAL_SALARIES);
-        saveU("salaries", REAL_SALARIES);
-      }
-      if (!i.error) {
-        const v = listeVersJS(i.data);
-        setInterimairesRaw(v);
-        saveU("interimaires", v);
-      }
-      if (!c.error) {
-        const v = listeVersJS(c.data);
-        setChantiersRaw(v);
-        saveU("chantiers", v);
-      }
-      if (!p.error) {
-        const v = listeVersJS(p.data);
-        setPointagesRaw(v);
-        saveU("pointages", v);
-      }
-      if (!a.error) {
-        const v = listeVersJS(a.data);
-        setAbsencesRaw(v);
-        saveU("absences", v);
-      }
-      setSyncState("ok");
-    } catch (e) {
-      setSyncState("err");
-    } finally {
-      setAppLoading(false);
-    }
-  }, []);
 
-  /** Chargement depuis le serveur Google (données déjà cloisonnées par rôle). */
+  // Le chargement passe désormais uniquement par le serveur (ci-dessous) :
+  // l'application n'accède plus jamais aux tables en direct.
+
+  /** Chargement depuis le serveur (données déjà cloisonnées par rôle). */
   const [infoPeriode, setInfoPeriode] = useState(null);
-  const chargerDepuisGoogle = useCallback(async toutCharger => {
-    if (MODE() !== "google" || !getJeton()) return;
+  const chargerDepuisServeur = useCallback(async toutCharger => {
+    if (MODE() !== "serveur" || !getJeton()) return;
     // On n'affiche JAMAIS d'écran d'attente bloquant : l'interface s'ouvre
     // tout de suite et se remplit dès que les données arrivent. L'indicateur
     // de synchronisation en haut signale le chargement en cours.
@@ -1579,18 +1324,15 @@ function App() {
     }
   }, []);
   const rechargerDonnees = useCallback(tout => {
-    return MODE() === "google" ? chargerDepuisGoogle(tout === true) : chargerDepuisSupabase();
-  }, [chargerDepuisGoogle, chargerDepuisSupabase]);
+    return chargerDepuisServeur(tout === true);
+  }, [chargerDepuisServeur]);
 
-  // Au démarrage : en mode Google on attend la connexion (les données sont
-  // protégées par le serveur). En mode Supabase, comportement d'origine.
-  useEffect(() => {
-    if (MODE() !== "google") chargerDepuisSupabase();
-  }, []);
+  // Au démarrage : on attend la connexion. Aucune donnée n'est affichée
+  // avant que le serveur ait dit ce que cette personne a le droit de voir.
 
   // Renvoi automatique de la file d'attente : au retour du réseau et toutes les 60 s.
   useEffect(() => {
-    if (MODE() !== "google") return;
+    if (MODE() !== "serveur") return;
     const relancer = async () => {
       if (!getJeton() || !outboxCount()) return;
       const r = await viderOutbox();
@@ -1652,7 +1394,7 @@ function App() {
       ref.current = next;
       rawSetter(next);
       saveU(lsKey, next); // 1) enregistré localement, sous le compte de la personne connectée
-      if (MODE() === "google" || getSb()) {
+      if (MODE() === "serveur") {
         setSyncState("syncing");
         syncSortie(table, next, prev) // 2) puis envoyé au serveur
         .then(r => setSyncState(r && r.restants ? "attente" : "ok")).catch(e => {
@@ -1698,7 +1440,7 @@ function App() {
     refs.chantiers.current = sien("chantiers");
     refs.pointages.current = sien("pointages");
     refs.absences.current = sien("absences");
-    if (MODE() !== "google") return;
+    if (MODE() !== "serveur") return;
 
     // Le serveur renvoie les données AVEC la connexion : on les pose
     // directement, sans second aller-retour.
@@ -1719,7 +1461,7 @@ function App() {
       viderOutbox().catch(() => {}); // on pousse ce qui attendait, en arrière-plan
       return;
     }
-    await chargerDepuisGoogle();
+    await chargerDepuisServeur();
   };
   const seDeconnecter = () => {
     if (outboxCount() && !window.confirm(`⚠ ${outboxCount()} enregistrement(s) n'ont pas encore été envoyés au serveur.\n\n` + `Ils sont conservés sur cet appareil et repartiront à la prochaine connexion.\n\nSe déconnecter quand même ?`)) return;
@@ -1743,8 +1485,8 @@ function App() {
   useEffect(() => {
     purgerAncienStockage(); // anciennes clés mélangeant les utilisateurs
     reveillerServeur();
-    if (MODE() === "google" && getJeton() && getSessionSauvee()) {
-      chargerDepuisGoogle();
+    if (MODE() === "serveur" && getJeton() && getSessionSauvee()) {
+      chargerDepuisServeur();
     }
   }, []);
   const donnees = {
@@ -1871,9 +1613,9 @@ function EcranConnexion({
     return ageH < CACHE_PERSONNES_H ? c.liste : null;
   };
   const [personnesServeur, setPersonnesServeur] = useState(() => lireCachePersonnes());
-  const [chargementListe, setChargementListe] = useState(MODE() === "google" && !lireCachePersonnes());
+  const [chargementListe, setChargementListe] = useState(MODE() === "serveur" && !lireCachePersonnes());
   useEffect(() => {
-    if (MODE() !== "google") {
+    if (MODE() !== "serveur") {
       setChargementListe(false);
       return;
     }
@@ -1907,7 +1649,7 @@ function EcranConnexion({
     setEtape("code");
   };
   const validerCode = async () => {
-    if (MODE() === "google") {
+    if (MODE() === "serveur") {
       setEnCours(true);
       setErreur("");
       try {
@@ -1943,7 +1685,7 @@ function EcranConnexion({
     }
   };
   const validerDirection = async () => {
-    if (MODE() === "google") {
+    if (MODE() === "serveur") {
       setEnCours(true);
       setErreur("");
       try {
@@ -2123,7 +1865,15 @@ function EcranConnexion({
       fontSize: 15,
       outline: "none"
     }
-  }), chargementListe ? /*#__PURE__*/React.createElement("div", {
+  }), MODE() !== "serveur" ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "20px",
+      background: "#FFF0F0",
+      border: `1.5px solid ${C.orange}`,
+      fontSize: 13,
+      lineHeight: 1.6
+    }
+  }, /*#__PURE__*/React.createElement("b", null, "Serveur non configuré."), /*#__PURE__*/React.createElement("br", null), "Cette application n'est reliée à aucune base : les heures saisies ne partiraient nulle part. Ouvrez ", /*#__PURE__*/React.createElement("b", null, "🏢 ACCÈS DIRECTION"), " puis", /*#__PURE__*/React.createElement("b", null, " ⚙ Paramètres"), " pour renseigner l'adresse du projet et sa clé.") : chargementListe ? /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "40px",
       textAlign: "center",
@@ -2787,433 +2537,7 @@ function VueAdmin({
 }
 
 // ---- Onglet Pointages ----
-// ---- Modal : import du planning vers les pointages ----
-function ModalImportPlanning({
-  onFermer,
-  pointages,
-  setPointages,
-  salaries,
-  chantiers,
-  setChantiers
-}) {
-  const [semOff, setSemOff] = useState(0); // 0 = semaine en cours
-  const [etat, setEtat] = useState("idle"); // idle | chargement | apercu | erreur
-  const [erreur, setErreur] = useState("");
-  const [lignes, setLignes] = useState([]);
-  const [hDebut, setHDebut] = useState(PLANNING_DEBUT_DEFAUT);
-  const [hFin, setHFin] = useState(PLANNING_FIN_DEFAUT);
-  const [hPause, setHPause] = useState(PLANNING_PAUSE_DEFAUT);
-  const lundi = planningMonday(semOff);
-  const vendredi = (() => {
-    const d = new Date(lundi);
-    d.setDate(d.getDate() + 5);
-    return d;
-  })();
-  const fmtJ = d => d.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit"
-  });
-  const libelleSemaine = `S${String(planningWeekNum(lundi)).padStart(2, "0")} · ${fmtJ(lundi)} au ${fmtJ(vendredi)} ${lundi.getFullYear()}`;
-  const charger = async () => {
-    setEtat("chargement");
-    setErreur("");
-    try {
-      const data = await chargerPlanning();
-      const l = planningVersLignes(data, lundi, salaries, chantiers, pointages);
-      setLignes(l);
-      setEtat("apercu");
-    } catch (e) {
-      setErreur(e.message || "Erreur");
-      setEtat("erreur");
-    }
-  };
-  const majLigne = (i, champ, val) => setLignes(lignes.map((l, idx) => idx === i ? {
-    ...l,
-    [champ]: val
-  } : l));
-  const nbAImporter = lignes.filter(l => l.inclure && l.salarieId).length;
-  const nbDoublons = lignes.filter(l => l.doublon).length;
-  const nbNonRappro = lignes.filter(l => !l.salarieId).length;
-  const confirmer = () => {
-    let chantiersMaj = chantiers;
-    const aImporter = lignes.filter(l => l.inclure && l.salarieId);
-    const nouveaux = aImporter.map(l => {
-      let chantierId = l.chantierId;
-      if (chantierId === "__new__" && l.noteChantier) {
-        const nv = {
-          id: genId("C"),
-          nom: l.noteChantier.trim(),
-          ville: "—",
-          client: "—",
-          couleur: "#3D5A80",
-          actif: true
-        };
-        chantiersMaj = [...chantiersMaj, nv];
-        chantierId = nv.id;
-      }
-      const sal = salaries.find(s => s.id === l.salarieId);
-      const comm = l.manoeuvre ? "Manœuvre : " + l.manoeuvre : "";
-      return {
-        id: genId("P"),
-        salarie: l.salarieId,
-        chantier: chantierId || "",
-        date: l.dateIso,
-        debut: hDebut,
-        fin: hFin,
-        pause: hPause,
-        commentaire: comm,
-        valide: false,
-        interim: false,
-        valideParInterimaire: null,
-        horodatageValidation: null,
-        chefNom: sal && sal.nom || l.nomChef || "—"
-      };
-    });
-    if (chantiersMaj !== chantiers) setChantiers(chantiersMaj);
-    if (nouveaux.length) setPointages([...pointages, ...nouveaux]);
-    onFermer(nouveaux.length);
-  };
-  const wrap = {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(10,10,10,0.55)",
-    zIndex: 9999,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16
-  };
-  const carte = {
-    background: C.papier,
-    width: "100%",
-    maxWidth: 920,
-    maxHeight: "90vh",
-    display: "flex",
-    flexDirection: "column",
-    border: `1px solid ${C.encre}`,
-    boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
-  };
-  const lab = {
-    fontFamily: FM,
-    fontSize: 9,
-    letterSpacing: "0.15em",
-    color: C.gris,
-    fontWeight: 700,
-    marginBottom: 4
-  };
-  const inp = {
-    padding: "7px 8px",
-    background: C.fond,
-    border: `1.5px solid ${C.ligne}`,
-    fontFamily: FM,
-    fontSize: 12,
-    outline: "none",
-    boxSizing: "border-box"
-  };
-  return /*#__PURE__*/React.createElement("div", {
-    style: wrap,
-    onClick: () => onFermer(0)
-  }, /*#__PURE__*/React.createElement("div", {
-    style: carte,
-    onClick: e => e.stopPropagation()
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "16px 20px",
-      borderBottom: `1px solid ${C.ligne}`,
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: FM,
-      fontSize: 10,
-      letterSpacing: "0.2em",
-      color: C.gris
-    }
-  }, "PASSERELLE"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: FT,
-      fontSize: 20,
-      fontWeight: 800,
-      letterSpacing: "-0.02em"
-    }
-  }, "📅 Importer depuis le planning")), /*#__PURE__*/React.createElement(Btn, {
-    variant: "ghost",
-    onClick: () => onFermer(0)
-  }, "✕")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "14px 20px",
-      borderBottom: `1px solid ${C.ligne}`,
-      display: "flex",
-      gap: 10,
-      alignItems: "center",
-      flexWrap: "wrap",
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement(Btn, {
-    variant: "ghost",
-    onClick: () => {
-      setSemOff(semOff - 1);
-      setEtat("idle");
-    }
-  }, "◀ Préc."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: FM,
-      fontSize: 13,
-      fontWeight: 700,
-      minWidth: 230,
-      textAlign: "center"
-    }
-  }, libelleSemaine), /*#__PURE__*/React.createElement(Btn, {
-    variant: "ghost",
-    onClick: () => {
-      setSemOff(semOff + 1);
-      setEtat("idle");
-    }
-  }, "Suiv. ▶"), semOff !== 0 && /*#__PURE__*/React.createElement(Btn, {
-    variant: "ghost",
-    onClick: () => {
-      setSemOff(0);
-      setEtat("idle");
-    }
-  }, "Aujourd'hui"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1
-    }
-  }), /*#__PURE__*/React.createElement(Btn, {
-    onClick: charger,
-    disabled: etat === "chargement"
-  }, etat === "chargement" ? "CHARGEMENT…" : "🔄 CHARGER LE PLANNING")), etat === "apercu" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "12px 20px",
-      borderBottom: `1px solid ${C.ligne}`,
-      display: "flex",
-      gap: 16,
-      alignItems: "flex-end",
-      flexWrap: "wrap",
-      flexShrink: 0,
-      background: C.fond
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: lab
-  }, "DÉBUT (défaut)"), /*#__PURE__*/React.createElement("input", {
-    type: "time",
-    value: hDebut,
-    onChange: e => setHDebut(e.target.value),
-    style: {
-      ...inp,
-      width: 110
-    }
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: lab
-  }, "FIN (défaut)"), /*#__PURE__*/React.createElement("input", {
-    type: "time",
-    value: hFin,
-    onChange: e => setHFin(e.target.value),
-    style: {
-      ...inp,
-      width: 110
-    }
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: lab
-  }, "PAUSE (min)"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: hPause,
-    onChange: e => setHPause(parseInt(e.target.value) || 0),
-    style: {
-      ...inp,
-      width: 90,
-      textAlign: "center"
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: C.gris,
-      maxWidth: 360,
-      lineHeight: 1.4
-    }
-  }, "Ces horaires sont appliqués à tous les pointages importés. Le chef d'équipe pourra les ajuster ensuite.")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      overflow: "auto",
-      flex: 1,
-      padding: "0 0 8px"
-    }
-  }, etat === "idle" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "48px 20px",
-      textAlign: "center",
-      color: C.gris,
-      fontSize: 13
-    }
-  }, "Choisissez une semaine puis cliquez sur ", /*#__PURE__*/React.createElement("b", null, "Charger le planning"), "."), etat === "chargement" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "48px 20px",
-      textAlign: "center",
-      color: C.gris,
-      fontFamily: FM,
-      fontSize: 12,
-      letterSpacing: "0.1em"
-    }
-  }, "CONNEXION AU PLANNING…"), etat === "erreur" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "32px 20px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "14px 16px",
-      background: "#FFF0F0",
-      border: `1.5px solid ${C.orange}`,
-      fontSize: 13
-    }
-  }, /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: C.orange
-    }
-  }, "Erreur :"), " ", erreur, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: C.gris,
-      marginTop: 8
-    }
-  }, "Vérifiez l'URL du planning dans ", /*#__PURE__*/React.createElement("b", null, "Paramètres"), " (elle doit finir par ", /*#__PURE__*/React.createElement("code", null, "/exec"), ")."))), etat === "apercu" && lignes.length === 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "48px 20px",
-      textAlign: "center",
-      color: C.gris,
-      fontSize: 13
-    }
-  }, "Aucune affectation « chantier » trouvée pour cette semaine dans le planning."), etat === "apercu" && lignes.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "12px 20px",
-      display: "flex",
-      gap: 18,
-      flexWrap: "wrap",
-      fontSize: 12
-    }
-  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: C.vert
-    }
-  }, nbAImporter), " à importer"), nbNonRappro > 0 && /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: C.orange
-    }
-  }, nbNonRappro), " salarié(s) non rapproché(s)"), nbDoublons > 0 && /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
-    style: {
-      color: C.gris
-    }
-  }, nbDoublons), " doublon(s) déjà saisi(s)")), /*#__PURE__*/React.createElement("table", {
-    style: {
-      width: "100%",
-      borderCollapse: "collapse",
-      fontSize: 12
-    }
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
-    style: {
-      background: C.fond
-    }
-  }, /*#__PURE__*/React.createElement(Th, null), /*#__PURE__*/React.createElement(Th, null, "Jour"), /*#__PURE__*/React.createElement(Th, null, "Planning (chef)"), /*#__PURE__*/React.createElement(Th, null, "→ Salarié"), /*#__PURE__*/React.createElement(Th, null, "Chantier planning"), /*#__PURE__*/React.createElement(Th, null, "→ Chantier"))), /*#__PURE__*/React.createElement("tbody", null, lignes.map((l, i) => {
-    const jourNom = new Date(l.dateIso + "T00:00:00").toLocaleDateString("fr-FR", {
-      weekday: "short",
-      day: "numeric",
-      month: "short"
-    });
-    return /*#__PURE__*/React.createElement("tr", {
-      key: l.key,
-      style: {
-        borderBottom: `1px solid ${C.ligne}`,
-        background: l.doublon ? "#F4F2EC" : l.inclure ? "transparent" : "#FBFAF6",
-        opacity: l.doublon ? 0.7 : 1
-      }
-    }, /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("input", {
-      type: "checkbox",
-      checked: l.inclure,
-      onChange: e => majLigne(i, "inclure", e.target.checked),
-      disabled: !l.salarieId
-    })), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        fontWeight: 600
-      }
-    }, jourNom), l.doublon && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 9,
-        color: C.gris
-      }
-    }, "déjà saisi")), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 12,
-        fontWeight: 700
-      }
-    }, l.nomChef), l.manoeuvre && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 10,
-        color: C.gris
-      }
-    }, "+ manœuvre : ", l.manoeuvre)), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("select", {
-      value: l.salarieId,
-      onChange: e => majLigne(i, "salarieId", e.target.value),
-      style: {
-        ...inp,
-        width: 190,
-        borderColor: l.salarieId ? C.ligne : C.orange
-      }
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "— non rapproché —"), salaries.map(s => /*#__PURE__*/React.createElement("option", {
-      key: s.id,
-      value: s.id
-    }, s.nom)))), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        color: l.noteChantier ? C.encre : C.gris
-      }
-    }, l.noteChantier || "(vide)")), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("select", {
-      value: l.chantierId,
-      onChange: e => majLigne(i, "chantierId", e.target.value),
-      style: {
-        ...inp,
-        width: 180
-      }
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "— aucun —"), chantiers.map(c => /*#__PURE__*/React.createElement("option", {
-      key: c.id,
-      value: c.id
-    }, c.nom)), l.noteChantier && /*#__PURE__*/React.createElement("option", {
-      value: "__new__"
-    }, "➕ Créer « ", l.noteChantier, " »"))));
-  }))))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "14px 20px",
-      borderTop: `1px solid ${C.ligne}`,
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      flexShrink: 0,
-      gap: 12,
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: C.gris
-    }
-  }, etat === "apercu" ? `${nbAImporter} pointage(s) seront créés en statut « attente ».` : "Aucun pointage ne sera modifié sans confirmation."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement(Btn, {
-    variant: "ghost",
-    onClick: () => onFermer(0)
-  }, "ANNULER"), /*#__PURE__*/React.createElement(Btn, {
-    onClick: confirmer,
-    disabled: etat !== "apercu" || nbAImporter === 0
-  }, "✓ IMPORTER ", nbAImporter > 0 ? `(${nbAImporter})` : "")))));
-}
+
 function OngletPointages({
   auj,
   pointagesTous,
@@ -7007,16 +6331,6 @@ function OngletParametres({
   const [newPinRH, setNewPinRH] = useState("");
   const [newPinChef, setNewPinChef] = useState("");
   const [msgPin, setMsgPin] = useState("");
-  const [planningUrl, setPlanningUrl] = useState(getPlanningUrl());
-  const [msgPlanning, setMsgPlanning] = useState("");
-  const sauverPlanningUrl = () => {
-    const u = (planningUrl || "").trim();
-    try {
-      localStorage.setItem("chok_planning_url", u);
-    } catch (e) {}
-    setMsgPlanning("✓ Lien du planning enregistré.");
-    setTimeout(() => setMsgPlanning(""), 3000);
-  };
 
   // Le code doit être changé SUR LE SERVEUR, sinon la modification reste
   // locale au navigateur et l'ancien code continue de fonctionner ailleurs.
@@ -7025,7 +6339,7 @@ function OngletParametres({
       setMsgPin("Le code doit comporter au moins 4 chiffres.");
       return;
     }
-    if (MODE() === "google") {
+    if (MODE() === "serveur") {
       try {
         await api("reglages", {
           jeton: getJeton(),
@@ -7051,7 +6365,7 @@ function OngletParametres({
   const [msgEmail, setMsgEmail] = useState("");
   const [emailCharge, setEmailCharge] = useState(false);
   useEffect(() => {
-    if (MODE() !== "google" || emailCharge) return;
+    if (MODE() !== "serveur" || emailCharge) return;
     api("reglages", {
       jeton: getJeton(),
       lire: true
@@ -7073,7 +6387,7 @@ function OngletParametres({
   };
   const reinitialiserTout = async () => {
     if (!window.confirm("⚠ Effacer TOUTES les données (pointages, absences, chantiers, intérimaires) ?\n\nLes salariés seront conservés. Une sauvegarde est créée avant l'effacement.")) return;
-    if (MODE() !== "google") {
+    if (MODE() !== "serveur") {
       setPointages([]);
       setAbsences([]);
       setChantiers([]);
@@ -7096,8 +6410,9 @@ function OngletParametres({
   };
   const [msgReset, setMsgReset] = useState("");
 
-  // ---- Serveur Google ----
+  // ---- Serveur (base Supabase) ----
   const [apiUrl, setApiUrlLocal] = useState(getApiUrl());
+  const [apiKey, setApiKeyLocal] = useState(getApiKey());
   const [msgApi, setMsgApi] = useState("");
   const [testEnCours, setTestEnCours] = useState(false);
   const [nbAttente, setNbAttente] = useState(outboxCount());
@@ -7110,38 +6425,45 @@ function OngletParametres({
   }, []);
   const testerServeur = async () => {
     const u = normaliserUrlApi(apiUrl);
+    const k = (apiKey || "").trim();
     if (u && u !== apiUrl) setApiUrlLocal(u); // on montre l'adresse nettoyée
     if (!u) {
-      setMsgApi("Renseignez d'abord l'adresse.");
+      setMsgApi("Renseignez d'abord l'adresse du projet.");
       return;
     }
-    if (/\/dev$/.test(u)) {
-      setMsgApi("Cette adresse finit par /dev : c'est l'adresse de TEST, réservée à votre compte Google.\nUtilisez celle en /exec (Déployer → Gérer les déploiements → URL de l'application Web).");
+    if (!k) {
+      setMsgApi("Renseignez la clé « anon / public » du projet.");
       return;
     }
-    if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u)) {
-      setMsgApi("Adresse non reconnue :\n" + u + "\n\nElle doit ressembler à :\nhttps://script.google.com/macros/s/AKfy…/exec");
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/i.test(u)) {
+      setMsgApi("Adresse non reconnue :\n" + u + "\n\nElle doit ressembler à :\nhttps://abcdefgh.supabase.co\n\n(Tableau de bord → Project Settings → API → Project URL)");
       return;
     }
     setTestEnCours(true);
     setMsgApi("");
-    const ancienne = getApiUrl();
+    const ancienneU = getApiUrl(),
+      ancienneK = getApiKey();
+    const debut = Date.now();
     try {
       setApiUrl(u);
+      setApiKey(k);
       const r = await api("ping", {});
-      setMsgApi(`✓ Serveur joignable — version ${r.version || "?"}. Cliquez sur ENREGISTRER pour l'utiliser.`);
+      setMsgApi(`✓ Serveur joignable en ${Date.now() - debut} ms — version ${r.version || "?"}. Cliquez sur ENREGISTRER pour l'utiliser.`);
     } catch (e) {
-      setApiUrl(ancienne);
-      setMsgApi("Échec : " + e.message + "\n\nVérifiez que le déploiement est en accès « Tout le monde » et que l'adresse finit par /exec.");
+      setApiUrl(ancienneU);
+      setApiKey(ancienneK);
+      setMsgApi("Échec : " + e.message + "\n\nVérifiez l'adresse du projet, la clé « anon », et que le script CHOK_BETON_SUPABASE.sql a bien été exécuté.");
     } finally {
       setTestEnCours(false);
     }
   };
   const enregistrerApiUrl = () => {
-    const u = normaliserUrlApi(apiUrl);
+    const u = normaliserUrlApi(apiUrl),
+      k = (apiKey || "").trim();
     setApiUrlLocal(u);
     setApiUrl(u);
-    setMsgApi(u ? "✓ Adresse enregistrée. Rechargez l'application (Ctrl+Maj+R) puis reconnectez-vous." : "✓ Adresse effacée : retour au mode Supabase après rechargement.");
+    setApiKey(k);
+    setMsgApi(u && k ? "✓ Enregistré. Rechargez l'application (Ctrl+Maj+R) puis reconnectez-vous." : "✓ Effacé : retour au mode local après rechargement.");
   };
   const forcerEnvoi = async () => {
     setEnvoiEnCours(true);
@@ -7150,8 +6472,8 @@ function OngletParametres({
     setEnvoiEnCours(false);
     setMsgApi(r.erreur ? "Envoi incomplet : " + r.erreur.message + `\n${r.restants} opération(s) toujours en attente (conservées).` : `✓ ${r.envoyes} opération(s) envoyée(s). File d'attente vide.`);
   };
-  const migrerVersGoogle = async () => {
-    // Envoie vers Google les données présentes sur cet appareil.
+  const migrerVersServeur = async () => {
+    // Envoie au serveur les données présentes sur cet appareil.
     let src = {
       salaries,
       interimaires,
@@ -7159,8 +6481,7 @@ function OngletParametres({
       pointages,
       absences
     };
-    if (!src.salaries.length) src.salaries = REAL_SALARIES;
-    if (!window.confirm(`Transférer vers Google :\n\n` + `• ${src.salaries.length} salarié(s)\n• ${src.interimaires.length} intérimaire(s)\n` + `• ${src.chantiers.length} chantier(s)\n• ${src.pointages.length} pointage(s)\n` + `• ${src.absences.length} absence(s)\n\n` + `Le serveur refusera d'écraser des feuilles déjà remplies. Continuer ?`)) {
+    if (!window.confirm(`Transférer vers le serveur :\n\n` + `• ${src.salaries.length} salarié(s)\n• ${src.interimaires.length} intérimaire(s)\n` + `• ${src.chantiers.length} chantier(s)\n• ${src.pointages.length} pointage(s)\n` + `• ${src.absences.length} absence(s)\n\n` + `Le serveur refusera d'écraser des tables déjà remplies. Continuer ?`)) {
       setMsgMigration("");
       return;
     }
@@ -7174,9 +6495,9 @@ function OngletParametres({
           pinChef
         })
       });
-      const lignes = Object.entries(r.rapport || {}).map(([t, d]) => d.ignore ? `• ${t} : IGNORÉ (${d.existantes} ligne(s) déjà présentes, ${d.recues} envoyée(s))` : `• ${t} : ${d.importees}/${d.recues} transféré(s) — total sur Google : ${d.total}`);
+      const lignes = Object.entries(r.rapport || {}).map(([t, d]) => d.ignore ? `• ${t} : IGNORÉ (${d.existantes} ligne(s) déjà présentes, ${d.recues} envoyée(s))` : `• ${t} : ${d.importees}/${d.recues} transféré(s) — total sur le serveur : ${d.total}`);
       const ecarts = Object.entries(r.rapport || {}).filter(([t, d]) => !d.ignore && d.importees !== d.recues);
-      setMsgMigration((ecarts.length ? "⚠ Transfert terminé avec des écarts :\n" : "✓ Transfert terminé et vérifié :\n") + lignes.join("\n") + `\n\nSauvegarde créée : ${r.sauvegarde || "—"}` + (ecarts.length ? "\n\nCertaines lignes n'ont pas été transférées — ne supprimez rien et prévenez l'administrateur." : "\n\nVos données sont désormais sur Google. Rechargez l'application."));
+      setMsgMigration((ecarts.length ? "⚠ Transfert terminé avec des écarts :\n" : "✓ Transfert terminé et vérifié :\n") + lignes.join("\n") + `\n\nSauvegarde créée : ${r.sauvegarde || "—"}` + (ecarts.length ? "\n\nCertaines lignes n'ont pas été transférées — ne supprimez rien et prévenez l'administrateur." : "\n\nVos données sont désormais sur le serveur. Rechargez l'application."));
     } catch (e) {
       setMsgMigration("Échec du transfert : " + e.message + "\n\nAucune donnée n'a été perdue : tout est encore enregistré sur cet appareil.");
     } finally {
@@ -7189,7 +6510,7 @@ function OngletParametres({
   const remettreHeuresAZero = async () => {
     if (!window.confirm(`⚠ Remettre les HEURES à zéro ?\n\nCela effacera TOUS les pointages et TOUTES les absences, y compris l'historique ancien non affiché à l'écran.\n\nLes salariés, chantiers et intérimaires sont conservés.\n\nUne sauvegarde complète est créée automatiquement avant l'effacement.`)) return;
     if (!window.confirm("Dernière confirmation : effacer tout l'historique des heures ?")) return;
-    if (MODE() !== "google") {
+    if (MODE() !== "serveur") {
       setPointages([]);
       setAbsences([]);
       setMsgReset("✓ Heures remises à zéro sur cet appareil.");
@@ -7254,8 +6575,8 @@ function OngletParametres({
       fontSize: 12,
       fontWeight: 700
     }
-  }, msgPin))), MODE() === "google" && /*#__PURE__*/React.createElement(Section, {
-    titre: "Récapitulatif hebdomadaire par e-mail"
+  }, msgPin))), MODE() === "serveur" && /*#__PURE__*/React.createElement(Section, {
+    titre: "Adresse e-mail de la direction"
   }, /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
@@ -7263,11 +6584,13 @@ function OngletParametres({
       marginBottom: 10,
       lineHeight: 1.6
     }
-  }, "Chaque ", /*#__PURE__*/React.createElement("b", null, "lundi matin à 7 h"), ", le serveur envoie à cette adresse le total des heures de la semaine écoulée, le détail par personne, les nuitées et le nombre de pointages en attente de validation.", /*#__PURE__*/React.createElement("div", {
+  }, "Adresse de contact de la direction, enregistrée sur le serveur.", /*#__PURE__*/React.createElement("div", {
     style: {
-      marginTop: 4
+      marginTop: 4,
+      color: C.orange,
+      fontWeight: 600
     }
-  }, "Cette adresse reçoit aussi une ", /*#__PURE__*/React.createElement("b", null, "alerte en cas d'échec de sauvegarde"), ". Laissez vide pour désactiver.")), /*#__PURE__*/React.createElement("div", {
+  }, "⚠ L'envoi automatique du lundi matin n'est pas encore rebranché depuis le changement de serveur. L'adresse est conservée, mais aucun e-mail ne part pour l'instant.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -7298,8 +6621,8 @@ function OngletParametres({
       color: msgEmail.startsWith("✓") ? C.vert : C.orange
     }
   }, msgEmail))), /*#__PURE__*/React.createElement(Section, {
-    titre: "Serveur Google (hébergement des données)"
-  }, MODE() === "google" ? /*#__PURE__*/React.createElement("div", {
+    titre: "Serveur (hébergement des données)"
+  }, MODE() === "serveur" ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -7319,12 +6642,12 @@ function OngletParametres({
       fontWeight: 700,
       color: C.vert
     }
-  }, "Mode Google actif"), /*#__PURE__*/React.createElement("div", {
+  }, "Serveur actif"), /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.gris,
       marginTop: 2
     }
-  }, "Les données sont dans votre Google Sheet privé. Aucune clé d'accès n'est présente dans la page. Les codes sont vérifiés par le serveur."))) : /*#__PURE__*/React.createElement("div", {
+  }, "Les données sont dans votre base privée. Les tables sont verrouillées : l'application n'y accède jamais directement, elle passe par une fonction qui vérifie le code personnel et ne renvoie à chacun que ses propres données."))) : /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -7349,14 +6672,14 @@ function OngletParametres({
       color: C.gris,
       marginTop: 2
     }
-  }, "Les données ne sont enregistrées que sur cet appareil et ne sont partagées avec personne. Renseignez l'adresse du serveur Google ci-dessous pour activer la sauvegarde en ligne."))), /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+  }, "Les données ne sont enregistrées que sur cet appareil et ne sont partagées avec personne. Renseignez l'adresse et la clé du projet ci-dessous pour activer la sauvegarde en ligne."))), /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: C.gris,
       marginBottom: 10,
       lineHeight: 1.5
     }
-  }, "Adresse du déploiement Apps Script. Elle se termine par ", /*#__PURE__*/React.createElement("code", null, "/exec"), ". Voir la notice ", /*#__PURE__*/React.createElement("b", null, "GUIDE_MISE_EN_SERVICE.md"), "."), /*#__PURE__*/React.createElement("div", {
+  }, "Tableau de bord Supabase → ", /*#__PURE__*/React.createElement("b", null, "Project Settings"), " → ", /*#__PURE__*/React.createElement("b", null, "API"), " : recopiez la ", /*#__PURE__*/React.createElement("i", null, "Project URL"), " et la clé ", /*#__PURE__*/React.createElement("i", null, "anon / public"), ". Voir la notice ", /*#__PURE__*/React.createElement("b", null, "GUIDE_MISE_EN_SERVICE.md"), "."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -7364,7 +6687,7 @@ function OngletParametres({
       alignItems: "flex-end"
     }
   }, /*#__PURE__*/React.createElement(Champ, {
-    label: "ADRESSE DU SERVEUR GOOGLE"
+    label: "ADRESSE DU PROJET"
   }, /*#__PURE__*/React.createElement("input", {
     type: "url",
     value: apiUrl,
@@ -7372,10 +6695,24 @@ function OngletParametres({
       setApiUrlLocal(e.target.value);
       setMsgApi("");
     },
-    placeholder: "https://script.google.com/macros/s/…/exec",
+    placeholder: "https://abcdefgh.supabase.co",
     style: {
       ...inputStyle,
-      minWidth: 420
+      minWidth: 320
+    }
+  })), /*#__PURE__*/React.createElement(Champ, {
+    label: "CLÉ ANON / PUBLIC"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: apiKey,
+    onChange: e => {
+      setApiKeyLocal(e.target.value);
+      setMsgApi("");
+    },
+    placeholder: "eyJhbGciOi…",
+    style: {
+      ...inputStyle,
+      minWidth: 320
     }
   })), /*#__PURE__*/React.createElement(Btn, {
     variant: "ghost",
@@ -7404,7 +6741,7 @@ function OngletParametres({
   }, /*#__PURE__*/React.createElement(Btn, {
     variant: "ghost",
     onClick: onReloadSupabase
-  }, "⟳ SYNCHRONISER MAINTENANT"), MODE() === "google" && /*#__PURE__*/React.createElement(Btn, {
+  }, "⟳ SYNCHRONISER MAINTENANT"), MODE() === "serveur" && /*#__PURE__*/React.createElement(Btn, {
     variant: "ghost",
     onClick: forcerEnvoi,
     disabled: envoiEnCours
@@ -7418,7 +6755,7 @@ function OngletParametres({
       fontWeight: 600,
       color: "#B7770D"
     }
-  }, "⏳ ", nbAttente, " enregistrement(s) en attente d'envoi. Ils sont conservés sur cet appareil : rien n'est perdu, l'envoi se refera automatiquement.")), MODE() === "google" && /*#__PURE__*/React.createElement(Section, {
+  }, "⏳ ", nbAttente, " enregistrement(s) en attente d'envoi. Ils sont conservés sur cet appareil : rien n'est perdu, l'envoi se refera automatiquement.")), MODE() === "serveur" && /*#__PURE__*/React.createElement(Section, {
     titre: "Reprise des données existantes"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -7429,15 +6766,15 @@ function OngletParametres({
       lineHeight: 1.6,
       marginBottom: 14
     }
-  }, "Envoie vers Google les données présentes sur cet appareil (salariés, intérimaires, chantiers, pointages, absences). Le décompte exact vous sera montré pour confirmation avant l'envoi.", /*#__PURE__*/React.createElement("div", {
+  }, "Envoie au serveur les données présentes sur cet appareil (salariés, intérimaires, chantiers, pointages, absences). Le décompte exact vous sera montré pour confirmation avant l'envoi.", /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 6,
       color: C.gris
     }
-  }, "Sans risque : le serveur ", /*#__PURE__*/React.createElement("b", null, "refuse d'écraser"), " une feuille qui contient déjà des données, et crée une sauvegarde juste après le transfert.")), /*#__PURE__*/React.createElement(Btn, {
-    onClick: migrerVersGoogle,
+  }, "Sans risque : le serveur ", /*#__PURE__*/React.createElement("b", null, "refuse d'écraser"), " une table qui contient déjà des données, et une sauvegarde complète est conservée en base.")), /*#__PURE__*/React.createElement(Btn, {
+    onClick: migrerVersServeur,
     disabled: migrationEnCours
-  }, migrationEnCours ? "TRANSFERT EN COURS…" : "↗ TRANSFÉRER MES DONNÉES VERS GOOGLE"), msgMigration && /*#__PURE__*/React.createElement("div", {
+  }, migrationEnCours ? "TRANSFERT EN COURS…" : "↗ TRANSFÉRER MES DONNÉES VERS LE SERVEUR"), msgMigration && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12,
       padding: "12px 16px",
@@ -9676,7 +9013,7 @@ function Footer() {
       fontStyle: "italic",
       fontSize: 10
     }
-  }, "Données hébergées sur Google · Synchronisation multi-appareils"));
+  }, "Données hébergées dans votre base privée · Synchronisation multi-appareils"));
 }
 
 // ============================================================
