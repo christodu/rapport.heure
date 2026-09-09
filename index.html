@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v5.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v5.1"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 
 /**
@@ -825,7 +825,29 @@ const normaliserUrlApi = u => {
  */
 const SUPABASE_URL_DEFAUT = "https://ifdvvagrvkelojgzgjha.supabase.co";
 const SUPABASE_KEY_DEFAUT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmZHZ2YWdydmtlbG9qZ3pnamhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjUyMzcsImV4cCI6MjEwNDU0MTIzN30.PKG-TpXgZI5bGAnFcaTnuIA-C-DW-1QBBeiX7CqUj60";
-const getApiUrl = () => normaliserUrlApi(localStorage.getItem("chok_api_url") || SUPABASE_URL_DEFAUT);
+
+/** Une adresse de projet Supabase, et rien d'autre. */
+const urlProjetValide = u => /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/i.test(u || "");
+
+/**
+ * Adresse du serveur.
+ *
+ * Un réglage enregistré sur l'appareil n'est retenu QUE s'il ressemble à une
+ * adresse de projet Supabase. Sinon on l'ignore et on reprend celle inscrite
+ * dans l'application.
+ *
+ * Pourquoi : les appareils qui ont servi à la version Google ont gardé
+ * l'ancienne adresse en mémoire. Sans ce contrôle, elle l'emportait sur la
+ * nouvelle et l'application appelait un serveur qui n'existe plus — avec un
+ * simple « le serveur n'a pas répondu » pour toute explication.
+ */
+const getApiUrl = () => {
+  let stocke = "";
+  try {
+    stocke = normaliserUrlApi(localStorage.getItem("chok_api_url") || "");
+  } catch (e) {}
+  return urlProjetValide(stocke) ? stocke : normaliserUrlApi(SUPABASE_URL_DEFAUT);
+};
 const setApiUrl = u => {
   try {
     localStorage.setItem("chok_api_url", normaliserUrlApi(u));
@@ -837,6 +859,25 @@ const setApiKey = k => {
     localStorage.setItem("chok_api_key", (k || "").trim());
   } catch (e) {}
 };
+
+/**
+ * Nettoyage des appareils venant de la version Google : on efface l'adresse
+ * périmée, ainsi que le jeton et la session, qui n'ont plus cours sur la
+ * nouvelle base. Sans cela l'application se croit connectée et enchaîne les
+ * échecs sans jamais reproposer l'écran du code.
+ */
+(function purgerReglagesGoogle() {
+  try {
+    const u = localStorage.getItem("chok_api_url");
+    if (u && !urlProjetValide(normaliserUrlApi(u))) {
+      ["chok_api_url", "chok_jeton", "chok_session", "chok_personnes_v2", "chok_personnes"].forEach(k => {
+        try {
+          localStorage.removeItem(k);
+        } catch (e) {}
+      });
+    }
+  } catch (e) {}
+})();
 
 // Sans adresse ni clé : mode "local" (données sur cet appareil uniquement).
 // Avec les deux : mode "serveur", tout est enregistré dans la base.
@@ -6452,7 +6493,7 @@ function OngletParametres({
     } catch (e) {
       setApiUrl(ancienneU);
       setApiKey(ancienneK);
-      setMsgApi("Échec : " + e.message + "\n\nVérifiez l'adresse du projet, la clé « anon », et que le script CHOK_BETON_SUPABASE.sql a bien été exécuté.");
+      setMsgApi("Échec : " + e.message + "\n\nAdresse réellement appelée :\n" + u + "/rest/v1/rpc/chok_api" + "\n\nVérifiez l'adresse du projet, la clé « anon », et que le script CHOK_BETON_SUPABASE.sql a bien été exécuté.");
     } finally {
       setTestEnCours(false);
     }
