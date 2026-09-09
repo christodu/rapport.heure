@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v6.1"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v6.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
@@ -2726,8 +2726,12 @@ function OngletFiches({
       setMsg("Seuls les fichiers PDF sont acceptés.");
       return;
     }
-    if (fichier.size > 6 * 1024 * 1024) {
-      setMsg("Fichier trop lourd : 6 Mo maximum.");
+    // L'envoi passe par une porte qui refuse au-delà d'environ 1 Mo, et le
+    // codage du PDF le fait grossir d'un tiers. Au-delà de 700 Ko, la requête
+    // n'atteint jamais le serveur : le navigateur ne signale alors qu'une
+    // panne réseau, sans dire pourquoi. On le vérifie donc ici.
+    if (fichier.size > 700 * 1024) {
+      setMsg(`Fichier trop lourd : ${Math.round(fichier.size / 1024)} Ko, le maximum est 700 Ko.\n\n` + `Un bulletin de paie fait normalement moins de 200 Ko. Un fichier plus gros est ` + `souvent un scan : demandez à votre logiciel de paie un PDF, ou réduisez-le ` + `(Aperçu sur Mac : Fichier → Exporter → Quartz « Reduce File Size »).`);
       return;
     }
     setEnCours(true);
@@ -2740,6 +2744,9 @@ function OngletFiches({
         l.onerror = () => ko(new Error("Lecture du fichier impossible."));
         l.readAsDataURL(fichier);
       });
+      // Délai large et une seule tentative : un envoi de plusieurs centaines
+      // de kilo-octets prend du temps, et le rejouer ne ferait que doubler
+      // l'attente avant d'échouer.
       await api("ficheDeposer", {
         jeton: getJeton(),
         salarie: qui,
@@ -2747,11 +2754,14 @@ function OngletFiches({
         nom: fichier.name,
         taille: fichier.size,
         contenu: base64
+      }, {
+        delai: 60000,
+        tentatives: 1
       });
       setMsg(`✓ Bulletin de ${nomDe(qui)} — ${fmtMois(periode)} déposé.`);
       await rechargerFiches();
     } catch (e) {
-      setMsg("Échec : " + e.message);
+      setMsg("Échec du dépôt : " + e.message + `\n\nSi le message parle de réseau alors que votre connexion est bonne, ` + `c'est presque toujours la taille du fichier (${Math.round(fichier.size / 1024)} Ko ici). ` + `Vérifiez aussi que le script CHOK_BETON_SUPABASE.sql est bien à jour.`);
     } finally {
       setEnCours(false);
     }
@@ -2863,7 +2873,7 @@ function OngletFiches({
       fontSize: 11,
       color: C.gris
     }
-  }, "Un seul bulletin par personne et par mois : redéposer remplace le précédent.")), (fiches || []).length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "Un seul bulletin par personne et par mois : redéposer remplace le précédent.", /*#__PURE__*/React.createElement("b", null, " Taille maximale : 700 Ko"), " — un bulletin en fait normalement moins de 200.")), (fiches || []).length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
