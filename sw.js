@@ -14,7 +14,7 @@
 //     incrémentez le numéro ci-dessous (v3, v4, …).
 //     C'est ce qui force les téléphones à purger l'ancien cache.
 // ============================================================
-const VERSION = "v21";
+const VERSION = "v22";
 const CACHE = `chok-beton-${VERSION}`;
 const ASSETS = ["./index.html", "./icon-192.png", "./icon-512.png", "./manifest.json"];
 
@@ -39,7 +39,7 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;                          // écritures : jamais en cache
   const url = new URL(req.url);
-  if (url.hostname.includes("script.google.com")) return;    // serveur : toujours en direct
+  if (url.hostname.includes("supabase.co")) return;          // serveur : toujours en direct
 
   e.respondWith(
     fetch(req)
