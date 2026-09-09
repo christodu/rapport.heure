@@ -171,9 +171,9 @@ const {
 // ============================================================
 (function migrateSalaries() {
   try {
-    const raw = localStorage.getItem("chok_salaries");
+    const raw = localStorage.getItem("salaries");
     if (raw === "[]" || raw === null) {
-      localStorage.removeItem("chok_salaries");
+      localStorage.removeItem("salaries");
     }
   } catch (e) {}
 })();
@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v4.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v4.1"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 
 /**
@@ -1044,6 +1044,38 @@ const setSessionSauvee = s => {
 };
 
 /**
+ * ============================================================
+ *  CLOISONNEMENT DES DONNÉES SUR L'APPAREIL
+ *
+ *  Un même téléphone peut servir à plusieurs personnes. Tout ce qui
+ *  est propre à quelqu'un (ses heures, sa file d'envoi) est donc rangé
+ *  sous une clé qui contient SON identifiant.
+ *
+ *  Sans cela, le suivant héritait de ce que le précédent avait laissé :
+ *  il voyait « 2 rapports en attente » qui n'étaient pas les siens, et
+ *  ces rapports risquaient d'être envoyés sous son nom.
+ * ============================================================
+ */
+const _uid = () => {
+  const s = getSessionSauvee();
+  return s ? String(s.personneId || "direction") : null;
+};
+const cleU = nom => `chok_${nom}__${_uid() || "anonyme"}`;
+const loadU = (nom, repli) => _uid() ? load(cleU(nom), repli) : repli;
+const saveU = (nom, val) => {
+  if (_uid()) save(cleU(nom), val);
+};
+
+/** Efface les anciennes clés partagées, qui mélangeaient les utilisateurs. */
+function purgerAncienStockage() {
+  ["pointages", "salaries", "interimaires", "chantiers", "absences", "chok_outbox", "chok_outbox_bloques", "chok_recuperation_faite"].forEach(k => {
+    try {
+      localStorage.removeItem(k);
+    } catch (e) {}
+  });
+}
+
+/**
  * Réveil du serveur.
  * Un serveur Google endormi met jusqu'à 30 secondes à répondre au premier
  * appel. On le réveille dès l'ouverture de l'application, pendant que
@@ -1157,19 +1189,8 @@ async function api(action, params, options) {
 }
 
 // ---- File d'attente : aucune saisie perdue même sans réseau ----
-const OUTBOX_CLE = "chok_outbox";
-const lireOutbox = () => {
-  try {
-    return JSON.parse(localStorage.getItem(OUTBOX_CLE) || "[]");
-  } catch (e) {
-    return [];
-  }
-};
-const ecrireOutbox = l => {
-  try {
-    localStorage.setItem(OUTBOX_CLE, JSON.stringify(l));
-  } catch (e) {}
-};
+const lireOutbox = () => loadU("outbox", []) || [];
+const ecrireOutbox = l => saveU("outbox", l);
 const outboxCount = () => lireOutbox().length;
 function empilerOutbox(table, upserts, suppressions) {
   const l = lireOutbox();
@@ -1186,20 +1207,9 @@ function empilerOutbox(table, upserts, suppressions) {
 let _envoiEnCours = false;
 /** Vide la file d'attente. Renvoie {envoyes, restants, erreur}. */
 // Envois définitivement refusés : mis de côté pour ne PAS bloquer les suivants.
-const BLOQUES_CLE = "chok_outbox_bloques";
 const MAX_ESSAIS = 5;
-const lireBloques = () => {
-  try {
-    return JSON.parse(localStorage.getItem(BLOQUES_CLE) || "[]");
-  } catch (e) {
-    return [];
-  }
-};
-const ecrireBloques = l => {
-  try {
-    localStorage.setItem(BLOQUES_CLE, JSON.stringify(l));
-  } catch (e) {}
-};
+const lireBloques = () => loadU("bloques", []) || [];
+const ecrireBloques = l => saveU("bloques", l);
 const bloquesCount = () => lireBloques().length;
 /**
  * Remet les envois bloqués dans la file, pour un nouvel essai manuel.
@@ -1427,13 +1437,13 @@ function App() {
   const [pinRH, setPinRH] = usePersist("chok_pin_rh", "010126");
   const [pinChef, setPinChef] = usePersist("chok_pin_chef", "2026");
   const [salaries, setSalariesRaw] = useState(() => {
-    const s = load("chok_salaries", null);
+    const s = loadU("salaries", null);
     return s && s.length > 0 ? s : REAL_SALARIES;
   });
-  const [interimaires, setInterimairesRaw] = useState(() => load("chok_interimaires", []));
-  const [chantiers, setChantiersRaw] = useState(() => load("chok_chantiers", []));
-  const [pointages, setPointagesRaw] = useState(() => load("chok_pointages", []));
-  const [absences, setAbsencesRaw] = useState(() => load("chok_absences", []));
+  const [interimaires, setInterimairesRaw] = useState(() => loadU("interimaires", []));
+  const [chantiers, setChantiersRaw] = useState(() => load("chantiers", []));
+  const [pointages, setPointagesRaw] = useState(() => load("pointages", []));
+  const [absences, setAbsencesRaw] = useState(() => load("absences", []));
   const [appLoading, setAppLoading] = useState(false);
   const [syncState, setSyncState] = useState("idle");
   const refs = {
@@ -1471,32 +1481,32 @@ function App() {
         await Promise.all(SUPPRIMES.map(id => sb.from("salaries").delete().eq("id", id)));
         const filtered = listeVersJS(s.data).filter(sal => !SUPPRIMES.includes(sal.id));
         setSalariesRaw(filtered);
-        save("chok_salaries", filtered);
+        saveU("salaries", filtered);
       } else if (!s.error && s.data.length === 0) {
         // Table vide → pousser les 32 salariés réels vers Supabase
         await sb.from("salaries").upsert(REAL_SALARIES);
         setSalariesRaw(REAL_SALARIES);
-        save("chok_salaries", REAL_SALARIES);
+        saveU("salaries", REAL_SALARIES);
       }
       if (!i.error) {
         const v = listeVersJS(i.data);
         setInterimairesRaw(v);
-        save("chok_interimaires", v);
+        saveU("interimaires", v);
       }
       if (!c.error) {
         const v = listeVersJS(c.data);
         setChantiersRaw(v);
-        save("chok_chantiers", v);
+        saveU("chantiers", v);
       }
       if (!p.error) {
         const v = listeVersJS(p.data);
         setPointagesRaw(v);
-        save("chok_pointages", v);
+        saveU("pointages", v);
       }
       if (!a.error) {
         const v = listeVersJS(a.data);
         setAbsencesRaw(v);
-        save("chok_absences", v);
+        saveU("absences", v);
       }
       setSyncState("ok");
     } catch (e) {
@@ -1521,7 +1531,7 @@ function App() {
       // complet se demande explicitement (bouton dans l'onglet Archives).
       // Saisies éventuellement piégées sur l'appareil (enregistrées alors que
       // l'adresse du serveur n'était pas connue : elles n'ont jamais été envoyées).
-      const avantChargement = load("chok_pointages", []) || [];
+      const avantChargement = loadU("pointages", []) || [];
       const rep = await api("charger", {
         jeton: getJeton(),
         tout: !!toutCharger
@@ -1547,11 +1557,11 @@ function App() {
         setter(v);
         save(cle, v);
       };
-      pose(d.salaries, setSalariesRaw, "chok_salaries");
-      pose(d.interimaires, setInterimairesRaw, "chok_interimaires");
-      pose(d.chantiers, setChantiersRaw, "chok_chantiers");
-      pose(d.pointages, setPointagesRaw, "chok_pointages");
-      pose(d.absences, setAbsencesRaw, "chok_absences");
+      pose(d.salaries, setSalariesRaw, "salaries");
+      pose(d.interimaires, setInterimairesRaw, "interimaires");
+      pose(d.chantiers, setChantiersRaw, "chantiers");
+      pose(d.pointages, setPointagesRaw, "pointages");
+      pose(d.absences, setAbsencesRaw, "absences");
       setSyncState(outboxCount() ? "attente" : "ok");
     } catch (e) {
       setSyncState("err");
@@ -1636,7 +1646,7 @@ function App() {
       const next = typeof v === "function" ? v(prev) : v;
       ref.current = next;
       rawSetter(next);
-      save(lsKey, next); // 1) toujours enregistré en local d'abord
+      saveU(lsKey, next); // 1) enregistré localement, sous le compte de la personne connectée
       if (MODE() === "google" || getSb()) {
         setSyncState("syncing");
         syncSortie(table, next, prev) // 2) puis envoyé au serveur
@@ -1652,31 +1662,81 @@ function App() {
       }
     };
   }
-  const setSalaries = makeSetter(setSalariesRaw, refs.salaries, "chok_salaries", "salaries");
-  const setInterimaires = makeSetter(setInterimairesRaw, refs.interimaires, "chok_interimaires", "interimaires");
-  const setChantiers = makeSetter(setChantiersRaw, refs.chantiers, "chok_chantiers", "chantiers");
-  const setPointages = makeSetter(setPointagesRaw, refs.pointages, "chok_pointages", "pointages");
-  const setAbsences = makeSetter(setAbsencesRaw, refs.absences, "chok_absences", "absences");
+  const setSalaries = makeSetter(setSalariesRaw, refs.salaries, "salaries", "salaries");
+  const setInterimaires = makeSetter(setInterimairesRaw, refs.interimaires, "interimaires", "interimaires");
+  const setChantiers = makeSetter(setChantiersRaw, refs.chantiers, "chantiers", "chantiers");
+  const setPointages = makeSetter(setPointagesRaw, refs.pointages, "pointages", "pointages");
+  const setAbsences = makeSetter(setAbsencesRaw, refs.absences, "absences", "absences");
 
   // Session restaurée au démarrage : un rafraîchissement ne déconnecte pas.
   const [session, setSession] = useState(() => getJeton() ? getSessionSauvee() : null);
-  const connexionReussie = async s => {
+
+  /**
+   * Connexion réussie. On repart TOUJOURS des données de cette personne,
+   * jamais de ce qu'un autre aurait laissé sur l'appareil.
+   * @param {object} s  {role, personneId, nom}
+   * @param {object} donnees  éventuellement fournies par le serveur avec la connexion
+   */
+  const connexionReussie = async (s, donnees, meta) => {
+    setSessionSauvee(s); // d'abord : les clés de stockage en dépendent
     setSession(s);
-    setSessionSauvee(s);
-    if (MODE() === "google") {
-      await chargerDepuisGoogle();
+
+    // On vide l'écran, puis on remet uniquement ce qui appartient à cette personne
+    const sien = nom => loadU(nom, []) || [];
+    setSalariesRaw(sien("salaries"));
+    setInterimairesRaw(sien("interimaires"));
+    setChantiersRaw(sien("chantiers"));
+    setPointagesRaw(sien("pointages"));
+    setAbsencesRaw(sien("absences"));
+    refs.salaries.current = sien("salaries");
+    refs.interimaires.current = sien("interimaires");
+    refs.chantiers.current = sien("chantiers");
+    refs.pointages.current = sien("pointages");
+    refs.absences.current = sien("absences");
+    if (MODE() !== "google") return;
+
+    // Le serveur renvoie les données AVEC la connexion : on les pose
+    // directement, sans second aller-retour.
+    if (donnees) {
+      const pose = (arr, setter, ref, cle) => {
+        const v = arr || [];
+        setter(v);
+        ref.current = v;
+        saveU(cle, v);
+      };
+      pose(donnees.salaries, setSalariesRaw, refs.salaries, "salaries");
+      pose(donnees.interimaires, setInterimairesRaw, refs.interimaires, "interimaires");
+      pose(donnees.chantiers, setChantiersRaw, refs.chantiers, "chantiers");
+      pose(donnees.pointages, setPointagesRaw, refs.pointages, "pointages");
+      pose(donnees.absences, setAbsencesRaw, refs.absences, "absences");
+      if (meta) setInfoPeriode(meta);
+      setSyncState(outboxCount() ? "attente" : "ok");
+      viderOutbox().catch(() => {}); // on pousse ce qui attendait, en arrière-plan
+      return;
     }
+    await chargerDepuisGoogle();
   };
   const seDeconnecter = () => {
     if (outboxCount() && !window.confirm(`⚠ ${outboxCount()} enregistrement(s) n'ont pas encore été envoyés au serveur.\n\n` + `Ils sont conservés sur cet appareil et repartiront à la prochaine connexion.\n\nSe déconnecter quand même ?`)) return;
     setJeton(null);
-    setSessionSauvee(null);
     setSession(null);
+    setSessionSauvee(null);
+    // L'écran est vidé : le suivant ne doit rien voir de la personne précédente.
+    setSalariesRaw([]);
+    setInterimairesRaw([]);
+    setChantiersRaw([]);
+    setPointagesRaw([]);
+    setAbsencesRaw([]);
+    Object.values(refs).forEach(r => {
+      r.current = [];
+    });
+    setSyncState("idle");
   };
 
   // Au chargement : on réveille le serveur tout de suite, et si une session
   // valide existe on recharge les données sans repasser par la connexion.
   useEffect(() => {
+    purgerAncienStockage(); // anciennes clés mélangeant les utilisateurs
     reveillerServeur();
     if (MODE() === "google" && getJeton() && getSessionSauvee()) {
       chargerDepuisGoogle();
@@ -1851,11 +1911,11 @@ function EcranConnexion({
           pin
         });
         setJeton(r.jeton);
-        onConnexion({
+        await onConnexion({
           role: r.role,
           personneId,
           nom: r.nom
-        });
+        }, r.donnees, r.meta);
       } catch (e) {
         setErreur(e.message);
         setPin("");
@@ -1887,9 +1947,10 @@ function EcranConnexion({
           pin
         });
         setJeton(r.jeton);
-        onConnexion({
-          role: "rh"
-        });
+        await onConnexion({
+          role: "rh",
+          personneId: "direction"
+        }, r.donnees, r.meta);
       } catch (e) {
         setErreur(e.message);
         setPin("");
