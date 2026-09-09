@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v3.9"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v4.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 
 /**
@@ -1066,9 +1066,12 @@ function reveillerServeur(forcer) {
     }).catch(() => {});
   } catch (e) {}
 }
-const DELAI_MAX_MS = 60000; // un serveur qui se réveille peut mettre ~35 s
-const TENTATIVES = 3; // réessais automatiques avant d'abandonner
 
+// Un serveur qui sort de veille met 20 à 35 s. On attend donc 45 s au premier
+// essai, puis on abrège : inutile d'immobiliser l'utilisateur trois minutes,
+// la file d'attente reprendra la main en arrière-plan.
+const DELAI_MAX_MS = 45000;
+const TENTATIVES = 2;
 const pause = ms => new Promise(r => setTimeout(r, ms));
 
 /**
@@ -7946,17 +7949,46 @@ function VueMobile({
     weekday: "long",
     day: "numeric",
     month: "long"
-  })), outboxCount() > 0 && /*#__PURE__*/React.createElement("div", {
+  })), nbAttente > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 16,
-      padding: "10px 14px",
+      padding: "12px 14px",
       background: "#FFF8E1",
       border: `1.5px solid #B7770D`,
       fontSize: 12,
       color: "#B7770D",
-      fontWeight: 600
+      fontWeight: 600,
+      lineHeight: 1.6
     }
-  }, "⏳ Envoi différé : pas de réseau pour le moment. Votre rapport est enregistré sur le téléphone et partira automatiquement."), /*#__PURE__*/React.createElement("div", {
+  }, "⏳ Transmission en cours…", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 400
+    }
+  }, "Votre rapport est ", /*#__PURE__*/React.createElement("b", null, "enregistré sur le téléphone"), " : rien n'est perdu. Le serveur met parfois du temps à répondre."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(MBtn, {
+    onClick: renvoyer,
+    disabled: renvoiEnCours
+  }, renvoiEnCours ? "ENVOI EN COURS…" : "📤 RÉESSAYER MAINTENANT")), msgRenvoi && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      fontWeight: 700,
+      whiteSpace: "pre-wrap",
+      color: msgRenvoi.startsWith("✓") ? C.vert : C.orange
+    }
+  }, msgRenvoi)), nbAttente === 0 && nbBloques === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 16,
+      padding: "10px 14px",
+      background: "#EAF7F4",
+      border: `1.5px solid ${C.vert}`,
+      fontSize: 12,
+      color: C.vert,
+      fontWeight: 700
+    }
+  }, "☁ Transmis à la direction."), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 24
     }
