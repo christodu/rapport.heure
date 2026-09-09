@@ -192,16 +192,12 @@ const AGENCES = [{
 }];
 const POSTES = ["Chef d'équipe", "Manœuvre"];
 const COULEURS_CHANTIER = ["#F5C518", "#E55934", "#3D5A80", "#2A9D8F", "#9B5DE5", "#E67E22"];
+// Types d'absence utilisés chez CHOK BÉTON (pas de RTT dans l'entreprise).
 const TYPES_ABSENCE = [{
   code: "CP",
   label: "Congés payés",
   couleur: "#2A9D8F",
   icone: "🌴"
-}, {
-  code: "RTT",
-  label: "RTT",
-  couleur: "#3D5A80",
-  icone: "📅"
 }, {
   code: "MAL",
   label: "Maladie",
@@ -233,6 +229,14 @@ const TYPES_ABSENCE = [{
   couleur: "#95A5A6",
   icone: "📋"
 }];
+
+/** Retrouve un type d'absence, même s'il a été retiré de la liste depuis. */
+const typeAbsence = code => TYPES_ABSENCE.find(t => t.code === code) || {
+  code,
+  label: code || "Absence",
+  couleur: "#95A5A6",
+  icone: "📋"
+};
 
 // ============================================================
 //  UTILITAIRES
@@ -385,13 +389,30 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v3.5"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v3.8"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
-const CONGES_DEFAUT = 25; // jours ouvrés par an
+
+/**
+ * CONGÉS PAYÉS — droit annuel et méthode de décompte.
+ *
+ * Les deux systèmes cohérents en France sont :
+ *   • 25 jours OUVRÉS    → on compte lundi→vendredi
+ *   • 30 jours OUVRABLES → on compte lundi→SAMEDI  (retenu ici)
+ *
+ * Mélanger les deux fausse tout : avec un droit de 30 jours mais un décompte
+ * en jours ouvrés, une semaine de congés compterait 5 jours au lieu de 6,
+ * et le salarié partirait avec ~5 semaines de trop dans l'année.
+ * Les jours fériés ne sont jamais décomptés.
+ */
+const CONGES_DEFAUT = 30; // jours ouvrables par an
+const CONGES_MODE = "ouvrables"; // "ouvrables" (lun-sam) ou "ouvres" (lun-ven)
+const CONGES_LIBELLE = CONGES_MODE === "ouvrables" ? "jours ouvrables" : "jours ouvrés";
 const codeDe = p => p && p.code ? String(p.code) : CODE_DEFAUT;
 const congesDe = p => p && p.conges != null && p.conges !== "" ? Number(p.conges) : CONGES_DEFAUT;
 
-// Jours ouvrés (lun-ven, hors jours fériés) d'une absence, limités à une année.
+// Jours décomptés d'une absence, limités à une année.
+// En mode "ouvrables" le samedi compte ; en mode "ouvres" il ne compte pas.
+// Le dimanche et les jours fériés ne sont jamais décomptés.
 function joursAbsenceAnnee(a, annee) {
   if (!a || !a.dateDebut || !a.dateFin) return 0;
   let n = 0;
@@ -401,12 +422,16 @@ function joursAbsenceAnnee(a, annee) {
     const iso = _isoUTC(d),
       jour = d.getUTCDay();
     if (annee != null && Number(iso.slice(0, 4)) !== Number(annee)) continue;
-    if (jour === 0 || jour === 6) continue; // week-end
+    if (jour === 0) continue; // dimanche
+    if (jour === 6 && CONGES_MODE !== "ouvrables") continue; // samedi selon le mode
     if (estFerie(iso)) continue; // jour férié
     n++;
   }
   return n;
 }
+/** Nombre de jours décomptés pour une absence (toutes années confondues). */
+const nbJoursDecomptes = a => joursAbsenceAnnee(a, null);
+
 // Congés payés (type CP) déjà pris par une personne sur une année
 const congesPris = (absences, personneId, annee) => (absences || []).filter(a => a.salarie === personneId && a.type === "CP").reduce((s, a) => s + joursAbsenceAnnee(a, annee), 0);
 // Bilan congés : { droit, pris, restant }
@@ -1597,6 +1622,9 @@ function App() {
         syncSortie(table, next, prev) // 2) puis envoyé au serveur
         .then(r => setSyncState(r && r.restants ? "attente" : "ok")).catch(e => {
           setSyncState(outboxCount() ? "attente" : "err");
+          if (e && e.codeErreur === "DOUBLON") {
+            window.alert("⚠ Heures déjà déclarées\n\n" + e.message);
+          }
           if (e && e.codeErreur === "SUPPRESSION_MASSIVE") {
             window.alert("⚠ Suppression bloquée par sécurité\n\n" + e.message + "\n\nRien n'a été supprimé sur le serveur. Contactez l'administrateur si c'est volontaire.");
           }
@@ -3627,7 +3655,7 @@ function OngletAbsences({
       setErr("La date de fin doit être après la date de début.");
       return;
     }
-    const typeInfo = TYPES_ABSENCE.find(t => t.code === type);
+    const typeInfo = typeAbsence(type);
     setAbsences([...absences, {
       id: genId("A"),
       salarie: personneId,
@@ -3652,7 +3680,7 @@ function OngletAbsences({
     if (!window.confirm("Supprimer cette absence ?")) return;
     setAbsences(absences.filter(a => a.id !== id));
   };
-  // Jours ouvrés = lundi→vendredi, hors jours fériés (cohérent avec le solde de congés)
+  // Décompte cohérent avec le solde de congés (voir CONGES_MODE)
   const nbJoursOuvres = (d1, d2) => joursAbsenceAnnee({
     dateDebut: d1,
     dateFin: d2
@@ -3691,7 +3719,7 @@ function OngletAbsences({
         fontWeight: 700,
         marginBottom: 10
       }
-    }, "SOLDES CONGÉS PAYÉS ", annee, " — EN JOURS OUVRÉS (HORS WEEK-ENDS ET FÉRIÉS)"), alerte.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, "SOLDES CONGÉS PAYÉS ", annee, " — EN ", CONGES_LIBELLE.toUpperCase(), " (HORS DIMANCHES ET FÉRIÉS)"), alerte.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         marginBottom: 10,
         padding: "9px 14px",
@@ -3805,7 +3833,7 @@ function OngletAbsences({
       color: C.gris,
       alignSelf: "flex-end"
     }
-  }, "→ ", /*#__PURE__*/React.createElement("b", null, nbJoursOuvres(dateDebut, dateFin)), " jour(s) ouvré(s)")), /*#__PURE__*/React.createElement("div", {
+  }, "→ ", /*#__PURE__*/React.createElement("b", null, nbJoursOuvres(dateDebut, dateFin)), " ", CONGES_LIBELLE)), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -3863,7 +3891,7 @@ function OngletAbsences({
   }, listeFiltree.length, " résultat(s)")), absences.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, null, "Aucune absence. Cliquez sur \"+ SAISIR UNE ABSENCE\".") : listeFiltree.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, null, "Aucun résultat pour ces filtres.") : /*#__PURE__*/React.createElement(TableWrap, null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement(Th, null, "Personne"), /*#__PURE__*/React.createElement(Th, null, "Type"), /*#__PURE__*/React.createElement(Th, null, "Début"), /*#__PURE__*/React.createElement(Th, null, "Fin"), /*#__PURE__*/React.createElement(Th, {
     r: true
   }, "Jours ouvrés"), /*#__PURE__*/React.createElement(Th, null, "Commentaire"), /*#__PURE__*/React.createElement(Th, null))), /*#__PURE__*/React.createElement("tbody", null, listeFiltree.map(a => {
-    const typeInfo = TYPES_ABSENCE.find(t => t.code === a.type);
+    const typeInfo = typeAbsence(a.type);
     const jours = nbJoursOuvres(a.dateDebut, a.dateFin);
     const personne = tousPersonnes.find(p => p.id === a.salarie);
     return /*#__PURE__*/React.createElement("tr", {
@@ -4263,7 +4291,7 @@ function OngletSalaries({
         color: C.gris,
         marginTop: 3
       }
-    }, "jours/an")), /*#__PURE__*/React.createElement(Td, {
+    }, CONGES_LIBELLE, "/an")), /*#__PURE__*/React.createElement(Td, {
       r: true
     }, jours), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("div", {
       style: {
@@ -4808,6 +4836,7 @@ function OngletChantiers({
 // ---- Onglet Paie ----
 function OngletPaie({
   pointages,
+  absences,
   salaries,
   interimaires,
   chantiers
@@ -5229,7 +5258,85 @@ function OngletPaie({
         fontWeight: 800,
         color: col
       }
-    }, v))))), ptgPersonne.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    }, v))))), (() => {
+      const annee = Number((plage[0] || auj).slice(0, 4));
+      const bc = p._type === "interim" ? null : bilanConges(p, absences || [], annee);
+      const mesAbs = (absences || []).filter(a => a.salarie === p.id && !(a.dateFin < plage[0] || a.dateDebut > plage[plage.length - 1]));
+      if (!bc && mesAbs.length === 0) return null;
+      return /*#__PURE__*/React.createElement("div", {
+        style: {
+          padding: "10px 16px",
+          borderBottom: `1px solid ${C.ligne}`,
+          background: "#FAFAF7"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 18,
+          flexWrap: "wrap",
+          alignItems: "center"
+        }
+      }, bc && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 9,
+          color: C.gris,
+          letterSpacing: "0.12em",
+          fontWeight: 700
+        }
+      }, "CONGÉS ", annee), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 12,
+          marginTop: 2
+        }
+      }, /*#__PURE__*/React.createElement("b", {
+        style: {
+          fontFamily: FT,
+          fontSize: 15,
+          color: bc.restant < 0 ? C.orange : C.vert
+        }
+      }, bc.restant), /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.gris
+        }
+      }, " restant(s) sur ", bc.droit, " · ", bc.pris, " pris")))), mesAbs.length > 0 && /*#__PURE__*/React.createElement("div", {
+        style: {
+          flex: 1,
+          minWidth: 200
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 9,
+          color: C.gris,
+          letterSpacing: "0.12em",
+          fontWeight: 700
+        }
+      }, "ABSENCES SUR LA PÉRIODE"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          marginTop: 3,
+          display: "flex",
+          gap: 6,
+          flexWrap: "wrap"
+        }
+      }, mesAbs.map(a => {
+        const ti = typeAbsence(a.type);
+        return /*#__PURE__*/React.createElement("span", {
+          key: a.id,
+          style: {
+            fontSize: 10,
+            padding: "2px 7px",
+            fontWeight: 700,
+            border: `1px solid ${(ti === null || ti === void 0 ? void 0 : ti.couleur) || C.ligne}`,
+            color: (ti === null || ti === void 0 ? void 0 : ti.couleur) || C.gris
+          }
+        }, ti === null || ti === void 0 ? void 0 : ti.icone, " ", ti === null || ti === void 0 ? void 0 : ti.label, " · ", new Date(a.dateDebut + "T00:00:00").toLocaleDateString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit"
+        }), a.dateFin !== a.dateDebut ? `→${new Date(a.dateFin + "T00:00:00").toLocaleDateString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit"
+        })}` : "", " ", "(", nbJoursDecomptes(a), " j)");
+      })))));
+    })(), ptgPersonne.length === 0 ? /*#__PURE__*/React.createElement("div", {
       style: {
         padding: "20px",
         fontSize: 12,
@@ -6499,7 +6606,7 @@ function VueSalarie({
       color: C.gris,
       marginTop: 6
     }
-  }, bc.pris, " pris sur ", bc.droit, " · en jours ouvrés")), mesNuitees > 0 && /*#__PURE__*/React.createElement("div", {
+  }, bc.pris, " pris sur ", bc.droit, " · en ", CONGES_LIBELLE)), mesNuitees > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "16px 18px",
       background: C.papier,
@@ -6546,7 +6653,7 @@ function VueSalarie({
       marginBottom: 8
     }
   }, "MES ABSENCES"), mesAbs.slice(0, 4).map(a => {
-    const ti = TYPES_ABSENCE.find(t => t.code === a.type);
+    const ti = typeAbsence(a.type);
     return /*#__PURE__*/React.createElement("div", {
       key: a.id,
       style: {
@@ -7397,6 +7504,44 @@ function VueMobile({
     pause
   });
   const estMajore = estMajore100(date);
+
+  // ---- Collègues salariés présents sur le chantier ----
+  const [collegues, setCollegues] = useState({}); // idSalarié -> {debut,fin,pause,deplacement}
+  const [ajoutCollegue, setAjoutCollegue] = useState(false);
+  const [rechCollegue, setRechCollegue] = useState("");
+  const autresSalaries = salaries.filter(s => s.id !== moi.id);
+  const collegesDisponibles = autresSalaries.filter(s => !collegues[s.id]).filter(s => !rechCollegue.trim() || s.nom.toLowerCase().includes(rechCollegue.trim().toLowerCase())).slice(0, 30);
+  const ajouterCollegue = id => {
+    setCollegues(c => ({
+      ...c,
+      [id]: {
+        debut,
+        fin,
+        pause,
+        deplacement: false
+      }
+    }));
+    setRechCollegue("");
+    setAjoutCollegue(false);
+  };
+  const retirerCollegue = id => setCollegues(c => {
+    const n = {
+      ...c
+    };
+    delete n[id];
+    return n;
+  });
+  const majCollegue = (id, champ, val) => setCollegues(c => ({
+    ...c,
+    [id]: {
+      ...(c[id] || {
+        debut,
+        fin,
+        pause
+      }),
+      [champ]: val
+    }
+  }));
   const majEquipe = (id, champ, val) => setEquipe(e => ({
     ...e,
     [id]: {
@@ -7490,6 +7635,23 @@ function VueMobile({
       interim: false,
       chefNom: moi.nom
     }];
+    // Collègues salariés présents avec moi
+    Object.entries(collegues).forEach(([id, h]) => {
+      lignes.push({
+        id: genId("P"),
+        salarie: id,
+        chantier: chantierId,
+        date,
+        debut: h.debut,
+        fin: h.fin,
+        pause: h.pause,
+        commentaire: "",
+        deplacement: !!h.deplacement,
+        valide: false,
+        interim: false,
+        chefNom: moi.nom
+      });
+    });
     Object.entries(equipe).forEach(([id, h]) => {
       lignes.push({
         id: genId("P"),
@@ -7519,12 +7681,14 @@ function VueMobile({
       nb: lignes.length,
       total: lignes.reduce((s, l) => s + calcHeures(l), 0),
       chantier: chantier === null || chantier === void 0 ? void 0 : chantier.nom,
-      date
+      date,
+      collegues: Object.keys(collegues).length
     });
   };
   const recommencer = () => {
     setEnvoye(null);
     setEquipe({});
+    setCollegues({});
     setDepl(false);
     setDate(auj);
     setErreur("");
@@ -7742,7 +7906,7 @@ function VueMobile({
       marginTop: 8,
       lineHeight: 1.6
     }
-  }, envoye.nb, " ligne(s) · ", fmtH(envoye.total), " au total", /*#__PURE__*/React.createElement("br", null), envoye.chantier, " · ", new Date(envoye.date + "T00:00:00").toLocaleDateString("fr-FR", {
+  }, envoye.nb, " ligne(s) · ", fmtH(envoye.total), " au total", envoye.collegues > 0 ? ` · dont ${envoye.collegues} collègue(s)` : "", /*#__PURE__*/React.createElement("br", null), envoye.chantier, " · ", new Date(envoye.date + "T00:00:00").toLocaleDateString("fr-FR", {
     weekday: "long",
     day: "numeric",
     month: "long"
@@ -8286,6 +8450,209 @@ function VueMobile({
       fontWeight: 700
     }
   }, "🛏 Déplacement avec logement")))), /*#__PURE__*/React.createElement("div", {
+    style: boiteStyle
+  }, /*#__PURE__*/React.createElement("div", {
+    style: titreBoite
+  }, "SALARIÉS AVEC MOI ", Object.keys(collegues).length > 0 ? `· ${Object.keys(collegues).length}` : ""), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 16px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.gris,
+      marginBottom: 10,
+      lineHeight: 1.5
+    }
+  }, "Si vous travaillez avec d'autres salariés, déclarez leurs heures ici.", /*#__PURE__*/React.createElement("b", null, " Une seule personne doit le faire"), " pour éviter de compter les heures en double."), Object.entries(collegues).map(([id, h]) => {
+    const sal = autresSalaries.find(s => s.id === id);
+    return /*#__PURE__*/React.createElement("div", {
+      key: id,
+      style: {
+        marginBottom: 8,
+        border: `1.5px solid ${C.encre}`,
+        background: "#F7F7F2"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "10px 12px",
+        display: "flex",
+        alignItems: "center",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 26,
+        height: 26,
+        flexShrink: 0,
+        background: C.encre,
+        color: C.jaune,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 10,
+        fontWeight: 700
+      }
+    }, initiales((sal === null || sal === void 0 ? void 0 : sal.nom) || "?")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700
+      }
+    }, (sal === null || sal === void 0 ? void 0 : sal.nom) || id), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: C.gris
+      }
+    }, (sal === null || sal === void 0 ? void 0 : sal.poste) || "")), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: FT,
+        fontSize: 16,
+        fontWeight: 800
+      }
+    }, fmtH(calcHeures(h))), /*#__PURE__*/React.createElement("button", {
+      onClick: () => retirerCollegue(id),
+      style: {
+        background: "transparent",
+        border: "none",
+        color: C.orange,
+        fontSize: 16,
+        cursor: "pointer",
+        padding: "0 4px"
+      },
+      title: "Retirer"
+    }, "✕")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "0 12px 12px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(3,1fr)",
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "time",
+      value: h.debut,
+      onChange: e => majCollegue(id, "debut", e.target.value),
+      style: {
+        ...champ,
+        fontSize: 14,
+        padding: "9px 4px",
+        textAlign: "center"
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "time",
+      value: h.fin,
+      onChange: e => majCollegue(id, "fin", e.target.value),
+      style: {
+        ...champ,
+        fontSize: 14,
+        padding: "9px 4px",
+        textAlign: "center"
+      }
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: h.pause,
+      min: 0,
+      step: 15,
+      onChange: e => majCollegue(id, "pause", parseInt(e.target.value) || 0),
+      style: {
+        ...champ,
+        fontSize: 14,
+        padding: "9px 4px",
+        textAlign: "center"
+      }
+    })), /*#__PURE__*/React.createElement("div", {
+      onClick: () => majCollegue(id, "deplacement", !h.deplacement),
+      style: {
+        marginTop: 8,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        fontSize: 11,
+        fontWeight: 700,
+        cursor: "pointer",
+        color: h.deplacement ? C.bleu : C.gris
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 16,
+        height: 16,
+        border: `2px solid ${h.deplacement ? C.bleu : C.gris}`,
+        background: h.deplacement ? C.bleu : "transparent"
+      }
+    }), "🛏 Logé")));
+  }), ajoutCollegue ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      padding: "12px",
+      border: `1.5px dashed ${C.encre}`
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: rechCollegue,
+    onChange: e => setRechCollegue(e.target.value),
+    placeholder: "🔍 Rechercher un salarié…",
+    style: {
+      ...champ,
+      marginBottom: 8
+    },
+    autoFocus: true
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxHeight: 200,
+      overflowY: "auto",
+      border: `1px solid ${C.ligne}`,
+      background: C.papier
+    }
+  }, collegesDisponibles.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px",
+      fontSize: 11,
+      color: C.gris,
+      fontStyle: "italic"
+    }
+  }, "Aucun salarié ne correspond.") : collegesDisponibles.map(s => /*#__PURE__*/React.createElement("div", {
+    key: s.id,
+    onClick: () => ajouterCollegue(s.id),
+    style: {
+      padding: "10px 12px",
+      fontSize: 12,
+      cursor: "pointer",
+      borderBottom: `1px solid ${C.ligne}`
+    }
+  }, /*#__PURE__*/React.createElement("b", null, s.nom), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.gris
+    }
+  }, s.poste)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement(MBtn, {
+    variant: "ghost",
+    onClick: () => {
+      setAjoutCollegue(false);
+      setRechCollegue("");
+    }
+  }, "FERMER"))) : /*#__PURE__*/React.createElement("button", {
+    onClick: () => setAjoutCollegue(true),
+    style: {
+      width: "100%",
+      padding: "11px",
+      background: "transparent",
+      border: `1.5px dashed ${C.ligne}`,
+      fontFamily: FM,
+      fontSize: 11,
+      color: C.gris,
+      cursor: "pointer"
+    }
+  }, "+ AJOUTER UN SALARIÉ"))), /*#__PURE__*/React.createElement("div", {
     style: boiteStyle
   }, /*#__PURE__*/React.createElement("div", {
     style: titreBoite
