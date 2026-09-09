@@ -389,7 +389,9 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v5.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v6.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const CODE_MIN = 4; // longueur minimale d'un code personnel
+const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
 
 /**
@@ -514,8 +516,11 @@ function infoSemaine(iso) {
   const sem = String(numSem).padStart(2, "0");
   const lundiD = new Date(iso + "T00:00:00");
   lundiD.setDate(lundiD.getDate() - (lundiD.getDay() || 7) + 1);
-  const vendrediD = new Date(lundiD);
-  vendrediD.setDate(lundiD.getDate() + 4);
+  // Jusqu'au DIMANCHE, et non au vendredi : le samedi est travaillé et le
+  // dimanche est majoré à 100 %. Un libellé s'arrêtant au vendredi laissait
+  // croire que le week-end n'était pas compris dans la période.
+  const dimancheD = new Date(lundiD);
+  dimancheD.setDate(lundiD.getDate() + 6);
   const fmt = x => x.toLocaleDateString("fr-FR", {
     day: "numeric",
     month: "short"
@@ -524,16 +529,22 @@ function infoSemaine(iso) {
     annee,
     semaine: numSem,
     cle: `${annee}-S${sem}`,
-    label: `S${sem} — ${fmt(lundiD)} au ${fmt(vendrediD)} ${annee}`,
+    label: `S${sem} — ${fmt(lundiD)} au ${fmt(dimancheD)} ${annee}`,
     labelCourt: `S${sem}`,
     moisNum: lundiD.getMonth() + 1,
     moisLabel: lundiD.toLocaleDateString("fr-FR", {
       month: "long",
       year: "numeric"
     }),
-    lundi: lundiD.toISOString().slice(0, 10),
-    vendredi: vendrediD.toISOString().slice(0, 10)
+    // Format local, jamais toISOString() : celui-ci convertit en UTC, et
+    // minuit à Paris devient 22 h la VEILLE. La date reculait d'un jour.
+    lundi: isoLocalJour(lundiD),
+    dimanche: isoLocalJour(dimancheD)
   };
+}
+/** Date d'un objet Date au format 'AAAA-MM-JJ', dans le fuseau local. */
+function isoLocalJour(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function semaineCouranteCle() {
   return infoSemaine(new Date().toISOString().slice(0, 10)).cle;
@@ -825,6 +836,22 @@ const normaliserUrlApi = u => {
  */
 const SUPABASE_URL_DEFAUT = "https://ifdvvagrvkelojgzgjha.supabase.co";
 const SUPABASE_KEY_DEFAUT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmZHZ2YWdydmtlbG9qZ3pnamhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjUyMzcsImV4cCI6MjEwNDU0MTIzN30.PKG-TpXgZI5bGAnFcaTnuIA-C-DW-1QBBeiX7CqUj60";
+
+/**
+ * ARCHIVER PLUTÔT QUE SUPPRIMER
+ *
+ * Supprimer une fiche ne supprimait pas ses heures : elles restaient en base
+ * mais disparaissaient des rapports, puisque ceux-ci se construisent à partir
+ * de la liste des personnes. Un intérimaire retiré le jeudi emportait ainsi
+ * ses mardi et mercredi hors de la paie, sans que rien ne le signale.
+ *
+ * Désormais : une personne ayant des heures ne peut plus être supprimée, elle
+ * est archivée. Elle disparaît des listes de saisie et de l'écran de connexion,
+ * mais reste sur les rapports.
+ */
+const estActif = p => !p || p.actif === undefined || p.actif === null || p.actif === true;
+const actifs = liste => (liste || []).filter(estActif);
+const archives = liste => (liste || []).filter(p => !estActif(p));
 
 /**
  * Tri alphabétique français : « É » se range avec « E », et non à la fin.
@@ -1291,6 +1318,8 @@ function App() {
   const [chantiers, setChantiersRaw] = useState(() => load("chantiers", []));
   const [pointages, setPointagesRaw] = useState(() => load("pointages", []));
   const [absences, setAbsencesRaw] = useState(() => load("absences", []));
+  // Résumés des bulletins (jamais les PDF : ils se demandent un par un).
+  const [fiches, setFiches] = useState(() => loadU("fiches", []) || []);
   const [appLoading, setAppLoading] = useState(false);
   const [syncState, setSyncState] = useState("idle");
   const refs = {
@@ -1366,6 +1395,8 @@ function App() {
       pose(d.chantiers, setChantiersRaw, "chantiers");
       pose(d.pointages, setPointagesRaw, "pointages");
       pose(d.absences, setAbsencesRaw, "absences");
+      setFiches(d.fiches || []);
+      saveU("fiches", d.fiches || []);
       setSyncState(outboxCount() ? "attente" : "ok");
     } catch (e) {
       setSyncState("err");
@@ -1376,6 +1407,30 @@ function App() {
     } finally {
       setAppLoading(false);
     }
+  }, []);
+
+  // Après un dépôt ou une suppression de bulletin : on redemande la liste
+  // sans recharger tout le reste.
+  const rechargerFiches = useCallback(async () => {
+    if (MODE() !== "serveur" || !getJeton()) return;
+    try {
+      const rep = await api("charger", {
+        jeton: getJeton()
+      });
+      const f = rep.donnees && rep.donnees.fiches || [];
+      setFiches(f);
+      saveU("fiches", f);
+    } catch (e) {/* l'écran garde la liste précédente */}
+  }, []);
+  const marquerFicheVue = useCallback(id => {
+    setFiches(prev => {
+      const v = (prev || []).map(f => f.id === id ? {
+        ...f,
+        vu: true
+      } : f);
+      saveU("fiches", v);
+      return v;
+    });
   }, []);
   const rechargerDonnees = useCallback(tout => {
     return chargerDepuisServeur(tout === true);
@@ -1489,6 +1544,7 @@ function App() {
     setChantiersRaw(sien("chantiers"));
     setPointagesRaw(sien("pointages"));
     setAbsencesRaw(sien("absences"));
+    setFiches(loadU("fiches", []) || []);
     refs.salaries.current = sien("salaries");
     refs.interimaires.current = sien("interimaires");
     refs.chantiers.current = sien("chantiers");
@@ -1509,6 +1565,8 @@ function App() {
       pose(donnees.salaries, setSalariesRaw, refs.salaries, "salaries");
       pose(donnees.interimaires, setInterimairesRaw, refs.interimaires, "interimaires");
       pose(donnees.chantiers, setChantiersRaw, refs.chantiers, "chantiers");
+      setFiches(donnees.fiches || []);
+      saveU("fiches", donnees.fiches || []);
       pose(donnees.pointages, setPointagesRaw, refs.pointages, "pointages");
       pose(donnees.absences, setAbsencesRaw, refs.absences, "absences");
       if (meta) setInfoPeriode(meta);
@@ -1617,6 +1675,8 @@ function App() {
     onReload: rechargerDonnees
   }), session.role === "rh" && /*#__PURE__*/React.createElement(VueAdmin, {
     ...donnees,
+    fiches: fiches,
+    rechargerFiches: rechargerFiches,
     pinRH: pinRH,
     setPinRH: setPinRH,
     pinChef: pinChef,
@@ -1626,14 +1686,18 @@ function App() {
     infoPeriode: infoPeriode
   }), session.role === "chef" && /*#__PURE__*/React.createElement(VueMobile, {
     session: session,
-    ...donnees
+    ...donnees,
+    fiches: fiches,
+    onFicheOuverte: marquerFicheVue
   }), session.role === "salarie" && /*#__PURE__*/React.createElement(VueSalarie, {
     session: session,
     pointages: pointages,
     chantiers: chantiers,
     salaries: salaries,
     interimaires: interimaires,
-    absences: absences
+    absences: absences,
+    fiches: fiches,
+    onFicheOuverte: marquerFicheVue
   }), /*#__PURE__*/React.createElement(Footer, null));
 }
 
@@ -2114,8 +2178,11 @@ function PinPad({
   erreur,
   setErreur
 }) {
+  // Jusqu'à 8 chiffres : la direction peut allonger le code d'une personne
+  // qui consulte ses bulletins. Les chefs gardent 4 chiffres pour la saisie
+  // quotidienne — souvent avec des gants, sur un chantier.
   const ajouter = c => {
-    if (pin.length >= 6) return;
+    if (pin.length >= CODE_MAX) return;
     setErreur("");
     setPin(pin + c);
   };
@@ -2123,17 +2190,23 @@ function PinPad({
     setPin(pin.slice(0, -1));
     setErreur("");
   };
+  // On affiche au moins 4 cases, et une de plus que ce qui est déjà tapé,
+  // pour ne pas laisser croire que le code est plus court qu'il ne l'est.
+  const cases = Math.max(CODE_MIN, Math.min(CODE_MAX, pin.length + 1));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 10,
+      gap: 8,
       justifyContent: "center",
-      marginBottom: 20
+      marginBottom: 20,
+      flexWrap: "wrap"
     }
-  }, [0, 1, 2, 3, 4, 5].map(i => /*#__PURE__*/React.createElement("div", {
+  }, Array.from({
+    length: cases
+  }, (_, i) => i).map(i => /*#__PURE__*/React.createElement("div", {
     key: i,
     style: {
-      width: 40,
+      width: 36,
       height: 40,
       border: `2px solid ${pin.length > i ? C.encre : C.ligne}`,
       display: "flex",
@@ -2407,7 +2480,9 @@ function VueAdmin({
   setPinChef,
   onChargerDemo,
   onReloadSupabase,
-  infoPeriode
+  infoPeriode,
+  fiches,
+  rechargerFiches
 }) {
   const [onglet, setOnglet] = useState("pointages");
   const auj = new Date().toISOString().slice(0, 10);
@@ -2440,7 +2515,7 @@ function VueAdmin({
     valide: true
   } : p));
   const supprPointage = id => setPointages(pointages.filter(p => p.id !== id));
-  const tabs = [["pointages", "Pointages"], ["absences", "Absences"], ["salaries", "Salariés"], ["interim", "Intérimaires"], ["chantiers", "Chantiers"], ["paie", "Rapport"], ["archives", "Archives 📁"], ["parametres", "⚙ Paramètres"]];
+  const tabs = [["pointages", "Pointages"], ["absences", "Absences"], ["salaries", "Salariés"], ["interim", "Intérimaires"], ["chantiers", "Chantiers"], ["paie", "Rapport"], ["fiches", "Fiches de paie"], ["archives", "Archives 📁"], ["parametres", "⚙ Paramètres"]];
   return /*#__PURE__*/React.createElement("main", {
     style: {
       padding: "28px 32px",
@@ -2566,6 +2641,11 @@ function VueAdmin({
     salaries: salaries,
     interimaires: interimaires,
     chantiers: chantiers
+  }), onglet === "fiches" && /*#__PURE__*/React.createElement(OngletFiches, {
+    salaries: salaries,
+    interimaires: interimaires,
+    fiches: fiches,
+    rechargerFiches: rechargerFiches
   }), onglet === "archives" && /*#__PURE__*/React.createElement(OngletArchives, {
     infoPeriode: infoPeriode,
     onChargerTout: () => onReloadSupabase(true),
@@ -2592,6 +2672,408 @@ function VueAdmin({
     absences: absences,
     setAbsences: setAbsences
   }));
+}
+
+// ============================================================
+//  ONGLET FICHES DE PAIE (direction)
+//
+//  Dépôt d'un bulletin par personne et par mois. Le PDF part dans la
+//  base, où il hérite du cloisonnement déjà en place : le serveur ne le
+//  rendra qu'à son destinataire, ou à la direction.
+//
+//  ⚠ Ce n'est pas un coffre-fort numérique au sens de la loi. La
+//    conservation légale — cinq ans — reste celle de votre logiciel de paie.
+// ============================================================
+function OngletFiches({
+  salaries,
+  interimaires,
+  fiches,
+  rechargerFiches
+}) {
+  const gens = [...trierParNom(salaries), ...trierParNom(interimaires)];
+  const moisDefaut = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  })();
+  const [qui, setQui] = useState("");
+  const [periode, setPeriode] = useState(moisDefaut);
+  const [enCours, setEnCours] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [filtre, setFiltre] = useState("");
+  const nomDe = id => {
+    const g = gens.find(x => x.id === id);
+    return g ? g.nom : `(fiche supprimée — ${id})`;
+  };
+  const fmtMois = p => {
+    const [a, m] = String(p || "").split("-");
+    return a && m ? new Date(Date.UTC(+a, +m - 1, 1)).toLocaleDateString("fr-FR", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC"
+    }) : p;
+  };
+  const deposer = async fichier => {
+    if (!qui) {
+      setMsg("Choisissez d'abord la personne.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}$/.test(periode)) {
+      setMsg("Choisissez le mois.");
+      return;
+    }
+    if (fichier.type !== "application/pdf" && !/\.pdf$/i.test(fichier.name)) {
+      setMsg("Seuls les fichiers PDF sont acceptés.");
+      return;
+    }
+    if (fichier.size > 6 * 1024 * 1024) {
+      setMsg("Fichier trop lourd : 6 Mo maximum.");
+      return;
+    }
+    setEnCours(true);
+    setMsg("Envoi en cours…");
+    try {
+      // On transmet le PDF en base64 : c'est ce que le serveur range en base.
+      const base64 = await new Promise((ok, ko) => {
+        const l = new FileReader();
+        l.onload = () => ok(String(l.result).split(",")[1] || "");
+        l.onerror = () => ko(new Error("Lecture du fichier impossible."));
+        l.readAsDataURL(fichier);
+      });
+      await api("ficheDeposer", {
+        jeton: getJeton(),
+        salarie: qui,
+        periode,
+        nom: fichier.name,
+        taille: fichier.size,
+        contenu: base64
+      });
+      setMsg(`✓ Bulletin de ${nomDe(qui)} — ${fmtMois(periode)} déposé.`);
+      await rechargerFiches();
+    } catch (e) {
+      setMsg("Échec : " + e.message);
+    } finally {
+      setEnCours(false);
+    }
+  };
+  const supprimer = async f => {
+    if (!window.confirm(`Supprimer le bulletin de ${nomDe(f.salarie)} — ${fmtMois(f.periode)} ?\n\n` + `Il ne sera plus consultable par le salarié.`)) return;
+    try {
+      await api("ficheSupprimer", {
+        jeton: getJeton(),
+        id: f.id
+      });
+      setMsg("✓ Bulletin supprimé.");
+      await rechargerFiches();
+    } catch (e) {
+      setMsg("Échec : " + e.message);
+    }
+  };
+  const listeF = (fiches || []).filter(f => !filtre || f.salarie === filtre).slice().sort((a, b) => (b.periode + b.salarie).localeCompare(a.periode + a.salarie));
+  const poids = (fiches || []).reduce((s, f) => s + (f.taille || 0), 0);
+  return /*#__PURE__*/React.createElement(Section, {
+    titre: `Fiches de paie — ${(fiches || []).length}`
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 16px",
+      background: "#FFF8E1",
+      border: `1.5px solid ${C.jaune}`,
+      fontSize: 12,
+      lineHeight: 1.6,
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("b", null, "Consultation de confort, pas un coffre-fort."), " Le salarié retrouve son bulletin sans vous appeler. Cela ne remplace pas la remise officielle, ni votre obligation d'en conserver un double ", /*#__PURE__*/React.createElement("b", null, "cinq ans"), " — celle-ci reste assurée par votre logiciel de paie.", /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 4,
+      color: C.gris
+    }
+  }, "Les bulletins sont conservés ici ", /*#__PURE__*/React.createElement("b", null, "12 mois"), ", puis effacés automatiquement (réglable dans ⚙ Paramètres). Ils ne figurent pas dans la sauvegarde de nuit sur Drive : ils y prendraient trop de place et sont rééditables depuis votre logiciel.")), /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement(Champ, {
+    label: "PERSONNE"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: qui,
+    onChange: e => {
+      setQui(e.target.value);
+      setMsg("");
+    },
+    style: {
+      ...selectStyle,
+      minWidth: 260
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "— choisir —"), salaries.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
+    label: "── Salariés"
+  }, trierParNom(salaries).map(s => /*#__PURE__*/React.createElement("option", {
+    key: s.id,
+    value: s.id
+  }, s.nom))), interimaires.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
+    label: "── Intérimaires"
+  }, trierParNom(interimaires).map(i => /*#__PURE__*/React.createElement("option", {
+    key: i.id,
+    value: i.id
+  }, i.nom))))), /*#__PURE__*/React.createElement(Champ, {
+    label: "MOIS"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "month",
+    value: periode,
+    onChange: e => {
+      setPeriode(e.target.value);
+      setMsg("");
+    },
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement(Champ, {
+    label: "BULLETIN (PDF)"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "application/pdf,.pdf",
+    disabled: enCours || !qui,
+    onChange: e => {
+      const f = e.target.files && e.target.files[0];
+      if (f) {
+        deposer(f);
+        e.target.value = "";
+      }
+    },
+    style: {
+      ...inputStyle,
+      padding: "9px 12px",
+      minWidth: 260
+    }
+  }))), msg && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: "9px 14px",
+      fontSize: 12,
+      fontWeight: 600,
+      background: msg.startsWith("✓") ? "#EAF7F4" : "#FFF0F0",
+      border: `1.5px solid ${msg.startsWith("✓") ? C.vert : C.orange}`,
+      color: msg.startsWith("✓") ? C.vert : C.orange,
+      whiteSpace: "pre-wrap"
+    }
+  }, msg), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      fontSize: 11,
+      color: C.gris
+    }
+  }, "Un seul bulletin par personne et par mois : redéposer remplace le précédent.")), (fiches || []).length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      alignItems: "flex-end",
+      margin: "18px 0 10px",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Champ, {
+    label: "FILTRER PAR PERSONNE"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: filtre,
+    onChange: e => setFiltre(e.target.value),
+    style: selectStyle
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "Tout le monde"), [...new Set((fiches || []).map(f => f.salarie))].map(id => /*#__PURE__*/React.createElement("option", {
+    key: id,
+    value: id
+  }, nomDe(id))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.gris,
+      paddingBottom: 10
+    }
+  }, Math.round(poids / 1024 / 1024 * 10) / 10, " Mo occupés")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      background: C.encre,
+      color: C.jaune
+    }
+  }, /*#__PURE__*/React.createElement(Th, null, "PERSONNE"), /*#__PURE__*/React.createElement(Th, null, "MOIS"), /*#__PURE__*/React.createElement(Th, null, "DÉPOSÉ LE"), /*#__PURE__*/React.createElement(Th, null, "CONSULTÉ"), /*#__PURE__*/React.createElement(Th, {
+    r: true
+  }, "ACTION"))), /*#__PURE__*/React.createElement("tbody", null, listeF.map(f => /*#__PURE__*/React.createElement("tr", {
+    key: f.id,
+    style: {
+      borderBottom: `1px solid ${C.ligne}`
+    }
+  }, /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("b", null, nomDe(f.salarie))), /*#__PURE__*/React.createElement(Td, null, fmtMois(f.periode)), /*#__PURE__*/React.createElement(Td, null, f.depose ? new Date(f.depose).toLocaleDateString("fr-FR") : "—"), /*#__PURE__*/React.createElement(Td, null, f.vu ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: C.vert,
+      fontWeight: 700
+    }
+  }, "✓ OUI") : /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: C.gris,
+      fontWeight: 700
+    }
+  }, "PAS ENCORE")), /*#__PURE__*/React.createElement(Td, {
+    r: true
+  }, /*#__PURE__*/React.createElement(Btn, {
+    variant: "danger",
+    onClick: () => supprimer(f)
+  }, "SUPPRIMER")))))))));
+}
+
+/**
+ * Section « Mes fiches de paie », pour le salarié comme pour le chef.
+ * Le PDF n'est jamais chargé d'avance : on le demande au moment du clic,
+ * et le serveur revérifie qu'il appartient bien à la personne connectée.
+ */
+function MesFiches({
+  fiches,
+  onOuvert
+}) {
+  const [enCours, setEnCours] = useState(null);
+  const [err, setErr] = useState("");
+  const liste = (fiches || []).slice().sort((a, b) => b.periode.localeCompare(a.periode));
+  const fmtMois = p => {
+    const [a, m] = String(p || "").split("-");
+    return a && m ? new Date(Date.UTC(+a, +m - 1, 1)).toLocaleDateString("fr-FR", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC"
+    }) : p;
+  };
+  const ouvrir = async f => {
+    setEnCours(f.id);
+    setErr("");
+    try {
+      const r = await api("ficheTelecharger", {
+        jeton: getJeton(),
+        id: f.id
+      });
+      const binaire = atob(r.contenu || "");
+      const octets = new Uint8Array(binaire.length);
+      for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([octets], {
+        type: "application/pdf"
+      }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.nom || `bulletin-${f.periode}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      if (onOuvert) onOuvert(f.id);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setEnCours(null);
+    }
+  };
+  if (!liste.length) return null;
+  const nouvelles = liste.filter(f => !f.vu).length;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.papier,
+      border: `2px solid ${C.encre}`,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 18px",
+      borderBottom: `1px solid ${C.ligne}`,
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: FM,
+      fontSize: 11,
+      letterSpacing: "0.2em",
+      fontWeight: 700
+    }
+  }, "MES FICHES DE PAIE"), nouvelles > 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      fontFamily: FM,
+      fontWeight: 700,
+      padding: "3px 8px",
+      background: C.jaune,
+      color: C.encre,
+      letterSpacing: "0.1em"
+    }
+  }, nouvelles, " NOUVELLE", nouvelles > 1 ? "S" : "")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "6px 0"
+    }
+  }, liste.map(f => /*#__PURE__*/React.createElement("button", {
+    key: f.id,
+    onClick: () => ouvrir(f),
+    disabled: enCours === f.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      width: "100%",
+      padding: "13px 18px",
+      background: "transparent",
+      border: "none",
+      borderBottom: `1px solid ${C.ligne}`,
+      cursor: "pointer",
+      textAlign: "left",
+      fontSize: 14
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 18
+    }
+  }, "📄"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      fontWeight: 700,
+      textTransform: "capitalize"
+    }
+  }, fmtMois(f.periode)), !f.vu && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      fontFamily: FM,
+      fontWeight: 700,
+      padding: "2px 7px",
+      background: C.jaune,
+      color: C.encre,
+      letterSpacing: "0.1em"
+    }
+  }, "NOUVEAU"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: C.gris
+    }
+  }, enCours === f.id ? "OUVERTURE…" : "⬇")))), err && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 18px",
+      fontSize: 12,
+      fontWeight: 600,
+      color: C.orange
+    }
+  }, err), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 18px",
+      fontSize: 11,
+      color: C.gris,
+      lineHeight: 1.5,
+      borderTop: `1px solid ${C.ligne}`
+    }
+  }, "Bulletins mis à disposition par la direction, conservés 12 mois. Téléchargez-les et gardez-les : ils servent toute votre vie, notamment pour la retraite."));
 }
 
 // ---- Onglet Pointages ----
@@ -3266,12 +3748,17 @@ function OngletAbsences({
   }, salaries.map(s => /*#__PURE__*/React.createElement("option", {
     key: s.id,
     value: s.id
-  }, s.nom))), interimaires.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
+  }, s.nom, estActif(s) ? "" : " (archivé)"))), interimaires.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
     label: "── Intérimaires"
   }, interimaires.map(i => /*#__PURE__*/React.createElement("option", {
     key: i.id,
     value: i.id
-  }, i.nom))))), /*#__PURE__*/React.createElement(Champ, {
+  }, i.nom, estActif(i) ? "" : " (mission terminée)"))), orphelins.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
+    label: "── Fiches supprimées"
+  }, orphelins.map(o => /*#__PURE__*/React.createElement("option", {
+    key: o.id,
+    value: o.id
+  }, o.nom))))), /*#__PURE__*/React.createElement(Champ, {
     label: "TYPE"
   }, /*#__PURE__*/React.createElement("select", {
     value: type,
@@ -3444,9 +3931,27 @@ function OngletSalaries({
     setOpen(false);
     setErr("");
   };
+  // Une fiche portant des heures n'est JAMAIS supprimée : ses heures
+  // sortiraient de la paie sans laisser de trace.
   const supprimer = id => {
-    if (pointages.some(p => p.salarie === id) && !window.confirm("Ce salarié a des pointages. Supprimer quand même ?")) return;
+    const s0 = salaries.find(x => x.id === id);
+    const nb = pointages.filter(p => p.salarie === id).length;
+    if (nb > 0) {
+      window.alert(`${s0 ? s0.nom : "Cette personne"} a ${nb} pointage(s) enregistré(s).\n\n` + `La fiche ne peut pas être supprimée : ses heures disparaîtraient des rapports de paie.\n\n` + `Utilisez « ARCHIVER » : la personne sort des listes de saisie et de l'écran de connexion, ` + `mais ses heures restent sur les rapports.`);
+      return;
+    }
+    if (!window.confirm(`Supprimer définitivement ${s0 ? s0.nom : "cette fiche"} ?\n\nAucune heure n'est enregistrée à son nom.`)) return;
     setSalaries(salaries.filter(s => s.id !== id));
+  };
+  const archiver = (id, valeur) => {
+    const s0 = salaries.find(x => x.id === id);
+    if (!s0) return;
+    const nb = pointages.filter(p => p.salarie === id).length;
+    if (valeur && !window.confirm(`Archiver ${s0.nom} ?\n\n` + `• il disparaît de l'écran de connexion et des listes de saisie\n` + `• ses ${nb} pointage(s) restent sur les rapports de paie\n` + `• vous pourrez le réactiver à tout moment`)) return;
+    setSalaries(salaries.map(s => s.id === id ? {
+      ...s,
+      actif: !valeur ? true : false
+    } : s));
   };
   const [editId, setEditId] = useState(null);
   const [editNom, setEditNom] = useState("");
@@ -3478,8 +3983,8 @@ function OngletSalaries({
       return;
     }
     const c = String(editCode || "").trim();
-    if (!/^\d{4}$/.test(c)) {
-      setEditErr("Le code doit comporter 4 chiffres.");
+    if (!new RegExp(`^\\d{${CODE_MIN},${CODE_MAX}}$`).test(c)) {
+      setEditErr(`Le code doit comporter ${CODE_MIN} à ${CODE_MAX} chiffres.`);
       return;
     }
     const cg = Number(editConges);
@@ -3744,11 +4249,11 @@ function OngletSalaries({
     }, p)))), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("input", {
       value: editCode,
       onChange: e => {
-        setEditCode(e.target.value.replace(/\D/g, "").slice(0, 4));
+        setEditCode(e.target.value.replace(/\D/g, "").slice(0, CODE_MAX));
         setEditErr("");
       },
-      maxLength: 4,
-      placeholder: "4 chiffres",
+      maxLength: CODE_MAX,
+      placeholder: "4 à 8 chiffres",
       style: {
         ...inputStyle,
         width: 90,
@@ -3874,12 +4379,19 @@ function OngletSalaries({
       style: {
         display: "flex",
         gap: 6,
-        justifyContent: "flex-end"
+        justifyContent: "flex-end",
+        flexWrap: "wrap"
       }
     }, /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
       onClick: () => ouvrirEdit(s)
-    }, "✎ MODIFIER"), /*#__PURE__*/React.createElement(Btn, {
+    }, "✎ MODIFIER"), estActif(s) ? /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => archiver(s.id, true)
+    }, "📦 ARCHIVER") : /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => archiver(s.id, false)
+    }, "↩ RÉACTIVER"), /*#__PURE__*/React.createElement(Btn, {
       variant: "danger",
       onClick: () => supprimer(s.id)
     }, "SUPPRIMER"))));
@@ -3920,9 +4432,26 @@ function OngletInterim({
     setOpen(false);
     setErr("");
   };
+  // Même règle que pour les salariés : on archive une mission terminée.
   const supprimer = id => {
-    if (pointages.some(p => p.salarie === id) && !window.confirm("Cet intérimaire a des pointages. Supprimer ?")) return;
+    const i0 = interimaires.find(x => x.id === id);
+    const nb = pointages.filter(p => p.salarie === id).length;
+    if (nb > 0) {
+      window.alert(`${i0 ? i0.nom : "Cet intérimaire"} a ${nb} pointage(s) enregistré(s).\n\n` + `La fiche ne peut pas être supprimée : ses heures disparaîtraient des rapports, ` + `et vous ne pourriez plus justifier la facture de l'agence.\n\n` + `Utilisez « FIN DE MISSION » : il sort des listes, ses heures restent.`);
+      return;
+    }
+    if (!window.confirm(`Supprimer définitivement ${i0 ? i0.nom : "cette fiche"} ?\n\nAucune heure n'est enregistrée à son nom.`)) return;
     setInterimaires(interimaires.filter(i => i.id !== id));
+  };
+  const archiver = (id, valeur) => {
+    const i0 = interimaires.find(x => x.id === id);
+    if (!i0) return;
+    const nb = pointages.filter(p => p.salarie === id).length;
+    if (valeur && !window.confirm(`Fin de mission pour ${i0.nom} ?\n\n` + `• il disparaît des listes de saisie des chefs\n` + `• ses ${nb} pointage(s) restent sur les rapports\n` + `• vous pourrez le réactiver s'il revient`)) return;
+    setInterimaires(interimaires.map(i => i.id === id ? {
+      ...i,
+      actif: !valeur ? true : false
+    } : i));
   };
   const stats = id => {
     const ps = pointages.filter(p => p.salarie === id);
@@ -3961,8 +4490,8 @@ function OngletInterim({
       return;
     }
     const c = String(eCode || "").trim();
-    if (!/^\d{4}$/.test(c)) {
-      setEErr("Le code doit comporter 4 chiffres.");
+    if (!new RegExp(`^\\d{${CODE_MIN},${CODE_MAX}}$`).test(c)) {
+      setEErr(`Le code doit comporter ${CODE_MIN} à ${CODE_MAX} chiffres.`);
       return;
     }
     setInterimaires(interimaires.map(i => i.id === id ? {
@@ -4072,11 +4601,11 @@ function OngletInterim({
     }, a.nom)))), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("input", {
       value: eCode,
       onChange: e => {
-        setECode(e.target.value.replace(/\D/g, "").slice(0, 4));
+        setECode(e.target.value.replace(/\D/g, "").slice(0, CODE_MAX));
         setEErr("");
       },
-      maxLength: 4,
-      placeholder: "4 chiffres",
+      maxLength: CODE_MAX,
+      placeholder: "4 à 8 chiffres",
       style: {
         ...inputStyle,
         width: 90,
@@ -4102,7 +4631,9 @@ function OngletInterim({
     return /*#__PURE__*/React.createElement("tr", {
       key: i.id,
       style: {
-        borderBottom: `1px solid ${C.ligne}`
+        borderBottom: `1px solid ${C.ligne}`,
+        opacity: estActif(i) ? 1 : 0.55,
+        background: estActif(i) ? undefined : "#F4F4F4"
       }
     }, /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("div", {
       style: {
@@ -4114,7 +4645,17 @@ function OngletInterim({
       nom: i.nom,
       bg: ag === null || ag === void 0 ? void 0 : ag.couleur,
       light: true
-    }), /*#__PURE__*/React.createElement("b", null, i.nom))), /*#__PURE__*/React.createElement(Td, null, i.poste), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
+    }), /*#__PURE__*/React.createElement("b", null, i.nom), !estActif(i) && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontFamily: FM,
+        fontWeight: 700,
+        padding: "2px 6px",
+        background: C.gris,
+        color: "#fff",
+        letterSpacing: "0.1em"
+      }
+    }, "MISSION TERMINÉE"))), /*#__PURE__*/React.createElement(Td, null, i.poste), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10,
         padding: "3px 8px",
@@ -4140,12 +4681,19 @@ function OngletInterim({
       style: {
         display: "flex",
         gap: 6,
-        justifyContent: "flex-end"
+        justifyContent: "flex-end",
+        flexWrap: "wrap"
       }
     }, /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
       onClick: () => ouvrirEdit(i)
-    }, "✎ MODIFIER"), /*#__PURE__*/React.createElement(Btn, {
+    }, "✎ MODIFIER"), estActif(i) ? /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => archiver(i.id, true)
+    }, "🏁 FIN DE MISSION") : /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => archiver(i.id, false)
+    }, "↩ RÉACTIVER"), /*#__PURE__*/React.createElement(Btn, {
       variant: "danger",
       onClick: () => supprimer(i.id)
     }, "SUPPRIMER"))));
@@ -4330,38 +4878,68 @@ function OngletPaie({
   var _tousLesPersonnes$fin, _tousLesPersonnes$fin2;
   const [personneId, setPersonneId] = useState("tous");
   const [modeVue, setModeVue] = useState("mois");
+  const [semOffset, setSemOffset] = useState(-1); // -1 : la semaine écoulée, celle qu'on paie
   const auj = new Date().toISOString().slice(0, 10);
   // Mois sélectionné (par défaut le mois en cours) et période libre
   const [moisSel, setMoisSel] = useState(auj.slice(0, 7));
   const [dateDeb, setDateDeb] = useState(auj.slice(0, 8) + "01");
   const [dateFin, setDateFin] = useState(auj);
-  const tousLesPersonnes = [...salaries.map(s => ({
+  // Le rapport part des personnes connues — archivées comprises : leurs heures
+  // passées doivent être payées, même si elles ne travaillent plus.
+  const connues = [...salaries.map(s => ({
     ...s,
     _type: "interne"
   })), ...interimaires.map(i => ({
     ...i,
     _type: "interim"
   }))];
+
+  // FILET DE SÉCURITÉ : si une fiche a malgré tout disparu (suppression sur
+  // un ancien appareil, base reprise à la main), ses heures existent encore
+  // dans les pointages. On les fait remonter au lieu de les laisser tomber
+  // silencieusement de la paie.
+  const idsConnus = new Set(connues.map(p => p.id));
+  const orphelins = [...new Set(pointages.map(p => p.salarie).filter(id => id && !idsConnus.has(id)))].map(id => {
+    const ligne = pointages.find(p => p.salarie === id);
+    return {
+      id,
+      nom: ligne && ligne.chefNom ? `Fiche supprimée (${id})` : `Fiche supprimée (${id})`,
+      poste: "—",
+      _type: "inconnu",
+      _orphelin: true
+    };
+  });
+  const tousLesPersonnes = [...connues, ...orphelins];
   const joursEntre = (d1, d2) => {
     const out = [];
     if (!d1 || !d2 || d1 > d2) return out;
     for (let d = new Date(d1 + "T12:00:00Z"); d.toISOString().slice(0, 10) <= d2; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
     return out;
   };
+
+  // Le lundi de la semaine visée. semOffset : 0 = en cours, -1 = la dernière.
+  // Indispensable pour les intérimaires, payés à la semaine : le lundi matin,
+  // c'est la semaine ÉCOULÉE qu'il faut éditer, pas celle qui commence.
+  const lundiDe = offset => {
+    const d = new Date();
+    const jour = d.getDay() || 7;
+    const l = new Date(d);
+    l.setDate(d.getDate() - jour + 1 + offset * 7);
+    l.setHours(12, 0, 0, 0);
+    return l;
+  };
+  const joursSemaine = offset => {
+    const l = lundiDe(offset);
+    return Array.from({
+      length: 7
+    }, (_, i) => {
+      const x = new Date(l);
+      x.setDate(l.getDate() + i);
+      return isoLocalJour(x);
+    });
+  };
   const plage = (() => {
-    if (modeVue === "semaine") {
-      const d = new Date(),
-        day = d.getDay() || 7,
-        lundi = new Date(d);
-      lundi.setDate(d.getDate() - day + 1);
-      return Array.from({
-        length: 7
-      }, (_, i) => {
-        const x = new Date(lundi);
-        x.setDate(lundi.getDate() + i);
-        return x.toISOString().slice(0, 10);
-      });
-    }
+    if (modeVue === "semaine") return joursSemaine(semOffset);
     if (modeVue === "mois") {
       const [a, m] = moisSel.split("-").map(Number);
       const dernier = new Date(Date.UTC(a, m, 0)).getUTCDate();
@@ -4371,7 +4949,10 @@ function OngletPaie({
     return [...new Set(pointages.map(p => p.date))].sort();
   })();
   const libellePeriode = (() => {
-    if (modeVue === "semaine") return "Semaine en cours";
+    if (modeVue === "semaine") {
+      const j = joursSemaine(semOffset);
+      return infoSemaine(j[0]).label;
+    }
     if (modeVue === "mois") {
       const [a, m] = moisSel.split("-").map(Number);
       return new Date(Date.UTC(a, m - 1, 1)).toLocaleDateString("fr-FR", {
@@ -4487,7 +5068,68 @@ function OngletPaie({
       mois: "MOIS",
       perso: "DATES LIBRES",
       tout: "TOUT"
-    }[m])), modeVue === "mois" && /*#__PURE__*/React.createElement("input", {
+    }[m])), modeVue === "semaine" && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginLeft: 4
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setSemOffset(semOffset - 1),
+      title: "Semaine précédente",
+      style: {
+        fontFamily: FM,
+        fontSize: 14,
+        padding: "7px 12px",
+        background: "transparent",
+        border: `1.5px solid ${C.encre}`,
+        cursor: "pointer",
+        fontWeight: 700
+      }
+    }, "‹"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        minWidth: 210,
+        textAlign: "center",
+        fontFamily: FM,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: "0.05em"
+      }
+    }, infoSemaine(joursSemaine(semOffset)[0]).label, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: C.gris,
+        fontWeight: 500,
+        letterSpacing: 0,
+        marginTop: 2
+      }
+    }, semOffset === 0 ? "semaine en cours" : semOffset === -1 ? "semaine écoulée — celle qu'on paie" : `il y a ${-semOffset} semaines`)), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setSemOffset(Math.min(0, semOffset + 1)),
+      disabled: semOffset >= 0,
+      title: "Semaine suivante",
+      style: {
+        fontFamily: FM,
+        fontSize: 14,
+        padding: "7px 12px",
+        background: "transparent",
+        border: `1.5px solid ${semOffset >= 0 ? C.ligne : C.encre}`,
+        color: semOffset >= 0 ? C.ligne : C.encre,
+        cursor: semOffset >= 0 ? "default" : "pointer",
+        fontWeight: 700
+      }
+    }, "›"), semOffset !== -1 && /*#__PURE__*/React.createElement("button", {
+      onClick: () => setSemOffset(-1),
+      style: {
+        fontFamily: FM,
+        fontSize: 10,
+        padding: "7px 10px",
+        background: "transparent",
+        border: `1.5px solid ${C.ligne}`,
+        color: C.gris,
+        cursor: "pointer"
+      }
+    }, "SEMAINE ÉCOULÉE")), modeVue === "mois" && /*#__PURE__*/React.createElement("input", {
       type: "month",
       value: moisSel,
       max: auj.slice(0, 7),
@@ -4548,7 +5190,34 @@ function OngletPaie({
       color: C.gris,
       lineHeight: 1.6
     }
+  }, orphelins.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10,
+      padding: "10px 14px",
+      background: "#FFF0F0",
+      border: `2px solid ${C.orange}`,
+      fontSize: 12,
+      lineHeight: 1.6
+    }
   }, /*#__PURE__*/React.createElement("b", {
+    style: {
+      color: C.orange
+    }
+  }, "⚠ ", orphelins.length, " personne(s) ont des heures mais plus de fiche."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 3,
+      color: C.gris
+    }
+  }, "Leurs heures sont reprises ci-dessous sous « Fiche supprimée » pour qu'elles ne sortent pas de la paie. Recréez la fiche dans l'onglet Salariés ou Intérimaires pour retrouver le nom.")), modeVue === "semaine" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10,
+      padding: "10px 14px",
+      background: "#EAF7F4",
+      border: `1.5px solid ${C.vert}`,
+      fontSize: 12,
+      lineHeight: 1.6
+    }
+  }, /*#__PURE__*/React.createElement("b", null, "Semaine du lundi au dimanche."), " Les ", /*#__PURE__*/React.createElement("b", null, "intérimaires"), " sont payés à la semaine : c'est ce rapport qui fait foi, et qui justifie la facture de l'agence. Pour les ", /*#__PURE__*/React.createElement("b", null, "salariés"), ", payés au mois, il sert au contrôle en cours de mois — une erreur repérée le lundi se corrige, la même repérée le 30 coûte une paie."), /*#__PURE__*/React.createElement("b", {
     style: {
       color: C.encre
     }
@@ -5866,7 +6535,9 @@ function VueSalarie({
   chantiers,
   salaries,
   interimaires,
-  absences
+  absences,
+  fiches,
+  onFicheOuverte
 }) {
   const personne = salaries.find(s => s.id === session.personneId) || interimaires.find(i => i.id === session.personneId);
   const ag = personne && interimaires.find(i => i.id === personne.id) ? AGENCES.find(a => a.id === personne.agence) : null;
@@ -5924,7 +6595,10 @@ function VueSalarie({
       marginBottom: 20,
       color: C.gris
     }
-  }, "Cet écran vous montre ", /*#__PURE__*/React.createElement("b", null, "les heures déclarées pour vous"), ". La saisie est faite par votre chef d'équipe. Si un chiffre vous semble faux, signalez-le à votre chef ou à la direction."), /*#__PURE__*/React.createElement("div", {
+  }, "Cet écran vous montre ", /*#__PURE__*/React.createElement("b", null, "les heures déclarées pour vous"), ". La saisie est faite par votre chef d'équipe. Si un chiffre vous semble faux, signalez-le à votre chef ou à la direction."), /*#__PURE__*/React.createElement(MesFiches, {
+    fiches: fiches,
+    onOuvert: onFicheOuverte
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -6558,6 +7232,41 @@ function OngletParametres({
     setEnvoiEnCours(false);
     setMsgApi(r.erreur ? "Envoi incomplet : " + r.erreur.message + `\n${r.restants} opération(s) toujours en attente (conservées).` : `✓ ${r.envoyes} opération(s) envoyée(s). File d'attente vide.`);
   };
+
+  // ---- Sauvegarde manuelle : un fichier sur l'ordinateur de la direction ----
+  // Complète le robot Drive. Utile avant une paie ou une opération délicate :
+  // on part avec une copie en main, sans dépendre de quoi que ce soit.
+  const [msgTelech, setMsgTelech] = useState("");
+  const telechargerSauvegarde = () => {
+    try {
+      const contenu = {
+        genere: new Date().toISOString(),
+        version: APP_VERSION,
+        origine: "application (données visibles par la direction)",
+        donnees: {
+          salaries,
+          interimaires,
+          chantiers,
+          pointages,
+          absences
+        }
+      };
+      const total = salaries.length + interimaires.length + chantiers.length + pointages.length + absences.length;
+      const lien = document.createElement("a");
+      const fichier = new Blob([JSON.stringify(contenu, null, 1)], {
+        type: "application/json"
+      });
+      lien.href = URL.createObjectURL(fichier);
+      lien.download = `chok-beton-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(lien);
+      lien.click();
+      document.body.removeChild(lien);
+      setTimeout(() => URL.revokeObjectURL(lien.href), 2000);
+      setMsgTelech(`✓ ${total} lignes enregistrées (dont ${pointages.length} pointages). ` + `Rangez le fichier dans votre dossier Google Drive.`);
+    } catch (e) {
+      setMsgTelech("Échec du téléchargement : " + e.message);
+    }
+  };
   const migrerVersServeur = async () => {
     // Envoie au serveur les données présentes sur cet appareil.
     let src = {
@@ -6844,7 +7553,35 @@ function OngletParametres({
       fontWeight: 600,
       color: "#B7770D"
     }
-  }, "⏳ ", nbAttente, " enregistrement(s) en attente d'envoi. Ils sont conservés sur cet appareil : rien n'est perdu, l'envoi se refera automatiquement.")), MODE() === "serveur" && /*#__PURE__*/React.createElement(Section, {
+  }, "⏳ ", nbAttente, " enregistrement(s) en attente d'envoi. Ils sont conservés sur cet appareil : rien n'est perdu, l'envoi se refera automatiquement.")), /*#__PURE__*/React.createElement(Section, {
+    titre: "Sauvegarde sur votre ordinateur"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 16px",
+      background: C.fond,
+      border: `1.5px solid ${C.ligne}`,
+      fontSize: 12,
+      lineHeight: 1.6,
+      marginBottom: 14
+    }
+  }, "Enregistre ", /*#__PURE__*/React.createElement("b", null, "toutes les données"), " dans un fichier, sur cet ordinateur. Déposez-le ensuite dans votre dossier ", /*#__PURE__*/React.createElement("b", null, "Google Drive"), " : il y sera à l'abri, ailleurs que dans la base.", /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 6,
+      color: C.gris
+    }
+  }, "La sauvegarde automatique de nuit vers Drive est assurée par le robot (", /*#__PURE__*/React.createElement("b", null, "CHOK_BETON_DRIVE.gs"), "). Ce bouton sert quand vous voulez une copie tout de suite — avant une paie, ou avant une opération délicate.")), /*#__PURE__*/React.createElement(Btn, {
+    onClick: telechargerSauvegarde
+  }, "⬇ TÉLÉCHARGER UNE SAUVEGARDE"), msgTelech && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      padding: "10px 14px",
+      fontSize: 12,
+      fontWeight: 600,
+      background: msgTelech.startsWith("✓") ? "#EAF7F4" : "#FFF0F0",
+      border: `1.5px solid ${msgTelech.startsWith("✓") ? C.vert : C.orange}`,
+      color: msgTelech.startsWith("✓") ? C.vert : C.orange
+    }
+  }, msgTelech)), MODE() === "serveur" && /*#__PURE__*/React.createElement(Section, {
     titre: "Reprise des données existantes"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -6931,7 +7668,9 @@ function VueMobile({
   interimaires,
   setInterimaires,
   pointages,
-  setPointages
+  setPointages,
+  fiches,
+  onFicheOuverte
 }) {
   const moi = salaries.find(s => s.id === (session === null || session === void 0 ? void 0 : session.personneId)) || interimaires.find(i => i.id === (session === null || session === void 0 ? void 0 : session.personneId)) || salaries[0] || {
     id: (session === null || session === void 0 ? void 0 : session.personneId) || "?",
@@ -7572,7 +8311,10 @@ function VueMobile({
       whiteSpace: "pre-wrap",
       color: msgRenvoi.startsWith("✓") ? C.vert : C.orange
     }
-  }, msgRenvoi)), /*#__PURE__*/React.createElement("div", {
+  }, msgRenvoi)), /*#__PURE__*/React.createElement(MesFiches, {
+    fiches: fiches,
+    onOuvert: onFicheOuverte
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       borderWidth: 2
