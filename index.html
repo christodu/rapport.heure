@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v4.1"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v4.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 
 /**
@@ -1436,9 +1436,14 @@ async function syncSortie(table, newData, prevData) {
 function App() {
   const [pinRH, setPinRH] = usePersist("chok_pin_rh", "010126");
   const [pinChef, setPinChef] = usePersist("chok_pin_chef", "2026");
+
+  // En mode Google, on n'affiche JAMAIS la liste figée dans le code : seul le
+  // serveur décide de ce que cette personne a le droit de voir. Sans cela, un
+  // manœuvre voyait les 31 noms tant que la réponse du serveur n'arrivait pas.
   const [salaries, setSalariesRaw] = useState(() => {
     const s = loadU("salaries", null);
-    return s && s.length > 0 ? s : REAL_SALARIES;
+    if (s && s.length > 0) return s;
+    return MODE() === "google" ? [] : REAL_SALARIES;
   });
   const [interimaires, setInterimairesRaw] = useState(() => loadU("interimaires", []));
   const [chantiers, setChantiersRaw] = useState(() => load("chantiers", []));
