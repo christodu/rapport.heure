@@ -389,7 +389,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
-const APP_VERSION = "v5.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v5.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_DEFAUT = "0000";
 
 /**
@@ -825,6 +825,18 @@ const normaliserUrlApi = u => {
  */
 const SUPABASE_URL_DEFAUT = "https://ifdvvagrvkelojgzgjha.supabase.co";
 const SUPABASE_KEY_DEFAUT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmZHZ2YWdydmtlbG9qZ3pnamhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjUyMzcsImV4cCI6MjEwNDU0MTIzN30.PKG-TpXgZI5bGAnFcaTnuIA-C-DW-1QBBeiX7CqUj60";
+
+/**
+ * Tri alphabétique français : « É » se range avec « E », et non à la fin.
+ * Appliqué à toute liste de personnes ou de chantiers dès sa réception,
+ * pour que l'ordre soit le même partout dans l'application.
+ */
+const _collateur = typeof Intl !== "undefined" && Intl.Collator ? new Intl.Collator("fr", {
+  sensitivity: "base",
+  numeric: true
+}) : null;
+const comparerNoms = (a, b) => _collateur ? _collateur.compare(a || "", b || "") : String(a || "").localeCompare(String(b || ""), "fr");
+const trierParNom = liste => (liste || []).slice().sort((x, y) => comparerNoms(x && x.nom, y && y.nom));
 
 /** Une adresse de projet Supabase, et rien d'autre. */
 const urlProjetValide = u => /^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/i.test(u || "");
@@ -1343,8 +1355,9 @@ function App() {
           save("chok_recuperation_faite", true);
         }
       } catch (e) {/* la récupération ne doit jamais bloquer l'ouverture */}
+      const TRIABLES = ["salaries", "interimaires", "chantiers"];
       const pose = (arr, setter, cle) => {
-        const v = arr || [];
+        const v = TRIABLES.includes(cle) ? trierParNom(arr) : arr || [];
         setter(v);
         save(cle, v);
       };
@@ -1486,8 +1499,9 @@ function App() {
     // Le serveur renvoie les données AVEC la connexion : on les pose
     // directement, sans second aller-retour.
     if (donnees) {
+      const TRIABLES = ["salaries", "interimaires", "chantiers"];
       const pose = (arr, setter, ref, cle) => {
-        const v = arr || [];
+        const v = TRIABLES.includes(cle) ? trierParNom(arr) : arr || [];
         setter(v);
         ref.current = v;
         saveU(cle, v);
@@ -1673,13 +1687,16 @@ function EcranConnexion({
     }).catch(() => {}) // hors ligne : on garde la dernière liste connue
     .finally(() => setChargementListe(false));
   }, []);
-  const toutes = personnesServeur ? personnesServeur : [...salaries.map(s => ({
+
+  // Trié ici aussi : la liste peut venir du cache de l'appareil, donc d'une
+  // version antérieure du serveur qui ne triait pas encore.
+  const toutes = trierParNom(personnesServeur ? personnesServeur : [...salaries.map(s => ({
     ...s,
     type: "interne"
   })), ...interimaires.filter(i => i.accesPlateforme).map(i => ({
     ...i,
     type: "interim"
-  }))];
+  }))]);
   const filtrees = recherche.trim() ? toutes.filter(p => p.nom.toLowerCase().includes(recherche.trim().toLowerCase())) : toutes;
   const personneSel = toutes.find(p => p.id === personneId);
   const choisirPersonne = p => {
