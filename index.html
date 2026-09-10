@@ -191,6 +191,11 @@ const AGENCES = [{
   couleur: "#B7410E"
 }];
 const POSTES = ["Chef d'équipe", "Manœuvre"];
+
+/* Un poste désigne-t-il un chef d'équipe ? Écrit ici, en un seul endroit,
+   et calqué sur la fonction du serveur (chok.est_chef) : la même question
+   posée à deux endroits doit recevoir la même réponse. */
+const estChefPoste = poste => String(poste || "").toLowerCase().includes("chef");
 const COULEURS_CHANTIER = ["#F5C518", "#E55934", "#3D5A80", "#2A9D8F", "#9B5DE5", "#E67E22"];
 // Types d'absence utilisés chez CHOK BÉTON (pas de RTT dans l'entreprise).
 /**
@@ -522,7 +527,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v7.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v7.5"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
@@ -2839,7 +2844,8 @@ function VueAdmin({
     interimaires: interimaires,
     setInterimaires: setInterimaires,
     pointages: pointages,
-    chantiers: chantiers
+    chantiers: chantiers,
+    salaries: salaries
   }), onglet === "chantiers" && /*#__PURE__*/React.createElement(OngletChantiers, {
     chantiers: chantiers,
     setChantiers: setChantiers,
@@ -4463,13 +4469,34 @@ function OngletInterim({
   interimaires,
   setInterimaires,
   pointages,
-  chantiers
+  chantiers,
+  salaries
 }) {
   const [open, setOpen] = useState(false);
   const [nom, setNom] = useState("");
   const [poste, setPoste] = useState("Manœuvre");
   const [agence, setAgence] = useState(AGENCES[0].id);
+  const [chefRef, setChefRef] = useState("");
   const [err, setErr] = useState("");
+
+  /* Le chef référent commande TOUT : un intérimaire n'apparaît que chez le
+     chef auquel il est rattaché. Sans rattachement, personne ne peut
+     déclarer ses heures — et il ne le saurait qu'à la fin du mois, en
+     ouvrant une paie incomplète. On l'exige donc à la création, et on
+     signale plus bas ceux qui n'en ont pas. */
+  const chefsPossibles = trierParNom([...(salaries || []).filter(s => estChefPoste(s.poste) && estActif(s)).map(s => ({
+    ...s,
+    _t: "salarié"
+  })), ...(interimaires || []).filter(i => estChefPoste(i.poste) && estActif(i)).map(i => ({
+    ...i,
+    _t: "intérimaire"
+  }))]);
+  const nomDuChef = id => {
+    const c = chefsPossibles.find(x => x.id === id) || (salaries || []).find(x => x.id === id) || (interimaires || []).find(x => x.id === id);
+    return c ? c.nom : "";
+  };
+  // Un chef d'équipe intérimaire déclare lui-même : il n'a pas de référent.
+  const sansChef = interimaires.filter(i => estActif(i) && !estChefPoste(i.poste) && !i.chef);
   const ajouter = () => {
     if (nom.trim().length < 2) {
       setErr("Nom trop court.");
@@ -4479,16 +4506,22 @@ function OngletInterim({
       setErr("Déjà enregistré.");
       return;
     }
+    if (!estChefPoste(poste) && !chefRef) {
+      setErr("Choisissez le chef d'équipe auquel il est rattaché : sans cela, personne ne pourra déclarer ses heures.");
+      return;
+    }
     setInterimaires([...interimaires, {
       id: genId("I"),
       nom: nom.trim(),
       poste,
       agence,
-      accesPlateforme: false
+      accesPlateforme: false,
+      chef: estChefPoste(poste) ? "" : chefRef
     }]);
     setNom("");
     setPoste("Manœuvre");
     setAgence(AGENCES[0].id);
+    setChefRef("");
     setOpen(false);
     setErr("");
   };
@@ -4526,12 +4559,14 @@ function OngletInterim({
   const [eAgence, setEAgence] = useState(AGENCES[0].id);
   const [eErr, setEErr] = useState("");
   const [eCode, setECode] = useState(CODE_DEFAUT);
+  const [eChef, setEChef] = useState("");
   const ouvrirEdit = i => {
     setEditId(i.id);
     setENom(i.nom);
     setEPoste(i.poste || "Manœuvre");
     setEAgence(i.agence || AGENCES[0].id);
     setECode(codeDe(i));
+    setEChef(i.chef || "");
     setEErr("");
   };
   const annulerEdit = () => {
@@ -4554,12 +4589,17 @@ function OngletInterim({
       setEErr(`Le code doit comporter ${CODE_MIN} à ${CODE_MAX} chiffres.`);
       return;
     }
+    if (!estChefPoste(ePoste) && !eChef) {
+      setEErr("Choisissez le chef d'équipe auquel il est rattaché.");
+      return;
+    }
     setInterimaires(interimaires.map(i => i.id === id ? {
       ...i,
       nom: n,
       poste: ePoste,
       agence: eAgence,
-      code: c
+      code: c,
+      chef: estChefPoste(ePoste) ? "" : eChef
     } : i));
     setEditId(null);
     setENom("");
@@ -4608,9 +4648,42 @@ function OngletInterim({
   }, AGENCES.map(a => /*#__PURE__*/React.createElement("option", {
     key: a.id,
     value: a.id
-  }, a.nom)))), /*#__PURE__*/React.createElement(Btn, {
+  }, a.nom)))), !estChefPoste(poste) && /*#__PURE__*/React.createElement(Champ, {
+    label: "CHEF D'ÉQUIPE RÉFÉRENT"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: chefRef,
+    onChange: e => {
+      setChefRef(e.target.value);
+      setErr("");
+    },
+    style: {
+      ...selectStyle,
+      minWidth: 200
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "— à choisir —"), chefsPossibles.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c.id,
+    value: c.id
+  }, c.nom, c._t === "intérimaire" ? " (intérim)" : "")))), /*#__PURE__*/React.createElement(Btn, {
     onClick: ajouter
-  }, "AJOUTER")), err && /*#__PURE__*/React.createElement(ErrBox, null, err)), interimaires.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, null, "Aucun intérimaire. Ajoutez-les ici ou depuis l'app chef d'équipe.") : /*#__PURE__*/React.createElement(TableWrap, null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement(Th, null, "Nom"), /*#__PURE__*/React.createElement(Th, null, "Poste"), /*#__PURE__*/React.createElement(Th, null, "Agence"), /*#__PURE__*/React.createElement(Th, null, "Code accès"), /*#__PURE__*/React.createElement(Th, {
+  }, "AJOUTER")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.gris,
+      marginTop: 10,
+      lineHeight: 1.5
+    }
+  }, estChefPoste(poste) ? /*#__PURE__*/React.createElement(React.Fragment, null, "Nommé ", /*#__PURE__*/React.createElement("b", null, "chef d'équipe"), ", il déclarera ses heures lui-même depuis son téléphone. Il n'apparaîtra pas dans la liste des autres chefs.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Il n'apparaîtra que chez ", /*#__PURE__*/React.createElement("b", null, "ce chef"), ", et chez lui seul. C'est ce qui empêche deux chefs de déclarer les mêmes heures.")), err && /*#__PURE__*/React.createElement(ErrBox, null, err)), sansChef.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 16px",
+      marginBottom: 14,
+      background: "#FFF8E1",
+      border: `1.5px solid ${C.jaune}`,
+      fontSize: 12.5,
+      lineHeight: 1.6
+    }
+  }, /*#__PURE__*/React.createElement("b", null, sansChef.length, " intérimaire(s) sans chef référent :"), " ", sansChef.map(i => i.nom).join(", "), ".", /*#__PURE__*/React.createElement("br", null), "Personne ne peut déclarer leurs heures tant qu'ils ne sont rattachés à personne. Utilisez ", /*#__PURE__*/React.createElement("b", null, "✎ MODIFIER"), " pour leur désigner un chef."), interimaires.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, null, "Aucun intérimaire. Ajoutez-les ici ou depuis l'app chef d'équipe.") : /*#__PURE__*/React.createElement(TableWrap, null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement(Th, null, "Nom"), /*#__PURE__*/React.createElement(Th, null, "Poste"), /*#__PURE__*/React.createElement(Th, null, "Chef référent"), /*#__PURE__*/React.createElement(Th, null, "Agence"), /*#__PURE__*/React.createElement(Th, null, "Code accès"), /*#__PURE__*/React.createElement(Th, {
     r: true
   }, "Jours"), /*#__PURE__*/React.createElement(Th, {
     r: true
@@ -4647,11 +4720,32 @@ function OngletInterim({
       }
     }, eErr)), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("select", {
       value: ePoste,
-      onChange: e => setEPoste(e.target.value),
+      onChange: e => {
+        setEPoste(e.target.value);
+        setEErr("");
+      },
       style: selectStyle
     }, POSTES.map(p => /*#__PURE__*/React.createElement("option", {
       key: p
-    }, p)))), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("select", {
+    }, p)))), /*#__PURE__*/React.createElement(Td, null, estChefPoste(ePoste) ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: C.gris,
+        fontStyle: "italic"
+      }
+    }, "déclare lui-même") : /*#__PURE__*/React.createElement("select", {
+      value: eChef,
+      onChange: e => {
+        setEChef(e.target.value);
+        setEErr("");
+      },
+      style: selectStyle
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "— à choisir —"), chefsPossibles.filter(c => c.id !== i.id).map(c => /*#__PURE__*/React.createElement("option", {
+      key: c.id,
+      value: c.id
+    }, c.nom)))), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("select", {
       value: eAgence,
       onChange: e => setEAgence(e.target.value),
       style: selectStyle
@@ -4715,7 +4809,29 @@ function OngletInterim({
         color: "#fff",
         letterSpacing: "0.1em"
       }
-    }, "MISSION TERMINÉE"))), /*#__PURE__*/React.createElement(Td, null, i.poste), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
+    }, "MISSION TERMINÉE"))), /*#__PURE__*/React.createElement(Td, null, i.poste), /*#__PURE__*/React.createElement(Td, null, estChefPoste(i.poste) ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: C.gris,
+        fontStyle: "italic"
+      }
+    }, "déclare lui-même") : i.chef ? nomDuChef(i.chef) || /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: C.orange,
+        fontWeight: 700
+      }
+    }, "chef inconnu") : /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        fontFamily: FM,
+        fontWeight: 700,
+        padding: "2px 6px",
+        background: C.jaune,
+        color: C.encre,
+        letterSpacing: "0.08em"
+      }
+    }, "AUCUN")), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10,
         padding: "3px 8px",
@@ -7797,14 +7913,43 @@ function OngletParametres({
   }, "👉 À utiliser après vos tests, juste avant le lancement réel : efface tous les pointages et absences pour repartir d'une feuille vierge. ", /*#__PURE__*/React.createElement("b", null, "Vos salariés, chantiers et intérimaires sont conservés.")), /*#__PURE__*/React.createElement(Btn, {
     variant: "danger",
     onClick: remettreHeuresAZero
-  }, "🧹 REMETTRE LES HEURES À ZÉRO"), msgReset && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 12,
-      color: C.vert,
-      fontSize: 13,
-      fontWeight: 700
-    }
-  }, msgReset)), /*#__PURE__*/React.createElement(Section, {
+  }, "🧹 REMETTRE LES HEURES À ZÉRO"), msgReset && (() => {
+    const rate = /^Échec/.test(msgReset);
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: rate ? "12px 14px" : 0,
+        background: rate ? "#FFF0F0" : "transparent",
+        border: rate ? `1.5px solid ${C.orange}` : "none",
+        color: rate ? C.orange : C.vert,
+        fontSize: 13,
+        fontWeight: 700,
+        whiteSpace: "pre-wrap",
+        userSelect: "text",
+        WebkitUserSelect: "text"
+      }
+    }, msgReset, rate && /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        const copier = txt => {
+          if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(txt);
+          return Promise.reject();
+        };
+        copier(msgReset).then(() => window.alert("Message copié.")).catch(() => window.prompt("Copiez ce texte :", msgReset));
+      },
+      style: {
+        display: "block",
+        marginTop: 12,
+        padding: "8px 14px",
+        background: C.encre,
+        color: C.jaune,
+        border: "none",
+        fontFamily: FM,
+        fontSize: 11,
+        letterSpacing: "0.1em",
+        cursor: "pointer"
+      }
+    }, "COPIER CE MESSAGE"));
+  })()), /*#__PURE__*/React.createElement(Section, {
     titre: "Données"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -7854,11 +7999,16 @@ function VueMobile({
   };
   const jeSuisInterimaire = interimaires.some(i => i.id === moi.id);
 
-  // Mes intérimaires (le serveur filtre déjà ; on double la sécurité).
-  // On s'exclut soi-même : un chef intérimaire figure dans cette liste, et
-  // il aurait pu déclarer ses propres heures deux fois — une fois dans
-  // « MES HEURES », une fois dans « MES INTÉRIMAIRES ».
-  const mesInterimaires = interimaires.filter(i => i.id !== moi.id && (!i.chef || i.chef === moi.id));
+  /* Mes intérimaires (le serveur filtre déjà ; on double la sécurité).
+     Trois conditions, et chacune répare une double déclaration possible :
+      — pas moi-même : un chef intérimaire figure dans cette liste, il aurait
+       déclaré ses heures deux fois, dans « MES HEURES » et ici ;
+     — RATTACHÉ À MOI : un intérimaire sans chef apparaissait chez tout le
+       monde, donc chez les trente et un chefs à la fois ;
+     — pas un chef d'équipe : un intérimaire nommé chef déclare lui-même,
+       depuis son propre téléphone. Le proposer aux autres, c'est inviter
+       à compter ses heures deux fois. */
+  const mesInterimaires = interimaires.filter(i => i.id !== moi.id && i.chef === moi.id && !estChefPoste(i.poste));
   const cleMemoire = `chok_saisie_${moi.id}`;
   const memoire = load(cleMemoire, {}) || {};
   const auj = isoLocalJour(new Date());
