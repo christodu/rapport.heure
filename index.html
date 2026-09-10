@@ -480,7 +480,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v6.5"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v6.6"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
@@ -1559,10 +1559,18 @@ function App() {
     }
     window.location.reload();
   };
+
+  // Listes de noms : elles restent triées quoi qu'il arrive.
+  // Un ajout se plaçait en fin de liste jusqu'au rechargement suivant, et
+  // le nouveau venu se retrouvait après TRAORE. On trie ici, au seul
+  // endroit par où passent toutes les modifications — ajout, suppression,
+  // archivage, correction — plutôt que dans chacun des écrans.
+  const TRIABLES_SETTER = ["salaries", "interimaires", "chantiers"];
   function makeSetter(rawSetter, ref, lsKey, table) {
     return v => {
       const prev = ref.current;
-      const next = typeof v === "function" ? v(prev) : v;
+      const brut = typeof v === "function" ? v(prev) : v;
+      const next = TRIABLES_SETTER.includes(table) ? trierParNom(brut) : brut;
       ref.current = next;
       rawSetter(next);
       saveU(lsKey, next); // 1) enregistré localement, sous le compte de la personne connectée
@@ -7511,14 +7519,22 @@ function VueMobile({
   setPointages,
   absences
 }) {
-  const moi = salaries.find(s => s.id === (session === null || session === void 0 ? void 0 : session.personneId)) || interimaires.find(i => i.id === (session === null || session === void 0 ? void 0 : session.personneId)) || salaries[0] || {
+  // UN CHEF D'ÉQUIPE PEUT ÊTRE INTÉRIMAIRE : on le cherche donc dans les
+  // deux listes. En dernier recours on repart de la session — JAMAIS de
+  // « salaries[0] », qui faisait de lui la première personne de la liste
+  // et aurait enregistré ses heures au nom de quelqu'un d'autre.
+  const moi = salaries.find(s => s.id === (session === null || session === void 0 ? void 0 : session.personneId)) || interimaires.find(i => i.id === (session === null || session === void 0 ? void 0 : session.personneId)) || {
     id: (session === null || session === void 0 ? void 0 : session.personneId) || "?",
     nom: (session === null || session === void 0 ? void 0 : session.nom) || "Moi",
     poste: "Chef d'équipe"
   };
+  const jeSuisInterimaire = interimaires.some(i => i.id === moi.id);
 
-  // Mes intérimaires uniquement (le serveur filtre déjà ; on double la sécurité)
-  const mesInterimaires = interimaires.filter(i => !i.chef || i.chef === moi.id);
+  // Mes intérimaires (le serveur filtre déjà ; on double la sécurité).
+  // On s'exclut soi-même : un chef intérimaire figure dans cette liste, et
+  // il aurait pu déclarer ses propres heures deux fois — une fois dans
+  // « MES HEURES », une fois dans « MES INTÉRIMAIRES ».
+  const mesInterimaires = interimaires.filter(i => i.id !== moi.id && (!i.chef || i.chef === moi.id));
   const cleMemoire = `chok_saisie_${moi.id}`;
   const memoire = load(cleMemoire, {}) || {};
   const auj = isoLocalJour(new Date());
