@@ -522,7 +522,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v6.9"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v7.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
@@ -1175,40 +1175,56 @@ async function api(action, params, options) {
         keepalive: corps.length < 60000
       });
       if (minuteur) clearTimeout(minuteur);
-      if (rep.status >= 500 || rep.status === 429) {
-        // incident passager
-        // On lit le corps : PostgREST y met souvent la cause exacte, par
-        // exemple « canceling statement due to statement timeout ».
+
+      /* ---- Toute réponse en échec est LUE avant d'être signalée ----
+         PostgREST écrit la cause exacte dans le corps de la réponse, y
+         compris pour les codes 4xx : une erreur de la fonction SQL revient
+         en 400. L'ancienne version ne lisait que les 5xx et remplaçait le
+         reste par « erreur 400 », phrase aussitôt réécrite plus bas en
+         « le serveur n'a pas répondu ». Résultat : toute panne du serveur
+         ressemblait à une panne de réseau, et on cherchait au mauvais
+         endroit. Désormais le serveur parle, et on le répète mot pour mot. */
+      if (!rep.ok) {
         let detail = "";
         try {
-          const b = JSON.parse(await rep.text());
-          detail = b.message || b.hint || b.error || "";
+          const brut = await rep.text();
+          try {
+            const b = JSON.parse(brut);
+            detail = b.message || b.hint || b.details || b.error_description || b.error || brut;
+          } catch (e) {
+            detail = brut;
+          }
         } catch (e) {}
-        if (/statement timeout/i.test(detail)) {
+        detail = String(detail || "").trim().slice(0, 500);
+        if (/statement timeout|canceling statement|57014/i.test(detail)) {
           throw Object.assign(new Error("L'opération a dépassé le temps accordé par le serveur.\n\n" + "Relancez CHOK_BETON_SUPABASE.sql : il porte ce délai à 2 minutes."), {
             explicite: true
           });
         }
-        dernierEchec = Object.assign(new Error(`Le serveur a répondu ${rep.status}.` + (detail ? "\n" + detail : "")), {
-          explicite: true
+        if (rep.status === 401 || rep.status === 403) {
+          throw Object.assign(new Error("Clé d'accès refusée. Vérifiez la clé « anon » dans Paramètres." + (detail ? "\n\n" + detail : "")), {
+            explicite: true
+          });
+        }
+        if (rep.status === 404) {
+          throw Object.assign(new Error("Fonction chok_api introuvable : le script SQL n'a pas encore été exécuté dans Supabase."), {
+            explicite: true
+          });
+        }
+        const echec = Object.assign(new Error(`Le serveur a refusé l'opération (code ${rep.status}).` + (detail ? "\n\n" + detail : "")), {
+          explicite: true,
+          statut: rep.status,
+          detail
         });
-        if (essai < (opts.tentatives || TENTATIVES)) {
+        // Un 5xx peut être passager et mérite une seconde chance ; un 4xx se
+        // reproduirait à l'identique, on n'insiste pas.
+        if ((rep.status >= 500 || rep.status === 429) && essai < (opts.tentatives || TENTATIVES)) {
+          dernierEchec = echec;
           await pause(essai * 800);
           continue;
         }
-        throw dernierEchec;
+        throw echec;
       }
-      if (rep.status === 401 || rep.status === 403) {
-        throw Object.assign(new Error("Clé d'accès refusée. Vérifiez la clé « anon » dans Paramètres."), {
-          explicite: true
-        });
-      }
-      if (rep.status === 404) {
-        throw Object.assign(new Error("Fonction chok_api introuvable : le script SQL n'a pas encore été exécuté dans Supabase."), {
-          explicite: true
-        });
-      }
-      if (!rep.ok) throw new Error(`Serveur : erreur ${rep.status}.`);
       const texte = await rep.text();
       let data;
       try {
@@ -1229,6 +1245,13 @@ async function api(action, params, options) {
     } catch (e) {
       if (minuteur) clearTimeout(minuteur);
       if (e.codeErreur || e.expire) throw e; // refus du serveur : on n'insiste pas
+
+      /* Une erreur que NOUS avons construite plus haut est définitive : clé
+         refusée, fonction absente, réponse 4xx, délai dépassé côté Postgres.
+         La réessayer ne fait que doubler l'attente avant le même échec — et,
+         sur une opération destructrice, la relancer entièrement. Les seuls
+         incidents réessayés sont les 5xx, traités plus haut sans passer ici. */
+      if (e.explicite) throw e;
       const abandon = e.name === "AbortError";
       dernierEchec = e;
       if (essai < (opts.tentatives || TENTATIVES)) {
@@ -1241,8 +1264,18 @@ async function api(action, params, options) {
       if (horsLigne) {
         throw new Error("Aucune connexion internet. L'envoi repartira automatiquement.");
       }
-      if (e.explicite) throw e; // message de configuration : il faut le lire tel quel
-      throw new Error(abandon ? "Le serveur n'a pas répondu à temps. Votre saisie est conservée, retentez dans un instant." : "Le serveur n'a pas répondu. Votre saisie est conservée, elle sera renvoyée automatiquement.");
+
+      /* Ici, le serveur n'a rien renvoyé du tout : la panne est entre le
+         téléphone et lui. On dit laquelle des deux c'est, et on garde la
+         trace technique. Sans elle, un blocage du navigateur, une coupure
+         de réseau et un délai dépassé donnaient la même phrase — et rien
+         ne permettait de savoir laquelle chercher. */
+      const secondes = Math.round((opts.delai || DELAI_MAX_MS) / 1000);
+      const technique = `${e.name || "Erreur"} : ${e.message || "sans message"}`;
+      throw Object.assign(new Error((abandon ? `Le serveur n'a pas répondu dans le temps imparti (${secondes} s). Votre saisie est conservée, retentez dans un instant.` : "Le serveur n'a pas répondu, alors que cet appareil est bien connecté : la requête a été bloquée ou interrompue avant d'arriver. Votre saisie est conservée, elle sera renvoyée automatiquement.") + "\n\nDétail technique : " + technique), {
+        explicite: true,
+        technique
+      });
     }
   }
   throw dernierEchec || new Error("Envoi impossible.");
@@ -7121,18 +7154,29 @@ function OngletParametres({
       setInterimaires([]);
       return;
     }
+    // Même découpage que la remise à zéro des heures : sauvegarder, puis effacer.
+    let etapeT = "la sauvegarde";
     try {
+      await api("sauvegarder", {
+        jeton: getJeton(),
+        motif: "avant remise à zéro"
+      }, {
+        delai: 60000,
+        tentatives: 1
+      });
+      etapeT = "l'effacement";
       const r = await api("reinitialiser", {
         jeton: getJeton(),
-        tables: ["pointages", "absences", "chantiers", "interimaires"]
+        tables: ["pointages", "absences", "chantiers", "interimaires"],
+        sauvegardeFaite: true
       }, {
-        delai: 120000,
+        delai: 60000,
         tentatives: 1
       });
       viderLocalement(["pointages", "absences", "chantiers", "interimaires"]);
       window.alert("Effacement effectué.\nSauvegarde créée : " + (r.sauvegarde || "—"));
     } catch (e) {
-      window.alert("Échec : " + e.message + "\nAucune donnée n'a été effacée.");
+      window.alert(`Échec pendant ${etapeT} : ` + e.message + (etapeT === "la sauvegarde" ? "\n\nAucune donnée n'a été effacée." : "\n\nLa sauvegarde a été créée. Rechargez la page pour vérifier l'état des données."));
     }
   };
   const [msgReset, setMsgReset] = useState("");
@@ -7183,6 +7227,64 @@ function OngletParametres({
     } finally {
       setTestEnCours(false);
     }
+  };
+
+  /**
+   * Diagnostic du serveur.
+   *
+   * Une panne peut venir de trois endroits très différents : le transport
+   * (le téléphone n'atteint pas le serveur), la lecture, ou l'écriture. Le
+   * même message d'échec pour les trois oblige à deviner. On enchaîne donc
+   * trois appels de difficulté croissante en mesurant chacun, et on affiche
+   * la cause exacte de celui qui tombe.
+   *
+   * Rien n'est effacé : la dernière étape crée une sauvegarde, ce qui est
+   * l'écriture la plus lourde de l'application — donc le meilleur test —
+   * et n'a que des effets bénéfiques.
+   */
+  const [msgDiag, setMsgDiag] = useState("");
+  const [diagEnCours, setDiagEnCours] = useState(false);
+  const diagnostiquer = async () => {
+    setDiagEnCours(true);
+    const lignes = ["Adresse appelée : " + getApiUrl() + "/rest/v1/rpc/chok_api", ""];
+    const etapes = [["1. Joindre le serveur", () => api("ping", {}, {
+      delai: 20000,
+      tentatives: 1
+    })], ["2. Lire l'état de la base", () => api("etat", {}, {
+      delai: 20000,
+      tentatives: 1
+    })], ["3. Écrire une sauvegarde", () => api("sauvegarder", {
+      jeton: getJeton()
+    }, {
+      delai: 60000,
+      tentatives: 1
+    })]];
+    let bloque = false;
+    for (const [titre, lancer] of etapes) {
+      if (bloque) {
+        lignes.push(`⏭ ${titre} — non tentée`);
+        continue;
+      }
+      setMsgDiag(lignes.join("\n") + "\n⏳ " + titre + "…");
+      const debut = Date.now();
+      try {
+        const r = await lancer();
+        const ms = Date.now() - debut;
+        let precision = "";
+        if (r.lignes) precision = " — " + Object.entries(r.lignes).map(([k, v]) => `${v} ${k}`).join(", ");
+        if (r.sauvegarde) precision = " — " + r.sauvegarde;
+        if (r.version) precision = precision || " — version " + r.version;
+        lignes.push(`✓ ${titre} : ${ms} ms${precision}`);
+      } catch (e) {
+        lignes.push(`✕ ${titre} : échec après ${Date.now() - debut} ms`);
+        lignes.push("   " + String(e.message).replace(/\n/g, "\n   "));
+        bloque = true;
+      }
+    }
+    lignes.push("");
+    lignes.push(bloque ? "Envoyez ce texte tel quel : il contient la cause exacte." : "✓ Serveur pleinement fonctionnel, écriture comprise.");
+    setMsgDiag(lignes.join("\n"));
+    setDiagEnCours(false);
   };
   const enregistrerApiUrl = () => {
     const u = normaliserUrlApi(apiUrl),
@@ -7282,13 +7384,31 @@ function OngletParametres({
       setTimeout(() => setMsgReset(""), 8000);
       return;
     }
-    setMsgReset("Sauvegarde puis effacement en cours…");
+    // Deux appels COURTS plutôt qu'un seul long : la sauvegarde d'abord,
+    // l'effacement ensuite. Un unique appel qui copie des années d'historique
+    // puis efface pouvait dépasser le temps accordé — le téléphone restait
+    // alors sans réponse, sans savoir si l'effacement avait eu lieu. Ici,
+    // chaque étape répond vite et dit laquelle a échoué.
+    let etape = "la sauvegarde";
     try {
+      setMsgReset("1/2 — Sauvegarde complète en cours…");
+      const s = await api("sauvegarder", {
+        jeton: getJeton(),
+        motif: "avant remise à zéro"
+      }, {
+        delai: 60000,
+        tentatives: 1
+      });
+      etape = "l'effacement";
+      setMsgReset(`2/2 — Effacement en cours… (sauvegarde : ${s.sauvegarde || "créée"})`);
+      // Le serveur revérifie de son côté qu'une sauvegarde de moins de dix
+      // minutes existe : le filet ne dépend jamais du téléphone.
       const r = await api("reinitialiser", {
         jeton: getJeton(),
-        tables: ["pointages", "absences"]
+        tables: ["pointages", "absences"],
+        sauvegardeFaite: true
       }, {
-        delai: 120000,
+        delai: 60000,
         tentatives: 1
       });
       const d = r.efface || {};
@@ -7297,9 +7417,9 @@ function OngletParametres({
       viderLocalement(["pointages", "absences"]);
       setMsgReset(`✓ Remise à zéro effectuée : ${d.pointages || 0} pointage(s) et ${d.absences || 0} absence(s) effacés.\nSauvegarde créée : ${r.sauvegarde || "—"}`);
     } catch (e) {
-      setMsgReset("Échec de la remise à zéro : " + e.message + "\n\nSi le message parle du serveur qui n'a pas répondu, l'opération a " + "peut-être abouti quand même : rechargez la page (Ctrl+Maj+R) et regardez " + "si les heures ont disparu avant de réessayer.");
+      setMsgReset(`Échec pendant ${etape} : ` + e.message + (etape === "la sauvegarde" ? "\n\nRien n'a été effacé : l'effacement n'est demandé qu'une fois la sauvegarde confirmée." : "\n\nLa sauvegarde, elle, a bien été créée. Rechargez la page (Ctrl+Maj+R) pour voir si les heures ont disparu avant de réessayer."));
     }
-    setTimeout(() => setMsgReset(""), 12000);
+    setTimeout(() => setMsgReset(""), 20000);
   };
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -7517,7 +7637,24 @@ function OngletParametres({
     variant: "ghost",
     onClick: forcerEnvoi,
     disabled: envoiEnCours
-  }, envoiEnCours ? "ENVOI…" : `📤 ENVOYER LA FILE D'ATTENTE (${nbAttente})`)), nbAttente > 0 && /*#__PURE__*/React.createElement("div", {
+  }, envoiEnCours ? "ENVOI…" : `📤 ENVOYER LA FILE D'ATTENTE (${nbAttente})`), MODE() === "serveur" && /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    onClick: diagnostiquer,
+    disabled: diagEnCours
+  }, diagEnCours ? "DIAGNOSTIC…" : "🩺 DIAGNOSTIC SERVEUR")), msgDiag && /*#__PURE__*/React.createElement("pre", {
+    style: {
+      marginTop: 12,
+      padding: "12px 14px",
+      fontSize: 11.5,
+      lineHeight: 1.7,
+      fontFamily: "ui-monospace, Menlo, Consolas, monospace",
+      background: C.fond,
+      border: `1.5px solid ${C.ligne}`,
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      margin: "12px 0 0"
+    }
+  }, msgDiag), nbAttente > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: "9px 14px",
