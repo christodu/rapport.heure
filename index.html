@@ -193,49 +193,91 @@ const AGENCES = [{
 const POSTES = ["Chef d'équipe", "Manœuvre"];
 const COULEURS_CHANTIER = ["#F5C518", "#E55934", "#3D5A80", "#2A9D8F", "#9B5DE5", "#E67E22"];
 // Types d'absence utilisés chez CHOK BÉTON (pas de RTT dans l'entreprise).
+/**
+ * CONGÉS ET ABSENCES : DEUX CHOSES DIFFÉRENTES
+ *
+ * Un CONGÉ se décompte du solde annuel : il est posé, accordé, et il
+ * diminue les 30 jours auxquels le salarié a droit.
+ *
+ * Une ABSENCE ne touche pas ce solde. Un arrêt maladie, un accident du
+ * travail ou une formation ne coûtent aucun jour de congé au salarié.
+ *
+ * Les mélanger reviendrait à retirer des jours de vacances à quelqu'un
+ * parce qu'il a été malade. La colonne « famille » tranche.
+ */
+// Pas de RTT chez CHOK'BÉTON : ce motif n'existe pas dans la liste.
 const TYPES_ABSENCE = [{
   code: "CP",
   label: "Congés payés",
   couleur: "#2A9D8F",
-  icone: "🌴"
+  icone: "🌴",
+  famille: "conge",
+  decompte: true
+}, {
+  code: "SS",
+  label: "Congé sans solde",
+  couleur: "#7D8CA3",
+  icone: "🚪",
+  famille: "conge",
+  decompte: false
 }, {
   code: "MAL",
   label: "Maladie",
   couleur: "#E55934",
-  icone: "🏥"
+  icone: "🏥",
+  famille: "absence",
+  decompte: false
 }, {
   code: "ACC",
   label: "Accident du travail",
   couleur: "#C0392B",
-  icone: "⚠️"
+  icone: "⚠️",
+  famille: "absence",
+  decompte: false
 }, {
   code: "ABS",
   label: "Absence injustifiée",
   couleur: "#7F8C8D",
-  icone: "❓"
+  icone: "❓",
+  famille: "absence",
+  decompte: false
 }, {
   code: "FER",
   label: "Jour férié",
   couleur: "#F5C518",
-  icone: "🎉"
+  icone: "🎉",
+  famille: "absence",
+  decompte: false
 }, {
   code: "FOR",
   label: "Formation",
   couleur: "#9B5DE5",
-  icone: "📚"
+  icone: "📚",
+  famille: "absence",
+  decompte: false
 }, {
   code: "AUT",
   label: "Autre absence",
   couleur: "#95A5A6",
-  icone: "📋"
+  icone: "📋",
+  famille: "absence",
+  decompte: false
 }];
+
+/** Ce motif est-il un congé (par opposition à une absence subie) ? */
+const estConge = code => (TYPES_ABSENCE.find(t => t.code === code) || {}).famille === "conge";
+/** Ce motif retire-t-il des jours au solde annuel ?
+    Un congé sans solde n'en retire pas : il n'est pas payé, donc pas décompté. */
+const decompteConges = code => !!(TYPES_ABSENCE.find(t => t.code === code) || {}).decompte;
 
 /** Retrouve un type d'absence, même s'il a été retiré de la liste depuis. */
 const typeAbsence = code => TYPES_ABSENCE.find(t => t.code === code) || {
   code,
   label: code || "Absence",
   couleur: "#95A5A6",
-  icone: "📋"
+  icone: "📋",
+  famille: "absence",
+  decompte: false
 };
 
 // ============================================================
@@ -480,7 +522,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v6.6"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v6.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
@@ -525,8 +567,10 @@ function joursAbsenceAnnee(a, annee) {
 /** Nombre de jours décomptés pour une absence (toutes années confondues). */
 const nbJoursDecomptes = a => joursAbsenceAnnee(a, null);
 
-// Congés payés (type CP) déjà pris par une personne sur une année
-const congesPris = (absences, personneId, annee) => (absences || []).filter(a => a.salarie === personneId && a.type === "CP").reduce((s, a) => s + joursAbsenceAnnee(a, annee), 0);
+// Jours de congé déjà pris sur une année. On s'appuie sur « decompte »
+// plutôt que sur le code « CP » écrit en dur : la règle vit ainsi à un seul
+// endroit, et ajouter un motif demain ne fera pas mentir les soldes.
+const congesPris = (absences, personneId, annee) => (absences || []).filter(a => a.salarie === personneId && decompteConges(a.type)).reduce((s, a) => s + joursAbsenceAnnee(a, annee), 0);
 // Bilan congés : { droit, pris, restant }
 function bilanConges(personne, absences, annee) {
   const droit = congesDe(personne);
@@ -3574,9 +3618,16 @@ function OngletAbsences({
       letterSpacing: "0.2em",
       color: C.gris,
       fontWeight: 700,
-      marginBottom: 12
+      marginBottom: 4
     }
-  }, "NOUVELLE ABSENCE / CONGÉ"), /*#__PURE__*/React.createElement("div", {
+  }, "NOUVEAU CONGÉ OU ABSENCE"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.gris,
+      marginBottom: 12,
+      lineHeight: 1.5
+    }
+  }, "Un ", /*#__PURE__*/React.createElement("b", null, "congé"), " se retire du solde annuel. Une ", /*#__PURE__*/React.createElement("b", null, "absence"), " — maladie, accident, formation — ne coûte aucun jour de congé."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -3606,21 +3657,23 @@ function OngletAbsences({
   }, interimaires.map(i => /*#__PURE__*/React.createElement("option", {
     key: i.id,
     value: i.id
-  }, i.nom, estActif(i) ? "" : " (mission terminée)"))), orphelins.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
-    label: "── Fiches supprimées"
-  }, orphelins.map(o => /*#__PURE__*/React.createElement("option", {
-    key: o.id,
-    value: o.id
-  }, o.nom))))), /*#__PURE__*/React.createElement(Champ, {
-    label: "TYPE"
+  }, i.nom, estActif(i) ? "" : " (mission terminée)"))))), /*#__PURE__*/React.createElement(Champ, {
+    label: "MOTIF"
   }, /*#__PURE__*/React.createElement("select", {
     value: type,
     onChange: e => setType(e.target.value),
     style: selectStyle
-  }, TYPES_ABSENCE.map(t => /*#__PURE__*/React.createElement("option", {
+  }, /*#__PURE__*/React.createElement("optgroup", {
+    label: "── CONGÉS (décomptés du solde)"
+  }, TYPES_ABSENCE.filter(t => t.famille === "conge").map(t => /*#__PURE__*/React.createElement("option", {
     key: t.code,
     value: t.code
-  }, t.icone, " ", t.label)))), /*#__PURE__*/React.createElement(Champ, {
+  }, t.icone, " ", t.label))), /*#__PURE__*/React.createElement("optgroup", {
+    label: "── ABSENCES (solde inchangé)"
+  }, TYPES_ABSENCE.filter(t => t.famille === "absence").map(t => /*#__PURE__*/React.createElement("option", {
+    key: t.code,
+    value: t.code
+  }, t.icone, " ", t.label))))), /*#__PURE__*/React.createElement(Champ, {
     label: "DÉBUT"
   }, /*#__PURE__*/React.createElement("input", {
     type: "date",
@@ -3638,10 +3691,20 @@ function OngletAbsences({
     style: {
       padding: "0 0 2px",
       fontSize: 12,
-      color: C.gris,
       alignSelf: "flex-end"
     }
-  }, "→ ", /*#__PURE__*/React.createElement("b", null, nbJoursOuvres(dateDebut, dateFin)), " ", CONGES_LIBELLE)), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.gris
+    }
+  }, "→ ", /*#__PURE__*/React.createElement("b", null, nbJoursOuvres(dateDebut, dateFin)), " ", CONGES_LIBELLE), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      marginTop: 2,
+      color: decompteConges(type) ? "#2A9D8F" : C.gris
+    }
+  }, decompteConges(type) ? "↓ retirés du solde de congés" : "solde de congés inchangé"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,
@@ -4897,12 +4960,17 @@ function OngletPaie({
     }, salaries.map(s => /*#__PURE__*/React.createElement("option", {
       key: s.id,
       value: s.id
-    }, s.nom))), interimaires.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
+    }, s.nom, estActif(s) ? "" : " (archivé)"))), interimaires.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
       label: "── Intérimaires"
     }, interimaires.map(i => /*#__PURE__*/React.createElement("option", {
       key: i.id,
       value: i.id
-    }, i.nom)))), ["semaine", "mois", "perso", "tout"].map(m => /*#__PURE__*/React.createElement("button", {
+    }, i.nom, estActif(i) ? "" : " (mission terminée)"))), orphelins.length > 0 && /*#__PURE__*/React.createElement("optgroup", {
+      label: "── Fiches supprimées"
+    }, orphelins.map(o => /*#__PURE__*/React.createElement("option", {
+      key: o.id,
+      value: o.id
+    }, o.nom)))), ["semaine", "mois", "perso", "tout"].map(m => /*#__PURE__*/React.createElement("button", {
       key: m,
       onClick: () => setModeVue(m),
       style: {
@@ -7744,7 +7812,14 @@ function VueMobile({
       commentaire: "",
       deplacement,
       valide: false,
-      interim: false,
+      // Un chef d'équipe peut être intérimaire : ses heures doivent alors
+      // figurer dans la liasse des intérimaires, pas dans celle des salariés.
+      // Sans cela elles échappaient à la facture de l'agence.
+      interim: jeSuisInterimaire,
+      ...(jeSuisInterimaire ? {
+        valideParInterimaire: true,
+        horodatageValidation: new Date().toISOString()
+      } : {}),
       chefNom: moi.nom
     }];
     // Collègues salariés présents avec moi
