@@ -527,7 +527,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v7.5"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v7.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
@@ -6740,8 +6740,9 @@ function VueSalarie({
   })();
   const ptgSem = mesPtg.filter(p => semaine.includes(p.date));
   const totalSem = ptgSem.reduce((s, p) => s + calcHeures(p), 0);
-  const majSem = calcMajorations(ptgSem);
-  const hSup = majSem.hSup;
+  // Les majorations ne sont plus calculées ici : cet écran ne montre
+  // que des heures. Elles restent calculées côté direction, où elles
+  // servent à la paie.
   const estInterimaire = !!interimaires.find(i => i.id === session.personneId);
   const anneeCourante = new Date().getFullYear();
   const bc = bilanConges(personne, mesAbs, anneeCourante);
@@ -6836,61 +6837,7 @@ function VueSalarie({
       fontSize: 28,
       fontWeight: 800
     }
-  }, fmtH(totalSem))), majSem.h25 > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 9,
-      color: C.gris,
-      letterSpacing: "0.15em",
-      marginBottom: 4
-    }
-  }, "+25 %"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: FT,
-      fontSize: 28,
-      fontWeight: 800,
-      color: "#B7770D"
-    }
-  }, fmtH(majSem.h25))), majSem.h50 > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 9,
-      color: C.gris,
-      letterSpacing: "0.15em",
-      marginBottom: 4
-    }
-  }, "+50 %"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: FT,
-      fontSize: 28,
-      fontWeight: 800,
-      color: C.orange
-    }
-  }, fmtH(majSem.h50))), majSem.h100 > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 9,
-      color: C.gris,
-      letterSpacing: "0.15em",
-      marginBottom: 4
-    }
-  }, "+100 %"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: FT,
-      fontSize: 28,
-      fontWeight: 800,
-      color: "#C0392B"
-    }
-  }, fmtH(majSem.h100))), /*#__PURE__*/React.createElement("div", {
+  }, fmtH(totalSem))), /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center"
     }
@@ -7045,7 +6992,7 @@ function VueSalarie({
     style: {
       background: C.fond
     }
-  }, ["Date", "Chantier", "Lieu", "Début", "Fin", "Pause", "Total", "H.100%", "Logé", "État"].map((h, i) => /*#__PURE__*/React.createElement("th", {
+  }, ["Date", "Chantier", "Lieu", "Début", "Fin", "Pause", "Total", "Logé", "État"].map((h, i) => /*#__PURE__*/React.createElement("th", {
     key: h,
     style: {
       padding: "11px 16px",
@@ -7140,24 +7087,6 @@ function VueSalarie({
         padding: "12px 16px",
         textAlign: "right"
       }
-    }, (() => {
-      const h1 = calcH100(p);
-      return h1 > 0 ? /*#__PURE__*/React.createElement("b", {
-        style: {
-          color: "#C0392B",
-          fontSize: 13
-        },
-        title: nomFerie(p.date) || "Dimanche"
-      }, fmtH(h1)) : /*#__PURE__*/React.createElement("span", {
-        style: {
-          color: C.ligne
-        }
-      }, "—");
-    })()), /*#__PURE__*/React.createElement("td", {
-      style: {
-        padding: "12px 16px",
-        textAlign: "right"
-      }
     }, p.deplacement ? /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 12,
@@ -7211,20 +7140,6 @@ function VueSalarie({
       fontWeight: 800
     }
   }, fmtH(totalTout))), /*#__PURE__*/React.createElement("td", {
-    style: {
-      padding: "12px 16px",
-      textAlign: "right"
-    }
-  }, /*#__PURE__*/React.createElement("b", {
-    style: {
-      fontFamily: FT,
-      fontSize: 15,
-      color: "#C0392B"
-    }
-  }, (() => {
-    const t = mesPtg.reduce((s, x) => s + calcH100(x), 0);
-    return t > 0 ? fmtH(Math.round(t * 100) / 100) : "—";
-  })())), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "12px 16px",
       textAlign: "right",
@@ -8009,6 +7924,18 @@ function VueMobile({
        depuis son propre téléphone. Le proposer aux autres, c'est inviter
        à compter ses heures deux fois. */
   const mesInterimaires = interimaires.filter(i => i.id !== moi.id && i.chef === moi.id && !estChefPoste(i.poste));
+
+  /* UNE JOURNÉE, UNE SEULE DÉCLARATION.
+      Deux salariés d'une même équipe ouvrent l'application le même soir ;
+     chacun croit devoir saisir la journée. Les heures partent en double
+     et sont PAYÉES en double — l'erreur ne se voit qu'au virement.
+      Le serveur refuse sèchement ce cas. Mais le laisser tout saisir pour
+     le refuser à l'envoi serait cruel : on le lui dit AVANT, dès qu'il a
+     choisi le jour, et on ferme la saisie de ses propres heures. */
+  const dejaDeclarePar = (personneId, jour) => {
+    const p = (pointages || []).find(x => x.salarie === personneId && x.date === jour && x.creePar && x.creePar !== moi.id);
+    return p ? p.chefNom || "un collègue" : null;
+  };
   const cleMemoire = `chok_saisie_${moi.id}`;
   const memoire = load(cleMemoire, {}) || {};
   const auj = isoLocalJour(new Date());
@@ -8089,14 +8016,18 @@ function VueMobile({
     fin,
     pause
   });
-  const estMajore = estMajore100(date);
 
   // ---- Collègues salariés présents sur le chantier ----
   const [collegues, setCollegues] = useState({}); // idSalarié -> {debut,fin,pause,deplacement}
   const [ajoutCollegue, setAjoutCollegue] = useState(false);
   const [rechCollegue, setRechCollegue] = useState("");
   const autresSalaries = salaries.filter(s => s.id !== moi.id);
-  const collegesDisponibles = autresSalaries.filter(s => !collegues[s.id]).filter(s => !rechCollegue.trim() || s.nom.toLowerCase().includes(rechCollegue.trim().toLowerCase())).slice(0, 30);
+  const collegesDisponibles = autresSalaries.filter(s => !collegues[s.id])
+  // Déjà déclaré ce jour-là par quelqu'un d'autre : on ne le propose
+  // même pas. Le laisser cocher pour refuser l'envoi ensuite ferait
+  // recommencer toute la saisie.
+  .filter(s => !dejaDeclarePar(s.id, date)).filter(s => !rechCollegue.trim() || s.nom.toLowerCase().includes(rechCollegue.trim().toLowerCase())).slice(0, 30);
+  const collegesPris = autresSalaries.filter(s => dejaDeclarePar(s.id, date));
   const ajouterCollegue = id => {
     setCollegues(c => ({
       ...c,
@@ -8196,6 +8127,22 @@ function VueMobile({
     setAjoutOuvert(false);
   };
   const envoyer = () => {
+    // Ceinture, en plus des bretelles : l'écran a déjà fermé la saisie,
+    // mais un envoi resté en file d'attente peut repartir plus tard, et
+    // entre-temps un collègue a pu déclarer la journée.
+    const parQui = dejaDeclarePar(moi.id, date);
+    if (parQui) {
+      setErreur(`Vos heures du ${jourEnClair(date)} ont déjà été enregistrées par ${parQui}. ` + `Une journée ne se déclare qu'une fois.`);
+      return;
+    }
+    const bloques = Object.keys(collegues).map(id => {
+      const q = dejaDeclarePar(id, date);
+      return q ? `${(salaries.find(s => s.id === id) || {}).nom || id} (par ${q})` : null;
+    }).filter(Boolean);
+    if (bloques.length) {
+      setErreur("Déjà déclaré(s) par quelqu'un d'autre ce jour-là : " + bloques.join(", ") + ". Décochez-les avant d'envoyer.");
+      return;
+    }
     if (!chantierId) {
       setErreur("Choisissez le chantier.");
       return;
@@ -8772,7 +8719,7 @@ function VueMobile({
       gridTemplateColumns: "repeat(auto-fit,minmax(88px,1fr))",
       gap: 8
     }
-  }, [["TOTAL", fmtH(recap.total), C.encre], ...(recap.maj.h25 > 0 ? [["+25 %", fmtH(recap.maj.h25), "#B7770D"]] : []), ...(recap.maj.h50 > 0 ? [["+50 %", fmtH(recap.maj.h50), C.orange]] : []), ...(recap.maj.h100 > 0 ? [["+100 %", fmtH(recap.maj.h100), "#C0392B"]] : []), ...(recap.nuit > 0 ? [["NUIT", fmtH(recap.nuit), "#6C3483"]] : []), ...(recap.nuitees > 0 ? [["NUITÉES", String(recap.nuitees), C.bleu]] : [])].map(([l, v, col]) => /*#__PURE__*/React.createElement("div", {
+  }, [["TOTAL", fmtH(recap.total), C.encre], ...(recap.nuitees > 0 ? [["NUITÉES", String(recap.nuitees), C.bleu]] : [])].map(([l, v, col]) => /*#__PURE__*/React.createElement("div", {
     key: l,
     style: {
       textAlign: "center",
@@ -8882,17 +8829,17 @@ function VueMobile({
       color: C.gris,
       marginTop: 6
     }
-  }, "Saisie possible sur ", /*#__PURE__*/React.createElement("b", null, "3 jours"), " : aujourd'hui, hier, avant-hier."), estMajore && /*#__PURE__*/React.createElement("div", {
+  }, "Saisie possible sur ", /*#__PURE__*/React.createElement("b", null, "3 jours"), " : aujourd'hui, hier, avant-hier."), estFerie(date) && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: "9px 12px",
-      background: "#FDECEA",
-      border: "1.5px solid #C0392B",
+      background: "#FFF8E1",
+      border: `1.5px solid ${C.jaune}`,
       fontSize: 11,
-      color: "#C0392B",
+      color: C.encre,
       fontWeight: 700
     }
-  }, "🔴 ", nomFerie(date) ? nomFerie(date).toUpperCase() : "DIMANCHE", " — heures majorées à 100 %"))), /*#__PURE__*/React.createElement("div", {
+  }, nomFerie(date).toUpperCase(), " — jour férié"))), /*#__PURE__*/React.createElement("div", {
     style: boiteStyle
   }, /*#__PURE__*/React.createElement("div", {
     style: titreBoite
@@ -9060,7 +9007,50 @@ function VueMobile({
   }, "CRÉER"), /*#__PURE__*/React.createElement(MBtn, {
     variant: "ghost",
     onClick: () => setNouveauChantier(false)
-  }, "ANNULER"))))), /*#__PURE__*/React.createElement("div", {
+  }, "ANNULER"))))), dejaDeclarePar(moi.id, date) ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...boiteStyle,
+      borderWidth: 2,
+      borderColor: C.orange
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...titreBoite,
+      color: C.orange
+    }
+  }, "JOURNÉE DÉJÀ DÉCLARÉE"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 16px 18px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700,
+      lineHeight: 1.5,
+      marginBottom: 10
+    }
+  }, "Vos heures du ", jourEnClair(date), " ont déjà été enregistrées par ", dejaDeclarePar(moi.id, date), "."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: C.gris,
+      lineHeight: 1.6
+    }
+  }, "Une journée ne se déclare qu'", /*#__PURE__*/React.createElement("b", null, "une seule fois"), ", par une seule personne de l'équipe. C'est ce qui évite que les mêmes heures soient comptées — et payées — deux fois."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      padding: "11px 13px",
+      background: "#FFF8E1",
+      border: `1.5px solid ${C.jaune}`,
+      fontSize: 13,
+      lineHeight: 1.6
+    }
+  }, "Un chiffre vous semble faux ? Demandez-lui de le corriger, ou appelez la direction."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      fontSize: 12,
+      color: C.gris
+    }
+  }, "Pour saisir un autre jour, changez la date ci-dessus."))) : /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       borderWidth: 2
@@ -9149,22 +9139,7 @@ function VueMobile({
       fontSize: 24,
       fontWeight: 800
     }
-  }, fmtH(mesHeures))), calcHNuit({
-    debut,
-    fin,
-    pause
-  }) > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 8,
-      fontSize: 11,
-      color: "#6C3483",
-      fontWeight: 700
-    }
-  }, "🌙 dont ", fmtH(calcHNuit({
-    debut,
-    fin,
-    pause
-  })), " de nuit"), /*#__PURE__*/React.createElement("div", {
+  }, fmtH(mesHeures))), /*#__PURE__*/React.createElement("div", {
     onClick: () => setDepl(!deplacement),
     style: {
       marginTop: 10,
@@ -9402,7 +9377,16 @@ function VueMobile({
       color: C.gris,
       cursor: "pointer"
     }
-  }, "+ AJOUTER UN SALARIÉ"))), /*#__PURE__*/React.createElement("div", {
+  }, "+ AJOUTER UN SALARIÉ"), collegesPris.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: "10px 12px",
+      background: "#FFF8E1",
+      border: `1.5px solid ${C.jaune}`,
+      fontSize: 11.5,
+      lineHeight: 1.6
+    }
+  }, /*#__PURE__*/React.createElement("b", null, "Déjà déclaré(s) ce jour-là"), ", donc absent(s) de la liste :", /*#__PURE__*/React.createElement("br", null), collegesPris.map(s => `${s.nom} (par ${dejaDeclarePar(s.id, date)})`).join(" · ")))), /*#__PURE__*/React.createElement("div", {
     style: boiteStyle
   }, /*#__PURE__*/React.createElement("div", {
     style: titreBoite
@@ -9603,7 +9587,8 @@ function VueMobile({
       fontWeight: 700
     }
   }, erreur), /*#__PURE__*/React.createElement(MBtn, {
-    onClick: envoyer
+    onClick: envoyer,
+    disabled: !!dejaDeclarePar(moi.id, date)
   }, "✓ ENVOYER LE RAPPORT"), mesDerniers.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
