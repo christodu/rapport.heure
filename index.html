@@ -83,6 +83,89 @@
 
     /* ── Admin tabs overflow ──────────────────────────── */
     .admin-tabs { display: flex; border-bottom: 2px solid #0A0A0A; margin-bottom: 24px; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; scrollbar-width: none; }
+
+    /* ══════════════════════════════════════════════════════
+       L'ÉCRAN DE LA DIRECTION SUR UN TÉLÉPHONE
+
+       Cet écran a été dessiné pour un grand écran, et il y est bien :
+       rien de ce qui suit ne s'applique au-dessus de 760 px. En dessous,
+       il fallait choisir entre tout écraser — donc tout rendre illisible
+       — et assumer le défilement horizontal des tableaux. On a choisi le
+       défilement, avec la colonne du NOM fixée à gauche : sans elle, on
+       fait glisser trois colonnes et on ne sait plus de qui l'on parle.
+
+       Le reste est une question de taille de doigt et de taille d'œil :
+       des cibles d'au moins 44 px, et plus rien sous 12 px.
+       ══════════════════════════════════════════════════════ */
+    .tableau-glisser { display: none; }
+
+    @media (max-width: 760px) {
+
+      .vue-direction { padding: 14px 12px !important; }
+
+      /* L'en-tête prenait un quart de l'écran pour afficher la date. */
+      .vue-direction .vd-entete { padding-bottom: 12px !important; margin-bottom: 14px !important; }
+      .vue-direction .vd-date   { font-size: 23px !important; }
+
+      /* Six compteurs sur une ligne devenaient six colonnes de 60 px. */
+      .vue-direction .vd-kpis {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 9px !important; margin-bottom: 18px !important;
+      }
+
+      /* Onglets : cibles au doigt, et un bord qui laisse deviner la suite. */
+      .admin-tabs { margin-bottom: 16px; }
+      .admin-tabs button {
+        padding: 14px 15px !important; font-size: 12.5px !important;
+        letter-spacing: 0.06em !important;
+      }
+
+      /* ---- Les tableaux ---- */
+      .tableau-glisser {
+        display: block; font-size: 11px; color: #8A857A;
+        letter-spacing: 0.06em; text-align: center; padding: 0 0 6px;
+      }
+      .vue-direction table { min-width: 660px; }
+      .vue-direction th, .vue-direction td {
+        font-size: 13px !important; padding: 13px 12px !important;
+      }
+      /* La première colonne reste visible pendant qu'on fait glisser.
+         « inherit » conserve la couleur de la ligne : alternance et
+         surlignage du jour restent lisibles. */
+      .vue-direction tbody tr { background-color: #FBFAF6; }
+      .vue-direction th:first-child,
+      .vue-direction td:first-child {
+        position: sticky; left: 0; z-index: 2;
+        background-color: inherit !important;
+        box-shadow: 3px 0 0 -1px rgba(10,10,10,.12);
+      }
+      .vue-direction thead th:first-child { background-color: #F2EFE9 !important; }
+
+      /* ---- Formulaires ---- */
+      /* Plusieurs champs portent un minWidth de 320 px en ligne : sur un
+         écran de 375, ils débordaient et poussaient toute la page. */
+      .vue-direction input:not([type="checkbox"]):not([type="radio"]),
+      .vue-direction select,
+      .vue-direction textarea {
+        min-width: 0 !important; width: 100% !important;
+        font-size: 16px !important;   /* sous 16 px, iOS zoome tout seul */
+        padding: 12px 12px !important;
+      }
+      /* Une case à cocher étirée sur toute la largeur de sa cellule ne
+         ressemble plus à une case à cocher. On l'agrandit, sans plus. */
+      .vue-direction input[type="checkbox"] {
+        width: 22px !important; height: 22px !important;
+      }
+      .vue-direction label { font-size: 11px !important; }
+
+      /* ---- Boutons : au doigt, pas à la souris ---- */
+      .vue-direction button { min-height: 42px; }
+      .vue-direction section button { font-size: 12px !important; }
+
+      /* Les titres de section et leurs boutons se chevauchaient. */
+      .vue-direction section > div:first-child { gap: 10px !important; }
+      .vue-direction h2 { font-size: 19px !important; }
+    }
     .admin-tabs::-webkit-scrollbar { display: none; }
 
     /* ── Print ────────────────────────────────────────── */
@@ -527,7 +610,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v7.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v7.9"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 const CODE_DEFAUT = "0000";
@@ -1688,6 +1771,11 @@ function App() {
           if (e && e.codeErreur === "DOUBLON") {
             window.alert("⚠ Heures déjà déclarées\n\n" + e.message);
           }
+          // L'écran demande déjà le motif ; ceci ne sert qu'à une saisie
+          // restée en file d'attente depuis une version plus ancienne.
+          if (e && e.codeErreur === "MOTIF_REQUIS") {
+            window.alert("⚠ Motif obligatoire\n\n" + e.message + "\n\nRouvrez la journée et indiquez pourquoi vos heures ont été différentes.");
+          }
           if (e && e.codeErreur === "SUPPRESSION_MASSIVE") {
             window.alert("⚠ Suppression bloquée par sécurité\n\n" + e.message + "\n\nRien n'a été supprimé sur le serveur. Contactez l'administrateur si c'est volontaire.");
           }
@@ -2730,12 +2818,14 @@ function VueAdmin({
   const supprPointage = id => setPointages(pointages.filter(p => p.id !== id));
   const tabs = [["pointages", "Pointages"], ["absences", "Absences"], ["salaries", "Salariés"], ["interim", "Intérimaires"], ["chantiers", "Chantiers"], ["paie", "Rapport"], ["archives", "Archives 📁"], ["parametres", "⚙ Paramètres"]];
   return /*#__PURE__*/React.createElement("main", {
+    className: "vue-direction",
     style: {
       padding: "28px 32px",
       maxWidth: 1500,
       margin: "0 auto"
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "vd-entete",
     style: {
       display: "flex",
       justifyContent: "space-between",
@@ -2752,6 +2842,7 @@ function VueAdmin({
       marginBottom: 6
     }
   }, "JOURNÉE EN COURS"), /*#__PURE__*/React.createElement("div", {
+    className: "vd-date",
     style: {
       fontFamily: FT,
       fontSize: 32,
@@ -2759,6 +2850,7 @@ function VueAdmin({
       letterSpacing: "-0.02em"
     }
   }, dateFr()))), /*#__PURE__*/React.createElement("div", {
+    className: "vd-kpis",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(6,1fr)",
@@ -3386,13 +3478,21 @@ function OngletPointages({
         fontSize: 11,
         fontWeight: 500
       }
-    }, dateCourte), p.modifiePar && /*#__PURE__*/React.createElement("div", {
+    }, dateCourte), p.modifiePar === "RH" && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 9,
         color: C.gris,
         marginTop: 2
       }
-    }, "✎ Modifié RH")), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("b", {
+    }, "✎ Modifié RH"), p.modifiePar && p.modifiePar !== "RH" && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: C.orange,
+        fontWeight: 700,
+        marginTop: 2
+      },
+      title: p.modifieLe ? `le ${String(p.modifieLe).slice(0, 10).split("-").reverse().join("/")}` : ""
+    }, "✎ Rectifié par ", (trouver(p.modifiePar) || {}).nom || p.modifiePar)), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("b", {
       style: {
         fontSize: 13
       }
@@ -3556,18 +3656,26 @@ function OngletPointages({
         resize: "vertical",
         fontSize: 11
       }
-    }) : p.commentaire ? /*#__PURE__*/React.createElement("span", {
+    }) : /*#__PURE__*/React.createElement(React.Fragment, null, p.commentaire ? /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10,
         color: "#6C3483",
         fontStyle: "italic"
       }
-    }, "💬 ", p.commentaire) : /*#__PURE__*/React.createElement("span", {
+    }, "💬 ", p.commentaire) : !p.motifEcart && /*#__PURE__*/React.createElement("span", {
       style: {
         color: C.ligne,
         fontSize: 10
       }
-    }, "—")), /*#__PURE__*/React.createElement(Td, null, p.valide ? /*#__PURE__*/React.createElement("span", {
+    }, "—"), p.motifEcart && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: p.commentaire ? 4 : 0,
+        fontSize: 10,
+        color: C.orange,
+        fontWeight: 600,
+        lineHeight: 1.4
+      }
+    }, "⚠ Écart : ", p.motifEcart))), /*#__PURE__*/React.createElement(Td, null, p.valide ? /*#__PURE__*/React.createElement("span", {
       style: {
         color: C.vert,
         fontSize: 11,
@@ -7932,10 +8040,18 @@ function VueMobile({
       Le serveur refuse sèchement ce cas. Mais le laisser tout saisir pour
      le refuser à l'envoi serait cruel : on le lui dit AVANT, dès qu'il a
      choisi le jour, et on ferme la saisie de ses propres heures. */
+  const ligneDeclareeParAutre = (personneId, jour) => (pointages || []).find(x => x.salarie === personneId && x.date === jour && x.creePar && x.creePar !== moi.id) || null;
   const dejaDeclarePar = (personneId, jour) => {
-    const p = (pointages || []).find(x => x.salarie === personneId && x.date === jour && x.creePar && x.creePar !== moi.id);
+    const p = ligneDeclareeParAutre(personneId, jour);
     return p ? p.chefNom || "un collègue" : null;
   };
+
+  /* POURQUOI MA JOURNÉE A ÉTÉ DIFFÉRENTE.
+     Trois chefs partent ensemble ; l'un rentre par le dépôt, l'autre reste
+     finir. Une seule feuille pour trois serait fausse pour deux d'entre eux.
+     Sans motif, la direction reçoit deux versions d'une même journée sans
+     savoir laquelle croire — et tranche au hasard, un mois plus tard. */
+  const MOTIFS_ECART = ["Passé au dépôt chercher du matériel", "Resté plus tard pour finir le chantier", "Arrivé plus tard sur le chantier", "Parti plus tôt", "Trajet ou livraison en plus"];
   const cleMemoire = `chok_saisie_${moi.id}`;
   const memoire = load(cleMemoire, {}) || {};
   const auj = isoLocalJour(new Date());
@@ -8009,6 +8125,61 @@ function VueMobile({
   };
   const [erreur, setErreur] = useState("");
   const [envoye, setEnvoye] = useState(null);
+
+  // Ma journée, telle qu'un collègue l'a déclarée pour moi (ou rien).
+  const maLigne = ligneDeclareeParAutre(moi.id, date);
+  const [ecartOuvert, setEcartOuvert] = useState(false);
+  const [ecart, setEcart] = useState({
+    debut: "",
+    fin: "",
+    pause: 0,
+    motif: "",
+    libre: ""
+  });
+  useEffect(() => {
+    setEcartOuvert(false);
+  }, [date]);
+  const ouvrirEcart = () => {
+    if (!maLigne) return;
+    setEcart({
+      debut: maLigne.debut,
+      fin: maLigne.fin,
+      pause: maLigne.pause,
+      motif: maLigne.motifEcart || "",
+      libre: ""
+    });
+    setEcartOuvert(true);
+  };
+  const motifRetenu = (ecart.motif === "__autre__" ? ecart.libre : ecart.motif).trim();
+  const ecartHeures = calcHeures(ecart);
+  const ecartChange = !!maLigne && (ecart.debut !== maLigne.debut || ecart.fin !== maLigne.fin || Number(ecart.pause) !== Number(maLigne.pause));
+  const enregistrerEcart = () => {
+    if (!maLigne) return;
+    if (!ecartChange) {
+      setEcartOuvert(false);
+      return;
+    }
+    if (ecartHeures <= 0) {
+      window.alert("Ces horaires ne donnent aucune heure travaillée.");
+      return;
+    }
+    if (motifRetenu.length < 3) {
+      window.alert("Dites en un mot pourquoi votre journée a été différente.");
+      return;
+    }
+    // Seule MA ligne bouge. Celle du collègue qui a saisi n'est pas touchée :
+    // il a déclaré SA journée, elle reste la sienne.
+    setPointages(pointages.map(x => x.id === maLigne.id ? {
+      ...x,
+      debut: ecart.debut,
+      fin: ecart.fin,
+      pause: Number(ecart.pause) || 0,
+      motifEcart: motifRetenu,
+      modifiePar: moi.id,
+      modifieLe: new Date().toISOString()
+    } : x));
+    setEcartOuvert(false);
+  };
   const chantiersActifs = chantiers.filter(c => c.actif !== false);
   const chantier = chantiers.find(c => c.id === chantierId);
   const mesHeures = calcHeures({
@@ -8127,14 +8298,11 @@ function VueMobile({
     setAjoutOuvert(false);
   };
   const envoyer = () => {
-    // Ceinture, en plus des bretelles : l'écran a déjà fermé la saisie,
-    // mais un envoi resté en file d'attente peut repartir plus tard, et
-    // entre-temps un collègue a pu déclarer la journée.
+    // Ma journée déjà saisie par un collègue : je n'en renvoie pas une
+    // seconde — elle serait payée deux fois. Mais je peux encore déclarer
+    // mes intérimaires, que personne d'autre ne connaît. Tout bloquer les
+    // faisait purement et simplement disparaître de la paie.
     const parQui = dejaDeclarePar(moi.id, date);
-    if (parQui) {
-      setErreur(`Vos heures du ${jourEnClair(date)} ont déjà été enregistrées par ${parQui}. ` + `Une journée ne se déclare qu'une fois.`);
-      return;
-    }
     const bloques = Object.keys(collegues).map(id => {
       const q = dejaDeclarePar(id, date);
       return q ? `${(salaries.find(s => s.id === id) || {}).nom || id} (par ${q})` : null;
@@ -8147,14 +8315,18 @@ function VueMobile({
       setErreur("Choisissez le chantier.");
       return;
     }
-    if (mesHeures <= 0) {
+    if (!parQui && mesHeures <= 0) {
       setErreur("Vos heures ne sont pas valides (vérifiez début, fin et pause).");
       return;
     }
+    if (parQui && Object.keys(collegues).length === 0 && Object.keys(equipe).length === 0) {
+      setErreur(`Vos heures du ${jourEnClair(date)} sont déjà enregistrées par ${parQui}. ` + `Il n'y a rien d'autre à envoyer pour cette journée.`);
+      return;
+    }
     const dejaSaisi = pointages.some(p => p.salarie === moi.id && p.date === date && p.chantier === chantierId);
-    if (dejaSaisi && !window.confirm("Vous avez déjà envoyé un rapport pour ce chantier à cette date.\n\nEn envoyer un second ?")) return;
+    if (!parQui && dejaSaisi && !window.confirm("Vous avez déjà envoyé un rapport pour ce chantier à cette date.\n\nEn envoyer un second ?")) return;
     setErreur("");
-    const lignes = [{
+    const lignes = parQui ? [] : [{
       id: genId("P"),
       salarie: moi.id,
       chantier: chantierId,
@@ -9007,7 +9179,7 @@ function VueMobile({
   }, "CRÉER"), /*#__PURE__*/React.createElement(MBtn, {
     variant: "ghost",
     onClick: () => setNouveauChantier(false)
-  }, "ANNULER"))))), dejaDeclarePar(moi.id, date) ? /*#__PURE__*/React.createElement("div", {
+  }, "ANNULER"))))), maLigne ? /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       borderWidth: 2,
@@ -9018,39 +9190,242 @@ function VueMobile({
       ...titreBoite,
       color: C.orange
     }
-  }, "JOURNÉE DÉJÀ DÉCLARÉE"), /*#__PURE__*/React.createElement("div", {
+  }, "VOTRE JOURNÉE · SAISIE PAR ", String(maLigne.chefNom || "UN COLLÈGUE").toUpperCase()), /*#__PURE__*/React.createElement("div", {
     style: {
-      padding: "14px 16px 18px"
+      padding: "12px 16px 18px"
+    }
+  }, !ecartOuvert ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: `1.5px solid ${C.ligne}`,
+      background: C.fond,
+      padding: "12px 14px"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 15,
-      fontWeight: 700,
-      lineHeight: 1.5,
-      marginBottom: 10
-    }
-  }, "Vos heures du ", jourEnClair(date), " ont déjà été enregistrées par ", dejaDeclarePar(moi.id, date), "."), /*#__PURE__*/React.createElement("div", {
-    style: {
       fontSize: 13,
+      fontWeight: 700,
+      marginBottom: 8
+    }
+  }, (chantiers.find(c => c.id === maLigne.chantier) || {}).nom || "Chantier non précisé"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: FM,
+      fontSize: 14,
+      fontWeight: 700
+    }
+  }, maLigne.debut, "–", maLigne.fin, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.gris,
+      fontWeight: 400
+    }
+  }, " · pause ", maLigne.pause, " min")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: FT,
+      fontSize: 22,
+      fontWeight: 800
+    }
+  }, fmtH(calcHeures(maLigne))))), maLigne.motifEcart ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: "10px 12px",
+      background: "#E8F5E9",
+      border: `1.5px solid ${C.vert}`,
+      fontSize: 12.5,
+      lineHeight: 1.6
+    }
+  }, "✓ Vous avez déjà rectifié cette journée.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.gris
+    }
+  }, "Motif : ", maLigne.motifEcart)) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      fontSize: 12.5,
       color: C.gris,
       lineHeight: 1.6
     }
-  }, "Une journée ne se déclare qu'", /*#__PURE__*/React.createElement("b", null, "une seule fois"), ", par une seule personne de l'équipe. C'est ce qui évite que les mêmes heures soient comptées — et payées — deux fois."), /*#__PURE__*/React.createElement("div", {
+  }, "Ces heures sont déjà enregistrées à votre nom : ", /*#__PURE__*/React.createElement("b", null, "n'envoyez rien"), " pour cette journée, elles seraient comptées deux fois."), /*#__PURE__*/React.createElement("div", {
     style: {
-      marginTop: 12,
-      padding: "11px 13px",
-      background: "#FFF8E1",
-      border: `1.5px solid ${C.jaune}`,
-      fontSize: 13,
-      lineHeight: 1.6
+      marginTop: 12
     }
-  }, "Un chiffre vous semble faux ? Demandez-lui de le corriger, ou appelez la direction."), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(MBtn, {
+    variant: "ghost",
+    onClick: ouvrirEcart
+  }, "MES HEURES ÉTAIENT DIFFÉRENTES")), maLigne.valide && /*#__PURE__*/React.createElement("div", {
     style: {
-      marginTop: 12,
-      fontSize: 12,
+      marginTop: 10,
+      fontSize: 11.5,
       color: C.gris
     }
-  }, "Pour saisir un autre jour, changez la date ci-dessus."))) : /*#__PURE__*/React.createElement("div", {
+  }, "Journée déjà validée par la direction : passez par elle pour toute correction.")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      color: C.gris,
+      lineHeight: 1.6,
+      marginBottom: 10
+    }
+  }, "Corrigez ", /*#__PURE__*/React.createElement("b", null, "vos"), " horaires. La feuille de ", maLigne.chefNom || "votre collègue", " n'est pas modifiée."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 4
+    }
+  }, "DÉBUT"), /*#__PURE__*/React.createElement("input", {
+    type: "time",
+    value: ecart.debut,
+    onChange: e => setEcart({
+      ...ecart,
+      debut: e.target.value
+    }),
+    style: {
+      ...champ,
+      textAlign: "center"
+    }
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 4
+    }
+  }, "FIN"), /*#__PURE__*/React.createElement("input", {
+    type: "time",
+    value: ecart.fin,
+    onChange: e => setEcart({
+      ...ecart,
+      fin: e.target.value
+    }),
+    style: {
+      ...champ,
+      textAlign: "center"
+    }
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 4
+    }
+  }, "PAUSE (min)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: ecart.pause,
+    min: 0,
+    step: 15,
+    onChange: e => setEcart({
+      ...ecart,
+      pause: parseInt(e.target.value) || 0
+    }),
+    style: {
+      ...champ,
+      textAlign: "center"
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "10px 14px",
+      background: C.encre,
+      color: C.jaune
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: FM,
+      fontSize: 11,
+      letterSpacing: "0.1em"
+    }
+  }, "VOTRE TOTAL"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: FT,
+      fontSize: 22,
+      fontWeight: 800
+    }
+  }, fmtH(ecartHeures))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: C.gris,
+      fontWeight: 700,
+      margin: "14px 0 6px"
+    }
+  }, "POURQUOI VOTRE JOURNÉE A ÉTÉ DIFFÉRENTE"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6
+    }
+  }, MOTIFS_ECART.map(m => /*#__PURE__*/React.createElement("button", {
+    key: m,
+    onClick: () => setEcart({
+      ...ecart,
+      motif: m
+    }),
+    style: {
+      padding: "9px 11px",
+      fontSize: 12,
+      textAlign: "left",
+      cursor: "pointer",
+      border: `1.5px solid ${ecart.motif === m ? C.encre : C.ligne}`,
+      background: ecart.motif === m ? C.encre : C.fond,
+      color: ecart.motif === m ? C.jaune : C.encre,
+      fontWeight: ecart.motif === m ? 700 : 400
+    }
+  }, m)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEcart({
+      ...ecart,
+      motif: "__autre__"
+    }),
+    style: {
+      padding: "9px 11px",
+      fontSize: 12,
+      cursor: "pointer",
+      border: `1.5px solid ${ecart.motif === "__autre__" ? C.encre : C.ligne}`,
+      background: ecart.motif === "__autre__" ? C.encre : C.fond,
+      color: ecart.motif === "__autre__" ? C.jaune : C.encre
+    }
+  }, "Autre raison…")), ecart.motif === "__autre__" && /*#__PURE__*/React.createElement("input", {
+    value: ecart.libre,
+    onChange: e => setEcart({
+      ...ecart,
+      libre: e.target.value
+    }),
+    placeholder: "En quelques mots",
+    style: {
+      ...champ,
+      marginTop: 8
+    },
+    autoFocus: true
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement(MBtn, {
+    onClick: enregistrerEcart,
+    disabled: !ecartChange || motifRetenu.length < 3 || ecartHeures <= 0
+  }, "ENREGISTRER"), /*#__PURE__*/React.createElement(MBtn, {
+    variant: "ghost",
+    onClick: () => setEcartOuvert(false)
+  }, "ANNULER")), ecartChange && motifRetenu.length < 3 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      fontSize: 11.5,
+      color: C.gris
+    }
+  }, "Choisissez une raison : sans elle, la direction ne peut pas savoir laquelle des deux feuilles est la bonne.")))) : /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       borderWidth: 2
@@ -9588,8 +9963,15 @@ function VueMobile({
     }
   }, erreur), /*#__PURE__*/React.createElement(MBtn, {
     onClick: envoyer,
-    disabled: !!dejaDeclarePar(moi.id, date)
-  }, "✓ ENVOYER LE RAPPORT"), mesDerniers.length > 0 && /*#__PURE__*/React.createElement("div", {
+    disabled: !!maLigne && Object.keys(collegues).length === 0 && Object.keys(equipe).length === 0
+  }, maLigne ? "✓ ENVOYER MES INTÉRIMAIRES" : "✓ ENVOYER LE RAPPORT"), maLigne && Object.keys(collegues).length === 0 && Object.keys(equipe).length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      fontSize: 11.5,
+      color: C.gris,
+      lineHeight: 1.6
+    }
+  }, "Vos heures de ce jour sont déjà enregistrées. Rien à envoyer — sauf si vous ajoutez un intérimaire ci-dessus."), mesDerniers.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       marginTop: 24
@@ -9881,13 +10263,22 @@ function Section({
 function TableWrap({
   children
 }) {
+  /* Sur téléphone, ce tableau ne tient pas dans la largeur. Plutôt que de
+     l'écraser jusqu'à l'illisible, on le laisse défiler — la première
+     colonne, celle du nom, restant fixée à gauche pour qu'on sache
+     toujours de qui l'on parle. Le CSS s'en charge, uniquement sous
+     760 px : sur ordinateur, rien ne change. */
   return /*#__PURE__*/React.createElement("div", {
+    className: "tableau-bloc"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tableau-glisser"
+  }, "← faire glisser pour voir toutes les colonnes →"), /*#__PURE__*/React.createElement("div", {
     style: {
       background: C.papier,
       border: `1.5px solid ${C.encre}`,
       overflowX: "auto"
     }
-  }, /*#__PURE__*/React.createElement("table", null, children));
+  }, /*#__PURE__*/React.createElement("table", null, children)));
 }
 function Th({
   children,
