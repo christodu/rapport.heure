@@ -11,16 +11,23 @@
 //     immédiatement, sans attendre la fermeture de l'application.
 //
 //  ⚠ À CHAQUE MISE EN LIGNE D'UNE NOUVELLE VERSION :
-//     incrémentez le numéro ci-dessous (v3, v4, …).
+//     incrémentez le numéro ci-dessous (v50, v51, …).
 //     C'est ce qui force les téléphones à purger l'ancien cache.
 // ============================================================
-const VERSION = "v49";
+const VERSION = "v51";
 const CACHE = `chok-beton-${VERSION}`;
-const ASSETS = ["./index.html", "./icon-192.png", "./icon-512.png", "./manifest.json"];
+// React fait partie du lot : sans lui, l'application hors ligne restait
+// une page blanche, même avec index.html en cache.
+const ASSETS = ["./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png",
+                "./vendor/react.production.min.js", "./vendor/react-dom.production.min.js"];
+const ADRESSES = new Set(ASSETS.map(a => new URL(a, self.location).href));
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(() => {}));
-  self.skipWaiting();
+  // Si le lot ne se télécharge pas en entier (réseau de chantier), l'install
+  // ÉCHOUE et l'ancienne version reste en place avec son cache. Avaler
+  // l'erreur, comme avant, activait une version sans cache et effaçait
+  // l'ancien : le téléphone perdait son mode hors ligne.
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
@@ -39,18 +46,26 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;                          // écritures : jamais en cache
   const url = new URL(req.url);
-  if (url.hostname.includes("supabase.co")) return;          // serveur : toujours en direct
+  if (url.origin !== self.location.origin) return;          // serveur, polices… : en direct
 
   e.respondWith(
     fetch(req)
       .then(rep => {
-        // On rafraîchit le cache au passage, pour le mode hors ligne.
-        if (rep && rep.ok && url.origin === self.location.origin) {
+        // On rafraîchit le cache au passage, pour le mode hors ligne — mais
+        // seulement les fichiers de l'application, pas n'importe quelle
+        // adresse visitée (le cache grossissait sans limite).
+        if (rep && rep.ok && (ADRESSES.has(url.origin + url.pathname) || req.mode === "navigate")) {
           const copie = rep.clone();
           caches.open(CACHE).then(c => c.put(req, copie)).catch(() => {});
         }
         return rep;
       })
-      .catch(() => caches.match(req).then(r => r || caches.match("./index.html")))
+      .catch(() => caches.match(req, { ignoreSearch: true }).then(r => {
+        if (r) return r;
+        // Une PAGE demandée hors ligne reçoit l'application. Un script ou une
+        // image, non : leur renvoyer du HTML provoquait une erreur muette.
+        if (req.mode === "navigate") return caches.match("./index.html");
+        return Response.error();
+      }))
   );
 });
