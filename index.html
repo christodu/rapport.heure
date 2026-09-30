@@ -238,9 +238,11 @@
 <body>
 <div id="root"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
-
+<!-- React est servi depuis l'application elle-même (dossier vendor, copié
+     par outils/construire.mjs) : chargé depuis Internet, il manquait hors
+     ligne et le téléphone affichait une page blanche sur le chantier. -->
+<script src="./vendor/react.production.min.js"></script>
+<script src="./vendor/react-dom.production.min.js"></script>
 <script>
 const {
   useState,
@@ -380,7 +382,10 @@ const calcHeures = p => {
   // saisir 06:00 → 06:00 donnait 0 h et l'heure de paie disparaissait.
   if (min <= 0) min += 1440;
   min -= p.pause || 0;
-  return Math.max(0, Math.round(min / 60 * 100) / 100);
+  // Pas d'arrondi ici : arrondie au centième ligne par ligne, une journée
+  // de 20 min valait 0,33 h, et trois d'entre elles 0,99 h — « 0h59 » au
+  // lieu d'une heure. On garde la valeur exacte ; seul l'affichage arrondit.
+  return Math.max(0, min / 60);
 };
 const calcHSupSemaine = ptgs => {
   const total = ptgs.reduce((s, p) => s + calcHeures(p), 0);
@@ -397,7 +402,11 @@ const calcHNuit = p => {
   const minNuit = overlap(debutMin, finMin, 1200, 1440) + overlap(debutMin, finMin, 0, 360) + overlap(debutMin, finMin, 1440, 1800);
   return Math.min(Math.round(minNuit / 60 * 100) / 100, calcHeures(p));
 };
-const fmtH = n => `${Math.floor(n)}h${String(Math.round(n % 1 * 60)).padStart(2, "0")}`;
+// Arrondi à la minute sur le TOTAL : 1,999 h donnait « 1h60 ».
+const fmtH = n => {
+  const m = Math.round((n || 0) * 60);
+  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+};
 
 // ============================================================
 //  JOURS FÉRIÉS FRANÇAIS + MAJORATIONS 25 % / 50 % / 100 %
@@ -610,9 +619,11 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v8.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v8.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
+// « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
+const codeValable = c => new RegExp(`^\\d{${CODE_MIN},${CODE_MAX}}$`).test(String(c || "")) && String(c) !== "0000";
 const CODE_DEFAUT = "0000";
 
 /**
@@ -1115,7 +1126,16 @@ const setApiUrl = u => {
     localStorage.setItem("chok_api_url", normaliserUrlApi(u));
   } catch (e) {}
 };
-const getApiKey = () => (localStorage.getItem("chok_api_key") || SUPABASE_KEY_DEFAUT).trim();
+// La clé enregistrée ne vaut qu'avec l'adresse enregistrée : seule, une clé
+// erronée gardée en mémoire l'emportait à vie sur celle de l'application.
+const getApiKey = () => {
+  try {
+    const u = normaliserUrlApi(localStorage.getItem("chok_api_url") || "");
+    const k = (localStorage.getItem("chok_api_key") || "").trim();
+    if (urlProjetValide(u) && k) return k;
+  } catch (e) {}
+  return SUPABASE_KEY_DEFAUT.trim();
+};
 const setApiKey = k => {
   try {
     localStorage.setItem("chok_api_key", (k || "").trim());
@@ -1147,7 +1167,8 @@ const MODE = () => getApiUrl() && getApiKey() ? "serveur" : "local";
 
 // Session conservée sur l'appareil : un rafraîchissement (F5) ou la fermeture
 // de l'application ne déconnecte plus. La sécurité repose sur l'expiration du
-// jeton côté serveur (12 h), pas sur la fermeture de l'onglet.
+// jeton côté serveur (7 jours pour un chef ou un salarié, 12 h pour la
+// direction), et sur « DÉCONNEXION », qui l'annule aussi sur le serveur.
 let _jeton = null;
 const getJeton = () => _jeton || (() => {
   try {
@@ -1453,22 +1474,33 @@ async function viderOutbox() {
     // lignes, ajouter un intérimaire puis ses heures) partaient en autant
     // d'allers-retours. On les fusionne : un seul appel au lieu de N.
     let file = lireOutbox();
+
+    // ---- LA FILE PEUT GRANDIR PENDANT L'ENVOI ----
+    // Chaque envoi attend le serveur. Pendant ce temps, le chef peut saisir
+    // autre chose : la nouvelle saisie s'ajoute au stockage. Réécrire notre
+    // copie telle quelle l'effaçait — des heures perdues sans message.
+    // On réécrit donc notre copie PLUS ce qui est arrivé entre-temps.
+    const connus = new Set(file.map(o => o.cle));
+    const ecrire = f => ecrireOutbox(f.concat(lireOutbox().filter(o => !connus.has(o.cle))));
     if (file.length > 1) {
       const fusion = [];
       file.forEach(op => {
         const prec = fusion[fusion.length - 1];
-        if (prec && prec.table === op.table && !prec.confirmerSuppressionMassive && !op.confirmerSuppressionMassive && (prec.essais || 0) === 0 && (op.essais || 0) === 0) {
-          // Une ligne réécrite plus tard remplace la précédente
+        if (prec && prec.table === op.table && !prec.confirmerSuppressionMassive && !op.confirmerSuppressionMassive && !prec.confirmerDoublon && !op.confirmerDoublon && (prec.essais || 0) === 0 && (op.essais || 0) === 0) {
+          // Une ligne réécrite plus tard remplace la précédente — et annule
+          // sa suppression éventuelle : le serveur traite les suppressions
+          // APRÈS les écritures, il effaçait donc la ligne qu'on recréait.
           const ids = new Set((op.upserts || []).map(u => u.id));
-          prec.upserts = (prec.upserts || []).filter(u => !ids.has(u.id)).concat(op.upserts || []);
-          prec.suppressions = (prec.suppressions || []).concat(op.suppressions || []);
+          const suppr = new Set(op.suppressions || []);
+          prec.upserts = (prec.upserts || []).filter(u => !ids.has(u.id) && !suppr.has(u.id)).concat(op.upserts || []);
+          prec.suppressions = (prec.suppressions || []).filter(id => !ids.has(id)).concat(op.suppressions || []);
         } else {
           fusion.push(op);
         }
       });
       if (fusion.length < file.length) {
         file = fusion;
-        ecrireOutbox(file);
+        ecrire(file);
       }
     }
     let i = 0;
@@ -1486,12 +1518,17 @@ async function viderOutbox() {
           confirmerSuppressionMassive: !!op.confirmerSuppressionMassive
         });
         file.splice(i, 1);
-        ecrireOutbox(file);
+        ecrire(file);
         envoyes++;
       } catch (e) {
+        erreur = e;
+        // Session expirée : ce n'est pas la saisie qui est en cause. On
+        // s'arrête sans rien compter ; tout repartira après reconnexion.
+        // Auparavant chaque ligne s'usait ses 5 essais contre un jeton mort
+        // et finissait parmi les « bloqués », à renvoyer à la main.
+        if (e.expire) break;
         op.essais = (op.essais || 0) + 1;
         op.derniereErreur = e.message;
-        erreur = e;
         const definitif = !!e.codeErreur; // refus métier : inutile d'insister
 
         // Un lot regroupé qui se fait refuser : on le redécoupe ligne par ligne
@@ -1513,8 +1550,9 @@ async function viderOutbox() {
             suppressions: [id],
             essais: 0
           }));
+          morceaux.forEach(m => connus.add(m.cle));
           file.splice(i, 1, ...morceaux);
-          ecrireOutbox(file);
+          ecrire(file);
           continue; // on retente chaque ligne séparément
         }
         if (definitif || op.essais >= MAX_ESSAIS) {
@@ -1522,11 +1560,11 @@ async function viderOutbox() {
           b.push(op);
           ecrireBloques(b);
           file.splice(i, 1);
-          ecrireOutbox(file);
+          ecrire(file);
           nouveauxBloques++;
         } else {
           file[i] = op;
-          ecrireOutbox(file);
+          ecrire(file);
           i++; // on tente les suivants
         }
       }
@@ -1873,6 +1911,14 @@ function App() {
   };
   const seDeconnecter = () => {
     if (outboxCount() && !window.confirm(`⚠ ${outboxCount()} enregistrement(s) n'ont pas encore été envoyés au serveur.\n\n` + `Ils sont conservés sur cet appareil et repartiront à la prochaine connexion.\n\nSe déconnecter quand même ?`)) return;
+    // Le jeton est aussi annulé côté serveur. Sans réseau, tant pis : il
+    // expirera de lui-même. On n'attend pas la réponse pour libérer l'écran.
+    const jetonSortant = getJeton();
+    if (jetonSortant && MODE() === "serveur") api("deconnexion", {
+      jeton: jetonSortant
+    }, {
+      tentatives: 1
+    }).catch(() => {});
     setJeton(null);
     setSession(null);
     setSessionSauvee(null);
@@ -2800,7 +2846,7 @@ function VueAdmin({
     }, (_, i) => {
       const x = new Date(lundi);
       x.setDate(lundi.getDate() + i);
-      return x.toISOString().slice(0, 10);
+      return isoLocalJour(x);
     });
   })();
   const ptgSemaine = pointages.filter(p => semaineCourante.includes(p.date));
@@ -4080,6 +4126,7 @@ function OngletSalaries({
   const [open, setOpen] = useState(false);
   const [nom, setNom] = useState("");
   const [poste, setPoste] = useState(POSTES[0]);
+  const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [importTexte, setImportTexte] = useState("");
@@ -4093,15 +4140,23 @@ function OngletSalaries({
       setErr("Déjà enregistré.");
       return;
     }
+    // Le code est demandé tout de suite : « 0000 » n'ouvre plus rien, et une
+    // fiche créée sans code laissait la personne devant un écran fermé.
+    if (!codeValable(code)) {
+      setErr(`Donnez-lui un code de ${CODE_MIN} à ${CODE_MAX} chiffres (pas 0000).`);
+      return;
+    }
     setSalaries([...salaries, {
       id: genId("S"),
       nom: nom.trim(),
       poste,
       equipe: "—",
-      interne: true
+      interne: true,
+      code
     }]);
     setNom("");
     setPoste(POSTES[0]);
+    setCode("");
     setOpen(false);
     setErr("");
   };
@@ -4178,7 +4233,9 @@ function OngletSalaries({
     setEditErr("");
   };
   const reinitCode = s => {
-    if (!window.confirm(`Réinitialiser le code de ${s.nom} à ${CODE_DEFAUT} ?`)) return;
+    // Le serveur refuse « 0000 » : réinitialiser, c'est donc fermer l'accès
+    // jusqu'à ce qu'un nouveau code soit donné. Il faut le dire.
+    if (!window.confirm(`Effacer le code de ${s.nom} ?\n\n${s.nom} ne pourra plus se connecter tant que vous ne lui aurez pas donné un nouveau code (bouton MODIFIER).`)) return;
     setSalaries(salaries.map(x => x.id === s.id ? {
       ...x,
       code: CODE_DEFAUT
@@ -4279,7 +4336,24 @@ function OngletSalaries({
     style: selectStyle
   }, POSTES.map(p => /*#__PURE__*/React.createElement("option", {
     key: p
-  }, p)))), /*#__PURE__*/React.createElement(Btn, {
+  }, p)))), /*#__PURE__*/React.createElement(Champ, {
+    label: "CODE"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: code,
+    onChange: e => {
+      setCode(e.target.value.replace(/\D/g, "").slice(0, CODE_MAX));
+      setErr("");
+    },
+    onKeyDown: e => e.key === "Enter" && ajouter(),
+    placeholder: "ex. 1984",
+    inputMode: "numeric",
+    style: {
+      ...inputStyle,
+      width: 100,
+      textAlign: "center",
+      letterSpacing: "0.2em"
+    }
+  })), /*#__PURE__*/React.createElement(Btn, {
     onClick: ajouter
   }, "AJOUTER")), err && /*#__PURE__*/React.createElement(ErrBox, null, err)), importOpen && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -4528,7 +4602,7 @@ function OngletSalaries({
         fontWeight: 700,
         marginTop: 2
       }
-    }, "code par défaut")), /*#__PURE__*/React.createElement(Td, {
+    }, "aucun code — accès fermé")), /*#__PURE__*/React.createElement(Td, {
       r: true
     }, /*#__PURE__*/React.createElement("b", {
       style: {
@@ -4585,6 +4659,7 @@ function OngletInterim({
   const [poste, setPoste] = useState("Manœuvre");
   const [agence, setAgence] = useState(AGENCES[0].id);
   const [chefRef, setChefRef] = useState("");
+  const [code, setCode] = useState("");
   const [err, setErr] = useState("");
 
   /* Le chef référent commande TOUT : un intérimaire n'apparaît que chez le
@@ -4618,18 +4693,31 @@ function OngletInterim({
       setErr("Choisissez le chef d'équipe auquel il est rattaché : sans cela, personne ne pourra déclarer ses heures.");
       return;
     }
+    // Un intérimaire chef d'équipe se connecte pour saisir : il lui faut un
+    // code dès la création. Les autres n'en ont besoin que si on leur ouvre
+    // l'accès plus tard.
+    if (estChefPoste(poste) && !codeValable(code)) {
+      setErr(`Un chef d'équipe doit avoir un code de ${CODE_MIN} à ${CODE_MAX} chiffres (pas 0000) pour se connecter.`);
+      return;
+    }
+    if (code && !codeValable(code)) {
+      setErr(`Le code doit comporter ${CODE_MIN} à ${CODE_MAX} chiffres (pas 0000).`);
+      return;
+    }
     setInterimaires([...interimaires, {
       id: genId("I"),
       nom: nom.trim(),
       poste,
       agence,
       accesPlateforme: false,
-      chef: estChefPoste(poste) ? "" : chefRef
+      chef: estChefPoste(poste) ? "" : chefRef,
+      code: code || CODE_DEFAUT
     }]);
     setNom("");
     setPoste("Manœuvre");
     setAgence(AGENCES[0].id);
     setChefRef("");
+    setCode("");
     setOpen(false);
     setErr("");
   };
@@ -4756,7 +4844,23 @@ function OngletInterim({
   }, AGENCES.map(a => /*#__PURE__*/React.createElement("option", {
     key: a.id,
     value: a.id
-  }, a.nom)))), !estChefPoste(poste) && /*#__PURE__*/React.createElement(Champ, {
+  }, a.nom)))), /*#__PURE__*/React.createElement(Champ, {
+    label: estChefPoste(poste) ? "CODE" : "CODE (facultatif)"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: code,
+    onChange: e => {
+      setCode(e.target.value.replace(/\D/g, "").slice(0, CODE_MAX));
+      setErr("");
+    },
+    placeholder: "ex. 1984",
+    inputMode: "numeric",
+    style: {
+      ...inputStyle,
+      width: 100,
+      textAlign: "center",
+      letterSpacing: "0.2em"
+    }
+  })), !estChefPoste(poste) && /*#__PURE__*/React.createElement(Champ, {
     label: "CHEF D'ÉQUIPE RÉFÉRENT"
   }, /*#__PURE__*/React.createElement("select", {
     value: chefRef,
@@ -6843,7 +6947,7 @@ function VueSalarie({
     }, (_, i) => {
       const x = new Date(lundi);
       x.setDate(lundi.getDate() + i);
-      return x.toISOString().slice(0, 10);
+      return isoLocalJour(x);
     });
   })();
   const ptgSem = mesPtg.filter(p => semaine.includes(p.date));
@@ -7278,8 +7382,9 @@ function OngletParametres({
   // Le code doit être changé SUR LE SERVEUR, sinon la modification reste
   // locale au navigateur et l'ancien code continue de fonctionner ailleurs.
   const sauverPins = async () => {
-    if (newPinRH.length < 4) {
-      setMsgPin("Le code doit comporter au moins 4 chiffres.");
+    // 6 chiffres au moins : ce code ouvre tout, y compris les codes des salariés.
+    if (!/^\d{6,8}$/.test(newPinRH)) {
+      setMsgPin("Le code direction doit comporter 6 à 8 chiffres.");
       return;
     }
     if (MODE() === "serveur") {
@@ -7395,17 +7500,34 @@ function OngletParametres({
     }
     setTestEnCours(true);
     setMsgApi("");
-    const ancienneU = getApiUrl(),
-      ancienneK = getApiKey();
+    // On garde les réglages BRUTS de l'appareil (souvent : aucun) pour les
+    // remettre à l'identique, sans y inscrire les valeurs par défaut.
+    const brut = c => {
+      try {
+        return localStorage.getItem(c);
+      } catch (e) {
+        return null;
+      }
+    };
+    const ancienneU = brut("chok_api_url"),
+      ancienneK = brut("chok_api_key");
+    const remettre = () => {
+      try {
+        ancienneU === null ? localStorage.removeItem("chok_api_url") : localStorage.setItem("chok_api_url", ancienneU);
+        ancienneK === null ? localStorage.removeItem("chok_api_key") : localStorage.setItem("chok_api_key", ancienneK);
+      } catch (e) {}
+    };
     const debut = Date.now();
+    // Le test ne doit rien enregistrer : l'adresse essayée est remise à
+    // l'ancienne dans tous les cas. Seul ENREGISTRER la retient.
     try {
       setApiUrl(u);
       setApiKey(k);
       const r = await api("ping", {});
+      remettre();
       setMsgApi(`✓ Serveur joignable en ${Date.now() - debut} ms — version ${r.version || "?"}. Cliquez sur ENREGISTRER pour l'utiliser.`);
     } catch (e) {
-      setApiUrl(ancienneU);
-      setApiKey(ancienneK);
+      remettre();
       setMsgApi("Échec : " + e.message + "\n\nAdresse réellement appelée :\n" + u + "/rest/v1/rpc/chok_api" + "\n\nVérifiez l'adresse du projet, la clé « anon », et que le script CHOK_BETON_SUPABASE.sql a bien été exécuté.");
     } finally {
       setTestEnCours(false);
@@ -7472,10 +7594,31 @@ function OngletParametres({
   const enregistrerApiUrl = () => {
     const u = normaliserUrlApi(apiUrl),
       k = (apiKey || "").trim();
+    const oublier = () => {
+      try {
+        localStorage.removeItem("chok_api_url");
+        localStorage.removeItem("chok_api_key");
+      } catch (e) {}
+    };
+    // Champs vides, ou valeurs d'origine : rien à retenir sur l'appareil.
+    if (!u || !k || u === normaliserUrlApi(SUPABASE_URL_DEFAUT) && k === SUPABASE_KEY_DEFAUT.trim()) {
+      oublier();
+      setApiUrlLocal(getApiUrl());
+      setApiKeyLocal(getApiKey());
+      setMsgApi("✓ Retour au serveur d'origine de l'application. Rechargez l'application (Ctrl+Maj+R).");
+      return;
+    }
+    if (!urlProjetValide(u)) {
+      setMsgApi("Adresse non reconnue : rien n'a été enregistré.");
+      return;
+    }
+    // Changer de serveur, c'est envoyer codes et heures ailleurs : on le
+    // fait exprès, jamais par mégarde.
+    if (!window.confirm("Cet appareil enverra désormais les codes et les heures à :\n" + u + "\n\nCe n'est pas le serveur d'origine de l'application. Continuer ?")) return;
     setApiUrlLocal(u);
     setApiUrl(u);
     setApiKey(k);
-    setMsgApi(u && k ? "✓ Enregistré. Rechargez l'application (Ctrl+Maj+R) puis reconnectez-vous." : "✓ Effacé : retour au mode local après rechargement.");
+    setMsgApi("✓ Enregistré. Rechargez l'application (Ctrl+Maj+R) puis reconnectez-vous.");
   };
   const forcerEnvoi = async () => {
     setEnvoiEnCours(true);
@@ -8409,11 +8552,13 @@ function VueMobile({
       lundi.setDate(d.getDate() - jour + 1);
       const dim = new Date(lundi);
       dim.setDate(lundi.getDate() + 6);
-      debut = lundi.toISOString().slice(0, 10);
-      fin = dim.toISOString().slice(0, 10);
+      debut = isoLocalJour(lundi);
+      fin = isoLocalJour(dim);
     } else {
       debut = auj.slice(0, 8) + "01";
-      fin = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+      // Date locale : en UTC, minuit du dernier jour tombait la veille et
+      // le dernier jour du mois sortait du récapitulatif.
+      fin = isoLocalJour(new Date(d.getFullYear(), d.getMonth() + 1, 0));
     }
     // Les lignes à mon nom, qu'elles aient été saisies par moi ou par le
     // collègue avec qui j'étais : c'est ma journée dans les deux cas.
@@ -8537,7 +8682,7 @@ function VueMobile({
   const limite = (() => {
     const d = new Date();
     d.setDate(d.getDate() - 10);
-    return d.toISOString().slice(0, 10);
+    return isoLocalJour(d);
   })();
   const mesDerniers = pointages.filter(p => idsMiens.has(p.salarie) && p.date >= limite).sort((a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id))).slice(0, 12);
   const ouvrirCorrection = p => {
