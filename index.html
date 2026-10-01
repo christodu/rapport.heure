@@ -165,6 +165,62 @@
       /* Les titres de section et leurs boutons se chevauchaient. */
       .vue-direction section > div:first-child { gap: 10px !important; }
       .vue-direction h2 { font-size: 19px !important; }
+
+      /* ---- Compteurs : deux lignes compactes, pas un écran entier ---- */
+      .vue-direction .vd-kpis { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
+      .vue-direction .kpi { padding: 9px 8px 10px !important; }
+      .vue-direction .kpi-label { font-size: 8.5px !important; letter-spacing: 0.06em !important; margin: 3px 0 5px !important; line-height: 1.25; }
+      .vue-direction .kpi-val { font-size: 21px !important; }
+      .vue-direction .kpi-sub { display: none; }
+      .vue-direction .vd-kpis-semaine { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+
+      /* ---- Onglets : tous visibles, sur deux lignes ---- */
+      .admin-tabs { display: grid !important; grid-template-columns: repeat(4, 1fr); white-space: normal; }
+      .admin-tabs button {
+        padding: 10px 2px !important; font-size: 10.5px !important;
+        letter-spacing: 0.02em !important; line-height: 1.2; min-height: 44px;
+      }
+
+      /* ══ LES TABLEAUX DEVIENNENT DES FICHES ══
+         Un tableau de 660 px dans un écran de 375 ne montrait que deux
+         colonnes, et chaque ligne s'étirait sur une demi-hauteur d'écran.
+         Ici, chaque ligne devient une fiche : le nom en tête, puis une
+         information par ligne, son libellé à gauche, sa valeur à droite.
+         Les libellés sont posés par etiqueterTableaux(), à partir des
+         en-têtes. Seuls les tableaux de plus de 16 colonnes (grilles de
+         jours) gardent le défilement : en fiche, ils seraient interminables. */
+      body:not(.apercu) .vue-direction table.en-cartes { min-width: 0 !important; }
+      body:not(.apercu) .vue-direction table.en-cartes thead { display: none; }
+      body:not(.apercu) .vue-direction table.en-cartes,
+      body:not(.apercu) .vue-direction table.en-cartes tbody,
+      body:not(.apercu) .vue-direction table.en-cartes tfoot { display: block; width: 100%; }
+      body:not(.apercu) .vue-direction table.en-cartes tr {
+        display: flex; flex-direction: column; width: 100%;
+        padding: 8px 0 10px; border-bottom: 2px solid rgba(10,10,10,.14) !important;
+      }
+      body:not(.apercu) .vue-direction table.en-cartes td.carte-vide { display: none !important; }
+      body:not(.apercu) .vue-direction table.en-cartes td {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        width: 100%; padding: 5px 14px !important; text-align: right !important;
+        position: static !important; box-shadow: none !important; border: none !important;
+        font-size: 14px !important; min-height: 30px;
+      }
+      body:not(.apercu) .vue-direction table.en-cartes td::before {
+        content: attr(data-label); flex-shrink: 0; max-width: 42%;
+        font-size: 10px; letter-spacing: 0.1em; color: #8A857A; text-align: left; text-transform: uppercase;
+      }
+      body:not(.apercu) .vue-direction table.en-cartes td[data-label=""]::before { display: none; }
+      body:not(.apercu) .vue-direction table.en-cartes td > * { margin-left: auto; }
+      /* La cellule « qui » devient le titre de la fiche, placée en tête. */
+      body:not(.apercu) .vue-direction table.en-cartes td.carte-titre {
+        order: -1; justify-content: flex-start; flex-wrap: wrap; text-align: left !important;
+        font-size: 15px !important; font-weight: 700; padding-top: 8px !important;
+      }
+      body:not(.apercu) .vue-direction table.en-cartes td.carte-titre::before { display: none; }
+      body:not(.apercu) .vue-direction table.en-cartes td.carte-titre > * { margin-left: 0; }
+      /* Les boutons d'action : sur toute la largeur, faciles au doigt. */
+      body:not(.apercu) .vue-direction table.en-cartes td:last-child > div { flex-wrap: wrap; justify-content: flex-end; }
+      .tableau-bloc:has(table.en-cartes) .tableau-glisser { display: none; }
     }
     .admin-tabs::-webkit-scrollbar { display: none; }
 
@@ -619,7 +675,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v8.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v8.4"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -2811,6 +2867,36 @@ function Header({
 // ============================================================
 //  VUE ADMIN
 // ============================================================
+/* Pose sur chaque cellule le libellé de sa colonne (data-label), lu dans
+   l'en-tête du tableau. Le CSS « téléphone » s'en sert pour transformer
+   chaque ligne en fiche. Sur ordinateur, l'attribut ne sert à rien et ne
+   change rien. Rejoué à chaque affichage : peu de tableaux, peu de cellules. */
+function etiqueterTableaux(racine) {
+  if (!racine) return;
+  racine.querySelectorAll("table").forEach(t => {
+    const entetes = [...t.querySelectorAll("thead th")].map(h => (h.textContent || "").trim());
+    if (!entetes.length) return;
+    t.classList.toggle("en-cartes", entetes.length <= 16);
+    // Le titre de la fiche : la colonne qui dit DE QUI (ou de quel chantier)
+    // il s'agit, même si elle n'est pas la première (la date l'est parfois).
+    let titre = entetes.findIndex(e => /^(personne|nom|salari|intérim|interim|chantier)/i.test(e));
+    if (titre < 0) titre = 0;
+    t.querySelectorAll("tbody tr, tfoot tr").forEach(tr => {
+      let col = 0;
+      [...tr.children].forEach(td => {
+        const large = (td.colSpan || 1) > 1;
+        const lib = large ? "" : entetes[col] || "";
+        if (td.getAttribute("data-label") !== lib) td.setAttribute("data-label", lib);
+        td.classList.toggle("carte-titre", !large && col === titre);
+        // Une case sans rien dedans (pas de commentaire, 0 h de nuit…) ne
+        // mérite pas une ligne entière sur la fiche.
+        const texte = (td.textContent || "").trim();
+        td.classList.toggle("carte-vide", !large && col !== titre && !td.querySelector("input,select,button,textarea") && (texte === "" || texte === "—" || texte === "-" || /^0(h00)?$/.test(texte)));
+        col += td.colSpan || 1;
+      });
+    });
+  });
+}
 function VueAdmin({
   pointages,
   setPointages,
@@ -2832,6 +2918,33 @@ function VueAdmin({
   viderLocalement
 }) {
   const [onglet, setOnglet] = useState("pointages");
+  const racine = useRef(null);
+  // Les onglets se redessinent seuls (passage en modification, filtre…) sans
+  // que cette vue le sache : on surveille donc l'arrivée de nouvelles lignes.
+  // Seuls les ajouts d'éléments sont observés, pas les attributs : poser un
+  // libellé ne relance pas l'observation.
+  useEffect(() => {
+    const el = racine.current;
+    if (!el) return;
+    let prevu = 0;
+    const relancer = () => {
+      if (!prevu) prevu = requestAnimationFrame(() => {
+        prevu = 0;
+        etiqueterTableaux(el);
+      });
+    };
+    relancer();
+    const obs = new MutationObserver(relancer);
+    obs.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+    return () => {
+      obs.disconnect();
+      if (prevu) cancelAnimationFrame(prevu);
+    };
+  }, []);
   const auj = isoLocalJour(new Date());
   const ptgAuj = pointages.filter(p => p.date === auj);
   const totalH = ptgAuj.reduce((s, p) => s + calcHeures(p), 0);
@@ -2864,6 +2977,7 @@ function VueAdmin({
   const supprPointage = id => setPointages(pointages.filter(p => p.id !== id));
   const tabs = [["pointages", "Pointages"], ["absences", "Absences"], ["salaries", "Salariés"], ["interim", "Intérimaires"], ["chantiers", "Chantiers"], ["paie", "Rapport"], ["archives", "Archives 📁"], ["parametres", "⚙ Paramètres"]];
   return /*#__PURE__*/React.createElement("main", {
+    ref: racine,
     className: "vue-direction",
     style: {
       padding: "28px 32px",
@@ -5118,8 +5232,49 @@ function OngletChantiers({
     ...c,
     actif: !c.actif
   } : c));
+  // Un chantier qui porte des heures n'est pas supprimé : ses pointages
+  // perdraient leur adresse sur les rapports. On le ferme.
   const suppr = id => {
+    const nbH = pointages.filter(p => p.chantier === id).length;
+    if (nbH) {
+      window.alert(`Ce chantier porte ${nbH} pointage(s) : il ne peut pas être supprimé sans les rendre illisibles.\n\nUtilisez FERMER : il disparaît des listes de saisie et ses heures restent sur les rapports.`);
+      return;
+    }
     if (window.confirm("Supprimer ce chantier ?")) setChantiers(chantiers.filter(c => c.id !== id));
+  };
+
+  // ---- Modification : nom / adresse, ville, client ----
+  // L'identifiant ne change pas : les heures déjà saisies suivent donc le
+  // chantier renommé, sur l'écran comme sur les rapports.
+  const [editId, setEditId] = useState(null);
+  const [eNom, setENom] = useState(""),
+    [eVille, setEVille] = useState(""),
+    [eClient, setEClient] = useState("");
+  const [eErr, setEErr] = useState("");
+  const ouvrirEdit = c => {
+    setEditId(c.id);
+    setENom(c.nom || "");
+    setEVille(c.ville === "—" ? "" : c.ville || "");
+    setEClient(c.client === "—" ? "" : c.client || "");
+    setEErr("");
+  };
+  const sauverEdit = () => {
+    const n = eNom.trim();
+    if (n.length < 2) {
+      setEErr("Nom / adresse trop court.");
+      return;
+    }
+    if (chantiers.some(c => c.id !== editId && (c.nom || "").trim().toLowerCase() === n.toLowerCase() && (c.ville || "").trim().toLowerCase() === (eVille.trim() || "—").toLowerCase())) {
+      setEErr("Un autre chantier porte déjà ce nom dans cette ville.");
+      return;
+    }
+    setChantiers(chantiers.map(c => c.id === editId ? {
+      ...c,
+      nom: n,
+      ville: eVille.trim() || "—",
+      client: eClient.trim() || "—"
+    } : c));
+    setEditId(null);
   };
   return /*#__PURE__*/React.createElement(Section, {
     titre: `Chantiers — ${chantiers.length}`,
@@ -5202,7 +5357,64 @@ function OngletChantiers({
         fontWeight: 700,
         color: c.actif ? C.vert : C.gris
       }
-    }, c.actif ? "● ACTIF" : "○ FERMÉ")), /*#__PURE__*/React.createElement("div", {
+    }, c.actif ? "● ACTIF" : "○ FERMÉ")), editId === c.id ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        marginBottom: 14
+      }
+    }, /*#__PURE__*/React.createElement(Champ, {
+      label: "NOM / ADRESSE"
+    }, /*#__PURE__*/React.createElement("input", {
+      value: eNom,
+      onChange: e => {
+        setENom(e.target.value);
+        setEErr("");
+      },
+      onKeyDown: e => {
+        if (e.key === "Enter") sauverEdit();
+        if (e.key === "Escape") setEditId(null);
+      },
+      autoFocus: true,
+      style: {
+        ...inputStyle,
+        width: "100%"
+      }
+    })), /*#__PURE__*/React.createElement(Champ, {
+      label: "VILLE"
+    }, /*#__PURE__*/React.createElement("input", {
+      value: eVille,
+      onChange: e => {
+        setEVille(e.target.value);
+        setEErr("");
+      },
+      onKeyDown: e => {
+        if (e.key === "Enter") sauverEdit();
+      },
+      style: {
+        ...inputStyle,
+        width: "100%"
+      }
+    })), /*#__PURE__*/React.createElement(Champ, {
+      label: "CLIENT"
+    }, /*#__PURE__*/React.createElement("input", {
+      value: eClient,
+      onChange: e => setEClient(e.target.value),
+      onKeyDown: e => {
+        if (e.key === "Enter") sauverEdit();
+      },
+      style: {
+        ...inputStyle,
+        width: "100%"
+      }
+    })), eErr && /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: C.orange,
+        fontSize: 11,
+        fontWeight: 700
+      }
+    }, eErr)) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       style: {
         fontFamily: FT,
         fontSize: 17,
@@ -5222,7 +5434,7 @@ function OngletChantiers({
         fontStyle: "italic",
         marginBottom: 14
       }
-    }, "Client : ", c.client), /*#__PURE__*/React.createElement("div", {
+    }, "Client : ", c.client)), /*#__PURE__*/React.createElement("div", {
       style: {
         paddingTop: 10,
         borderTop: `1px solid ${C.ligne}`,
@@ -5243,15 +5455,24 @@ function OngletChantiers({
     }, "pointage(s) aujourd'hui")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
-        gap: 8
+        gap: 8,
+        flexWrap: "wrap"
       }
-    }, /*#__PURE__*/React.createElement(Btn, {
+    }, editId === c.id ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      onClick: sauverEdit
+    }, "✓ ENREGISTRER"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => setEditId(null)
+    }, "ANNULER")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => ouvrirEdit(c)
+    }, "✎ MODIFIER"), /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
       onClick: () => toggle(c.id)
     }, c.actif ? "FERMER" : "RÉACTIVER"), /*#__PURE__*/React.createElement(Btn, {
       variant: "danger",
       onClick: () => suppr(c.id)
-    }, "SUPPR."))));
+    }, "SUPPR.")))));
   })));
 }
 
@@ -6483,8 +6704,8 @@ function OngletArchives({
     }));
   }))))), /*#__PURE__*/React.createElement("div", {
     style: {
-      flex: 1,
-      minWidth: 0
+      flex: "1 1 280px",
+      minWidth: 280
     }
   }, !semSel ? /*#__PURE__*/React.createElement("div", {
     style: {
@@ -6588,6 +6809,7 @@ function SemaineArchive({
     variant: "export",
     onClick: () => onExport(cle, "interim")
   }, "↓ PDF Intérimaires"))), /*#__PURE__*/React.createElement("div", {
+    className: "vd-kpis-semaine",
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(4,1fr)",
@@ -7778,7 +8000,7 @@ function OngletParametres({
     type: "password",
     value: newPinRH,
     onChange: e => setNewPinRH(e.target.value),
-    placeholder: "Nouveau code (≥4 chiffres)",
+    placeholder: "Nouveau code (6 à 8 chiffres)",
     style: inputStyle,
     maxLength: 8
   })), /*#__PURE__*/React.createElement(Btn, {
@@ -10295,6 +10517,7 @@ function Kpi({
   alert
 }) {
   return /*#__PURE__*/React.createElement("div", {
+    className: "kpi",
     style: {
       background: alert ? "#FFF8E1" : C.papier,
       padding: "18px 16px 20px",
@@ -10312,6 +10535,7 @@ function Kpi({
       background: accent
     }
   }), /*#__PURE__*/React.createElement("div", {
+    className: "kpi-label",
     style: {
       fontSize: 10,
       color: C.gris,
@@ -10320,6 +10544,7 @@ function Kpi({
       marginBottom: 12
     }
   }, label.toUpperCase()), /*#__PURE__*/React.createElement("div", {
+    className: "kpi-val",
     style: {
       fontFamily: FT,
       fontSize: 30,
@@ -10328,6 +10553,7 @@ function Kpi({
       letterSpacing: "-0.03em"
     }
   }, val), /*#__PURE__*/React.createElement("div", {
+    className: "kpi-sub",
     style: {
       fontSize: 10,
       color: C.gris,

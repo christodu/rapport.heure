@@ -14,7 +14,7 @@
 //     incrémentez le numéro ci-dessous (v50, v51, …).
 //     C'est ce qui force les téléphones à purger l'ancien cache.
 // ============================================================
-const VERSION = "v51";
+const VERSION = "v53";
 const CACHE = `chok-beton-${VERSION}`;
 // React fait partie du lot : sans lui, l'application hors ligne restait
 // une page blanche, même avec index.html en cache.
