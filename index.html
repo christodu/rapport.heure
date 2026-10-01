@@ -595,7 +595,7 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 //  Passé ce délai, seule la direction peut saisir — en connaissance de
 //  cause, avec le chef au téléphone.
 // ============================================================
-const JOURS_SAISIE = 3; // aujourd'hui + 2 jours en arrière
+const JOURS_SAISIE = 6; // aujourd'hui + 5 jours en arrière
 
 /** Date la plus ancienne qu'un chef peut encore saisir. */
 function debutSaisie(aujourdIso) {
@@ -675,7 +675,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v8.4"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v8.5"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -3350,7 +3350,7 @@ function AlerteManquants({
       color: C.encre,
       padding: "2px 6px"
     }
-  }, "Jaune"), " : le salarié peut encore saisir lui-même (règle des 3 jours).", /*#__PURE__*/React.createElement("b", {
+  }, "Jaune"), " : le salarié peut encore saisir lui-même (aujourd'hui et les 5 jours précédents).", /*#__PURE__*/React.createElement("b", {
     style: {
       marginLeft: 10,
       background: C.fond,
@@ -3454,9 +3454,21 @@ function OngletPointages({
     width: "100%",
     boxSizing: "border-box"
   };
+  // La direction modifie TOUT, à toute date : personne, jour, chantier,
+  // horaires, logement, commentaire — et peut revenir sur une validation.
+  const estInterim = id => interimaires.some(i => i.id === id);
+  const tousGens = [...salaries.map(x => ({
+    ...x,
+    _t: "salarié"
+  })), ...interimaires.map(x => ({
+    ...x,
+    _t: "intérim"
+  }))];
   const ouvrirEdit = p => {
     setEditId(p.id);
     setEditData({
+      salarie: p.salarie,
+      date: p.date,
       debut: p.debut,
       fin: p.fin,
       pause: p.pause,
@@ -3470,14 +3482,72 @@ function OngletPointages({
     setEditData({});
   };
   const sauvegarderEdit = id => {
+    if (!editData.date || !editData.salarie) {
+      window.alert("La personne et la date sont obligatoires.");
+      return;
+    }
     setPointages(pointagesTous.map(p => p.id === id ? {
       ...p,
       ...editData,
+      interim: estInterim(editData.salarie),
       modifiePar: "RH",
       modifieLe: new Date().toISOString()
     } : p));
     setEditId(null);
     setEditData({});
+  };
+  const devalider = id => setPointages(pointagesTous.map(p => p.id === id ? {
+    ...p,
+    valide: false
+  } : p));
+
+  // ---- Ajouter un pointage (n'importe qui, n'importe quel jour) ----
+  const vide = {
+    salarie: "",
+    chantier: "",
+    debut: "07:30",
+    fin: "16:30",
+    pause: 60,
+    deplacement: false,
+    commentaire: ""
+  };
+  const [ajout, setAjout] = useState(null); // null = formulaire fermé
+  const [errAjout, setErrAjout] = useState("");
+  const ajouterPointage = () => {
+    const a = ajout;
+    if (!a.salarie) {
+      setErrAjout("Choisissez la personne.");
+      return;
+    }
+    if (!a.date) {
+      setErrAjout("Choisissez la date.");
+      return;
+    }
+    if (!a.chantier) {
+      setErrAjout("Choisissez le chantier.");
+      return;
+    }
+    if (calcHeures(a) <= 0) {
+      setErrAjout("Ces horaires ne donnent aucune heure.");
+      return;
+    }
+    setPointages([...pointagesTous, {
+      id: genId("P"),
+      salarie: a.salarie,
+      chantier: a.chantier,
+      date: a.date,
+      debut: a.debut,
+      fin: a.fin,
+      pause: Number(a.pause) || 0,
+      commentaire: a.commentaire.trim(),
+      deplacement: !!a.deplacement,
+      interim: estInterim(a.salarie),
+      valide: true,
+      chefNom: "Direction"
+    }]);
+    setAjout(null);
+    setErrAjout("");
+    setDateVue(a.date > auj ? auj : a.date);
   };
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3511,8 +3581,163 @@ function OngletPointages({
       value: c.id
     }, c.nom))), aValiderDate > 0 && /*#__PURE__*/React.createElement(Btn, {
       onClick: validerToutDate
-    }, "✓ TOUT VALIDER (", aValiderDate, ")"))
-  }, /*#__PURE__*/React.createElement("div", {
+    }, "✓ TOUT VALIDER (", aValiderDate, ")"), /*#__PURE__*/React.createElement(Btn, {
+      variant: ajout ? "ghost" : undefined,
+      onClick: () => {
+        setAjout(ajout ? null : {
+          ...vide,
+          date: dateVue
+        });
+        setErrAjout("");
+      }
+    }, ajout ? "✕ Annuler" : "+ AJOUTER UN POINTAGE"))
+  }, ajout && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: FM,
+      fontSize: 10,
+      letterSpacing: "0.2em",
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 10
+    }
+  }, "NOUVEAU POINTAGE — SAISI PAR LA DIRECTION"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement(Champ, {
+    label: "PERSONNE"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: ajout.salarie,
+    onChange: e => {
+      setAjout({
+        ...ajout,
+        salarie: e.target.value
+      });
+      setErrAjout("");
+    },
+    style: selectStyle
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "— Choisir —"), /*#__PURE__*/React.createElement("optgroup", {
+    label: "── Salariés"
+  }, salaries.filter(estActif).map(x => /*#__PURE__*/React.createElement("option", {
+    key: x.id,
+    value: x.id
+  }, x.nom))), /*#__PURE__*/React.createElement("optgroup", {
+    label: "── Intérimaires"
+  }, interimaires.filter(estActif).map(x => /*#__PURE__*/React.createElement("option", {
+    key: x.id,
+    value: x.id
+  }, x.nom))))), /*#__PURE__*/React.createElement(Champ, {
+    label: "DATE"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: ajout.date,
+    onChange: e => setAjout({
+      ...ajout,
+      date: e.target.value
+    }),
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement(Champ, {
+    label: "CHANTIER"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: ajout.chantier,
+    onChange: e => {
+      setAjout({
+        ...ajout,
+        chantier: e.target.value
+      });
+      setErrAjout("");
+    },
+    style: selectStyle
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "— Choisir —"), chantiers.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c.id,
+    value: c.id
+  }, c.nom, c.actif === false ? " (fermé)" : "")))), /*#__PURE__*/React.createElement(Champ, {
+    label: "DÉBUT"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "time",
+    value: ajout.debut,
+    onChange: e => setAjout({
+      ...ajout,
+      debut: e.target.value
+    }),
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement(Champ, {
+    label: "FIN"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "time",
+    value: ajout.fin,
+    onChange: e => setAjout({
+      ...ajout,
+      fin: e.target.value
+    }),
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement(Champ, {
+    label: "PAUSE (MIN)"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: ajout.pause,
+    onChange: e => setAjout({
+      ...ajout,
+      pause: e.target.value
+    }),
+    style: {
+      ...inputStyle,
+      width: 90
+    }
+  })), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 11,
+      fontWeight: 700,
+      paddingBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: ajout.deplacement,
+    onChange: e => setAjout({
+      ...ajout,
+      deplacement: e.target.checked
+    })
+  }), "🛏 LOGÉ")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      alignItems: "flex-end",
+      marginTop: 12,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Champ, {
+    label: "COMMENTAIRE (OPTIONNEL)",
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: ajout.commentaire,
+    onChange: e => setAjout({
+      ...ajout,
+      commentaire: e.target.value
+    }),
+    style: {
+      ...inputStyle,
+      minWidth: 240
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      paddingBottom: 10
+    }
+  }, "Total : ", /*#__PURE__*/React.createElement("b", null, fmtH(calcHeures(ajout)))), /*#__PURE__*/React.createElement(Btn, {
+    onClick: ajouterPointage
+  }, "ENREGISTRER")), errAjout && /*#__PURE__*/React.createElement(ErrBox, null, errAjout)), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -3633,7 +3858,18 @@ function OngletPointages({
         borderBottom: `1px solid ${C.ligne}`,
         background: hTot > 10 ? "#FFF8F8" : enEdition ? "#FFFDE7" : "transparent"
       }
-    }, /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      value: editData.date,
+      onChange: e => setEditData({
+        ...editData,
+        date: e.target.value
+      }),
+      style: {
+        ...iStyle,
+        width: 140
+      }
+    }) : /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 11,
         fontWeight: 500
@@ -3652,7 +3888,20 @@ function OngletPointages({
         marginTop: 2
       },
       title: p.modifieLe ? `le ${String(p.modifieLe).slice(0, 10).split("-").reverse().join("/")}` : ""
-    }, "✎ Rectifié par ", (trouver(p.modifiePar) || {}).nom || p.modifiePar)), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("b", {
+    }, "✎ Rectifié par ", (trouver(p.modifiePar) || {}).nom || p.modifiePar)), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("select", {
+      value: editData.salarie,
+      onChange: e => setEditData({
+        ...editData,
+        salarie: e.target.value
+      }),
+      style: {
+        ...iStyle,
+        width: 190
+      }
+    }, tousGens.map(x => /*#__PURE__*/React.createElement("option", {
+      key: x.id,
+      value: x.id
+    }, x.nom, " (", x._t, ")"))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", {
       style: {
         fontSize: 13
       }
@@ -3661,7 +3910,7 @@ function OngletPointages({
         fontSize: 11,
         color: C.gris
       }
-    }, (pers === null || pers === void 0 ? void 0 : pers.poste) || "—", p.chefNom ? ` · Chef: ${p.chefNom}` : "")), /*#__PURE__*/React.createElement(Td, null, p.interim ? /*#__PURE__*/React.createElement("span", {
+    }, (pers === null || pers === void 0 ? void 0 : pers.poste) || "—", p.chefNom ? ` · Chef: ${p.chefNom}` : ""))), /*#__PURE__*/React.createElement(Td, null, p.interim ? /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10,
         padding: "3px 8px",
@@ -3867,7 +4116,11 @@ function OngletPointages({
     }, /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
       onClick: () => ouvrirEdit(p)
-    }, "✎"), !p.valide && /*#__PURE__*/React.createElement(Btn, {
+    }, "✎"), p.valide ? /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => devalider(p.id),
+      title: "Revenir sur la validation"
+    }, "↺") : /*#__PURE__*/React.createElement(Btn, {
       variant: "mini",
       onClick: () => valider(p.id)
     }, "✓"), /*#__PURE__*/React.createElement(Btn, {
@@ -3902,6 +4155,7 @@ function OngletAbsences({
   const [type, setType] = useState(TYPES_ABSENCE[0].code);
   const [commentaire, setCommentaire] = useState("");
   const [err, setErr] = useState("");
+  const [editAbsId, setEditAbsId] = useState(null); // null = création, sinon modification
   const [filtreType, setFiltreType] = useState("tous");
   const [filtrePersonne, setFiltrePersonne] = useState("tous");
   const tousPersonnes = [...salaries.map(s => ({
@@ -3921,18 +4175,27 @@ function OngletAbsences({
       return;
     }
     const typeInfo = typeAbsence(type);
-    setAbsences([...absences, {
-      id: genId("A"),
+    const champs = {
       salarie: personneId,
       dateDebut,
       dateFin,
       type,
       typeLabel: typeInfo.label,
       typeIcone: typeInfo.icone,
-      commentaire: commentaire.trim(),
+      commentaire: commentaire.trim()
+    };
+    setAbsences(editAbsId ? absences.map(a => a.id === editAbsId ? {
+      ...a,
+      ...champs
+    } : a) : [...absences, {
+      id: genId("A"),
+      ...champs,
       saisieParRH: true,
       saisieDate: new Date().toISOString()
     }]);
+    fermer();
+  };
+  const fermer = () => {
     setPersonneId("");
     setDateDebut(auj);
     setDateFin(auj);
@@ -3940,6 +4203,21 @@ function OngletAbsences({
     setCommentaire("");
     setOpen(false);
     setErr("");
+    setEditAbsId(null);
+  };
+  const modifier = a => {
+    setEditAbsId(a.id);
+    setPersonneId(a.salarie);
+    setDateDebut(a.dateDebut);
+    setDateFin(a.dateFin || a.dateDebut);
+    setType(a.type);
+    setCommentaire(a.commentaire || "");
+    setErr("");
+    setOpen(true);
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
   };
   const supprimer = id => {
     if (!window.confirm("Supprimer cette absence ?")) return;
@@ -3960,8 +4238,7 @@ function OngletAbsences({
     titre: `Absences & Congés — ${absences.length}`,
     actions: /*#__PURE__*/React.createElement(Btn, {
       onClick: () => {
-        setOpen(!open);
-        setErr("");
+        open ? fermer() : setOpen(true);
       }
     }, open ? "✕ Annuler" : "+ SAISIR UNE ABSENCE")
   }, salaries.length > 0 && (() => {
@@ -4038,7 +4315,7 @@ function OngletAbsences({
       fontWeight: 700,
       marginBottom: 4
     }
-  }, "NOUVEAU CONGÉ OU ABSENCE"), /*#__PURE__*/React.createElement("div", {
+  }, editAbsId ? "MODIFIER LE CONGÉ OU L'ABSENCE" : "NOUVEAU CONGÉ OU ABSENCE"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: C.gris,
@@ -4222,10 +4499,19 @@ function OngletAbsences({
       style: {
         color: C.ligne
       }
-    }, "—")), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement(Btn, {
+    }, "—")), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6,
+        justifyContent: "flex-end"
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => modifier(a)
+    }, "✎ MODIFIER"), /*#__PURE__*/React.createElement(Btn, {
       variant: "danger",
       onClick: () => supprimer(a.id)
-    }, "SUPPR.")));
+    }, "SUPPR."))));
   }))));
 }
 
@@ -8406,7 +8692,7 @@ function VueMobile({
   const [date, setDate] = useState(auj);
   // Jours travaillés sans heures envoyées, sur les deux dernières semaines.
   // Le jour même n'est jamais réclamé : on déclare en fin de journée.
-  // On ne réclame QUE ce qu'il peut encore saisir : hier et avant-hier.
+  // On ne réclame QUE ce qu'il peut encore saisir : les 5 jours précédents.
   // Lui montrer des jours définitivement fermés lui apprendrait à ignorer
   // le bandeau — et l'oubli suivant passerait avec.
   const mesManquants = React.useMemo(() => joursSansHeures(pointages, absences, session.personneId, JOURS_SAISIE - 1, auj), [pointages, absences, session.personneId, auj]);
@@ -8448,8 +8734,27 @@ function VueMobile({
     let annule = false;
     setRechercheEnCours(true);
     const minuteur = setTimeout(() => {
-      fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5`).then(r => r.ok ? r.json() : Promise.reject()).then(d => {
-        if (!annule) setSuggestions(d.features || []);
+      // CHOK'BÉTON travaille en Île-de-France : seules les adresses des 8
+      // départements franciliens sont proposées. Deux recherches en parallèle :
+      // l'une centrée sur Paris (lat/lon), l'autre visant Paris intra-muros —
+      // sans elle, une rue présente dans vingt communes de banlieue faisait
+      // passer Paris après toutes les autres. Paris d'abord, puis le reste.
+      const api = (texte, plus) => fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(texte)}${plus}`).then(r => r.ok ? r.json() : {
+        features: []
+      }).then(d => d.features || []).catch(() => []);
+      const idf = f => /^(75|77|78|91|92|93|94|95)/.test((f.properties || {}).postcode || "");
+      Promise.all([api(q + " Paris", "&limit=5"), api(q, "&limit=20&lat=48.8566&lon=2.3522")]).then(([paris, autour]) => {
+        if (annule) return;
+        const vus = new Set(),
+          liste = [];
+        [...paris.filter(f => /^75/.test((f.properties || {}).postcode || "")), ...autour.filter(idf)].forEach(f => {
+          const k = (f.properties || {}).label;
+          if (!vus.has(k)) {
+            vus.add(k);
+            liste.push(f);
+          }
+        });
+        setSuggestions(liste.slice(0, 6));
       }).catch(() => {
         if (!annule) setSuggestions([]);
       }).finally(() => {
@@ -8530,6 +8835,37 @@ function VueMobile({
   };
   const chantiersActifs = chantiers.filter(c => c.actif !== false);
   const chantier = chantiers.find(c => c.id === chantierId);
+
+  // ---- CLIENT : case à part de la zone chantier ----
+  // Le client reste rangé AVEC le chantier : choisi une fois, il revient
+  // tout seul. Le chef peut le corriger, pour tout le monde sur ce chantier.
+  const clientDuChantier = chantier && chantier.client && chantier.client !== "—" ? chantier.client : "";
+  const [clientLibre, setClientLibre] = useState(false); // saisie « Autre client »
+  useEffect(() => {
+    setClientLibre(false);
+    setClientAutre("");
+  }, [chantierId]);
+  const appliquerClient = v => {
+    const nv = (v || "").trim() || "—";
+    if (!chantier || (chantier.client || "—") === nv) return;
+    setChantiers(chantiers.map(c => c.id === chantier.id ? {
+      ...c,
+      client: nv
+    } : c));
+  };
+  const choisirClient = v => {
+    if (nouveauChantier) {
+      setClientChantier(v);
+      return;
+    }
+    if (v === "__autre__") {
+      setClientLibre(true);
+      setClientAutre("");
+      return;
+    }
+    setClientLibre(false);
+    appliquerClient(v);
+  };
   const mesHeures = calcHeures({
     debut,
     fin,
@@ -9175,7 +9511,7 @@ function VueMobile({
       color: C.orange,
       fontWeight: 600
     }
-  }, "⏳ Sinon, saisissez-les ", /*#__PURE__*/React.createElement("b", null, "maintenant"), " : passé 3 jours, la saisie se ferme et il faudra appeler la direction.")), /*#__PURE__*/React.createElement("div", {
+  }, "⏳ Sinon, saisissez-les ", /*#__PURE__*/React.createElement("b", null, "maintenant"), " : passé 5 jours, la saisie se ferme et il faudra appeler la direction.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -9297,20 +9633,26 @@ function VueMobile({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
-      gap: 8,
+      display: "grid",
+      gridTemplateColumns: "repeat(3,1fr)",
+      gap: 6,
       marginBottom: 10
     }
-  }, [["Aujourd'hui", 0], ["Hier", 1], ["Avant-hier", 2]].map(([lib, n]) => {
+  }, Array.from({
+    length: JOURS_SAISIE
+  }, (_, n) => {
     const d = new Date();
     d.setDate(d.getDate() - n);
     const iso = isoLocalJour(d);
+    const lib = n === 0 ? "Aujourd'hui" : n === 1 ? "Hier" : d.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric"
+    });
     const actif = date === iso;
     return /*#__PURE__*/React.createElement("button", {
-      key: lib,
+      key: iso,
       onClick: () => setDate(iso),
       style: {
-        flex: 1,
         padding: "11px 4px",
         background: actif ? C.encre : C.fond,
         color: actif ? C.jaune : C.encre,
@@ -9329,7 +9671,7 @@ function VueMobile({
     onChange: e => {
       if (!e.target.value) return;
       if (!saisieOuverte(e.target.value, auj)) {
-        window.alert("Les heures se saisissent le jour même, la veille ou l'avant-veille.\n\n" + "Au-delà, contactez la direction : elle seule peut encore enregistrer ces heures.");
+        window.alert("Les heures se saisissent le jour même ou dans les 5 jours qui précèdent.\n\n" + "Au-delà, contactez la direction : elle seule peut encore enregistrer ces heures.");
         return;
       }
       setDate(e.target.value);
@@ -9353,7 +9695,7 @@ function VueMobile({
       color: C.gris,
       marginTop: 6
     }
-  }, "Saisie possible sur ", /*#__PURE__*/React.createElement("b", null, "3 jours"), " : aujourd'hui, hier, avant-hier."), estFerie(date) && /*#__PURE__*/React.createElement("div", {
+  }, "Saisie possible sur ", /*#__PURE__*/React.createElement("b", null, "6 jours"), " : aujourd'hui et les 5 jours précédents."), estFerie(date) && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: "9px 12px",
@@ -9389,14 +9731,7 @@ function VueMobile({
       fontSize: 12,
       fontWeight: 700
     }
-  }, "📍 ", chantier.nom, chantier.ville && chantier.ville !== "—" ? ` — ${chantier.ville}` : "", chantier.client && chantier.client !== "—" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      fontWeight: 500,
-      marginTop: 2,
-      opacity: .85
-    }
-  }, "Client : ", chantier.client)), /*#__PURE__*/React.createElement("a", {
+  }, "📍 ", chantier.nom, chantier.ville && chantier.ville !== "—" ? ` — ${chantier.ville}` : ""), /*#__PURE__*/React.createElement("a", {
     href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([chantier.nom, chantier.ville].filter(v => v && v !== "—").join(" "))}`,
     target: "_blank",
     rel: "noopener noreferrer",
@@ -9492,36 +9827,6 @@ function VueMobile({
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 9,
-      color: C.gris,
-      fontWeight: 700,
-      marginBottom: 4
-    }
-  }, "CLIENT"), /*#__PURE__*/React.createElement("select", {
-    value: clientChantier,
-    onChange: e => setClientChantier(e.target.value),
-    style: {
-      ...champ,
-      marginBottom: clientChantier === "__autre__" ? 8 : 10
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "— Choisir le client —"), clientsConnus.map(c => /*#__PURE__*/React.createElement("option", {
-    key: c,
-    value: c
-  }, c)), /*#__PURE__*/React.createElement("option", {
-    value: "__autre__"
-  }, "+ Autre client…")), clientChantier === "__autre__" && /*#__PURE__*/React.createElement("input", {
-    value: clientAutre,
-    onChange: e => setClientAutre(e.target.value),
-    placeholder: "Nom du client",
-    style: {
-      ...champ,
-      marginBottom: 10
-    },
-    autoFocus: true
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
       display: "flex",
       gap: 8
     }
@@ -9531,7 +9836,61 @@ function VueMobile({
   }, "CRÉER"), /*#__PURE__*/React.createElement(MBtn, {
     variant: "ghost",
     onClick: () => setNouveauChantier(false)
-  }, "ANNULER"))))), maLigne ? /*#__PURE__*/React.createElement("div", {
+  }, "ANNULER"))))), (chantier || nouveauChantier) && /*#__PURE__*/React.createElement("div", {
+    style: boiteStyle
+  }, /*#__PURE__*/React.createElement("div", {
+    style: titreBoite
+  }, "CLIENT"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 16px 16px"
+    }
+  }, (() => {
+    const valeur = nouveauChantier ? clientChantier : clientLibre ? "__autre__" : clientDuChantier;
+    const liste = clientDuChantier && !clientsConnus.includes(clientDuChantier) ? [clientDuChantier, ...clientsConnus] : clientsConnus;
+    const libre = nouveauChantier ? clientChantier === "__autre__" : clientLibre;
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("select", {
+      value: valeur,
+      onChange: e => choisirClient(e.target.value),
+      style: {
+        ...champ,
+        marginBottom: libre ? 8 : 0
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "— Choisir le client —"), liste.map(c => /*#__PURE__*/React.createElement("option", {
+      key: c,
+      value: c
+    }, c)), /*#__PURE__*/React.createElement("option", {
+      value: "__autre__"
+    }, "+ Autre client…")), libre && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      value: clientAutre,
+      onChange: e => setClientAutre(e.target.value),
+      placeholder: "Nom du client",
+      style: {
+        ...champ,
+        marginBottom: 0,
+        flex: 1
+      },
+      autoFocus: true
+    }), !nouveauChantier && /*#__PURE__*/React.createElement(MBtn, {
+      onClick: () => {
+        if (clientAutre.trim().length < 2) return;
+        appliquerClient(clientAutre);
+        setClientLibre(false);
+      }
+    }, "OK")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: C.gris,
+        marginTop: 8
+      }
+    }, nouveauChantier ? "Il sera rangé avec le chantier à sa création." : clientDuChantier ? "Repris du chantier. Vous pouvez le corriger." : "Aucun client indiqué pour ce chantier."));
+  })())), maLigne ? /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       borderWidth: 2,
@@ -10728,7 +11087,8 @@ function Btn({
   onClick,
   variant,
   disabled,
-  style
+  style,
+  title
 }) {
   const base = {
     fontFamily: FM,
@@ -10788,6 +11148,7 @@ function Btn({
   };
   const v = variants[variant || "default"];
   return /*#__PURE__*/React.createElement("button", {
+    title: title,
     onClick: disabled ? undefined : onClick,
     style: {
       ...v,
