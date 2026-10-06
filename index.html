@@ -610,8 +610,8 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 //  Passé ce délai, seule la direction peut saisir — en connaissance de
 //  cause, avec le chef au téléphone.
 // ============================================================
-const ETAPES = ["Date", "Client", "Adresse du chantier", "Mes heures", "Salariés avec moi", "Mes intérimaires", "Vérifier et envoyer"];
-const ETAPES_MANQUE = ["", "Choisissez le client pour continuer.", "Choisissez l'adresse du chantier pour continuer.", "Indiquez des horaires valables pour continuer.", "", "", ""];
+const ETAPES = ["Date", "Client", "Adresse du chantier", "Mes heures", "Mes intérimaires", "Vérifier et envoyer"];
+const ETAPES_MANQUE = ["", "Choisissez le client pour continuer.", "Choisissez l'adresse du chantier pour continuer.", "Indiquez des horaires valables pour continuer.", "", ""];
 const JOURS_SAISIE = 6; // aujourd'hui + 5 jours en arrière
 
 /** Date la plus ancienne qu'un chef peut encore saisir. */
@@ -692,7 +692,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v8.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v8.8"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -8750,6 +8750,11 @@ function VueMobile({
       Le serveur refuse sèchement ce cas. Mais le laisser tout saisir pour
      le refuser à l'envoi serait cruel : on le lui dit AVANT, dès qu'il a
      choisi le jour, et on ferme la saisie de ses propres heures. */
+  /* MES HEURES DE CE JOUR, DÉJÀ ENVOYÉES PAR MOI (ou la direction).
+     Le 05/10/2026, un chef qui avait oublié son intérimaire a refait son
+     rapport : ses propres heures sont reparties avec, deux fois. Elles ne
+     repartent plus : seul l'intérimaire ajouté est envoyé. */
+  const lignesDuJour = (personneId, jour) => (pointages || []).filter(x => x.salarie === personneId && x.date === jour);
   const ligneDeclareeParAutre = (personneId, jour) => (pointages || []).find(x => x.salarie === personneId && x.date === jour && x.creePar && x.creePar !== moi.id) || null;
   const dejaDeclarePar = (personneId, jour) => {
     const p = ligneDeclareeParAutre(personneId, jour);
@@ -8857,6 +8862,15 @@ function VueMobile({
 
   // Ma journée, telle qu'un collègue l'a déclarée pour moi (ou rien).
   const maLigne = ligneDeclareeParAutre(moi.id, date);
+  const mesEnvoisDuJour = lignesDuJour(moi.id, date).filter(x => !x.creePar || x.creePar === moi.id);
+  const [autreCreneau, setAutreCreneau] = useState(false);
+  useEffect(() => {
+    setAutreCreneau(false);
+  }, [date]);
+  // Mes heures sont-elles déjà enregistrées pour ce jour ? Alors on ne les
+  // renvoie pas — sauf si je déclare exprès un SECOND créneau, distinct.
+  const dejaEnvoyees = !maLigne && mesEnvoisDuJour.length > 0 && !autreCreneau;
+  const sautMesHeures = !!maLigne || dejaEnvoyees;
   const [ecartOuvert, setEcartOuvert] = useState(false);
   const [ecart, setEcart] = useState({
     debut: "",
@@ -9148,18 +9162,23 @@ function VueMobile({
       setErreur("Indiquez le client de ce chantier (case Client).");
       return;
     }
-    if (!parQui && mesHeures <= 0) {
+    if (!sautMesHeures && mesHeures <= 0) {
       setErreur("Vos heures ne sont pas valides (vérifiez début, fin et pause).");
       return;
     }
-    if (parQui && Object.keys(collegues).length === 0 && Object.keys(equipe).length === 0) {
-      setErreur(`Vos heures du ${jourEnClair(date)} sont déjà enregistrées par ${parQui}. ` + `Il n'y a rien d'autre à envoyer pour cette journée.`);
+    if (sautMesHeures && Object.keys(equipe).length === 0) {
+      setErreur(`Vos heures du ${jourEnClair(date)} sont déjà enregistrées. ` + `Il n'y a rien d'autre à envoyer pour cette journée.`);
       return;
     }
-    const dejaSaisi = pointages.some(p => p.salarie === moi.id && p.date === date && p.chantier === chantierId);
-    if (!parQui && dejaSaisi && !window.confirm("Vous avez déjà envoyé un rapport pour ce chantier à cette date.\n\nEn envoyer un second ?")) return;
+    // Plus de « En envoyer un second ? » : une confirmation se touche sans
+    // la lire. Des heures déjà envoyées ne repartent tout simplement pas.
+    const dejaLa = Object.keys(equipe).filter(id => lignesDuJour(id, date).length > 0);
+    if (dejaLa.length) {
+      setErreur("Déjà déclaré(s) ce jour-là : " + dejaLa.map(id => (interimaires.find(x => x.id === id) || {}).nom || id).join(", ") + ". Retirez-le(s) avant d'envoyer.");
+      return;
+    }
     setErreur("");
-    const lignes = parQui ? [] : [{
+    const lignes = sautMesHeures ? [] : [{
       id: genId("P"),
       salarie: moi.id,
       chantier: chantierId,
@@ -9437,7 +9456,7 @@ function VueMobile({
     });
     return t.charAt(0).toUpperCase() + t.slice(1);
   })();
-  const resumeHeures = maLigne ? `Déjà saisie par ${maLigne.chefNom || "un collègue"} · ${maLigne.debut}–${maLigne.fin}` : `${debut}–${fin} · pause ${pause} min · ${fmtH(mesHeures)}${deplacement ? " · logé" : ""}`;
+  const resumeHeures = maLigne ? `Déjà saisie par ${maLigne.chefNom || "un collègue"} · ${maLigne.debut}–${maLigne.fin}` : dejaEnvoyees ? `Déjà envoyées · ${mesEnvoisDuJour.map(x => `${x.debut}–${x.fin}`).join(", ")}` : `${debut}–${fin} · pause ${pause} min · ${fmtH(mesHeures)}${deplacement ? " · logé" : ""}`;
   // « BAKAYOKO Moussa (09:30–16:00) » : chacun avec SES horaires, pour que
   // le chef relise tout avant d'envoyer.
   const avecHoraires = (saisies, liste) => Object.entries(saisies).map(([id, h]) => `${(liste.find(x => x.id === id) || {}).nom || id} (${h.debut}–${h.fin})`).join(", ");
@@ -10311,11 +10330,54 @@ function VueMobile({
       fontWeight: 700,
       color: C.orange
     }
-  }, errChantier)))), blocEtape(4, maLigne ? "MA JOURNÉE" : "MES HEURES", `Mes heures : ${resumeHeures}`, !!maLigne || mesHeures > 0, () => /*#__PURE__*/React.createElement("div", {
+  }, errChantier)))), blocEtape(4, maLigne ? "MA JOURNÉE" : "MES HEURES", `Mes heures : ${resumeHeures}`, sautMesHeures || mesHeures > 0, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
-  }, maLigne ? /*#__PURE__*/React.createElement("div", {
+  }, dejaEnvoyees ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      border: `2px solid ${C.vert}`,
+      background: "#EAF7F4",
+      padding: "12px 14px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: C.vert,
+      marginBottom: 8
+    }
+  }, "✓ Vos heures de ce jour sont déjà envoyées"), mesEnvoisDuJour.map(x => /*#__PURE__*/React.createElement("div", {
+    key: x.id,
+    style: {
+      fontSize: 13,
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("b", null, x.debut, "–", x.fin), " · ", fmtH(calcHeures(x)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.gris
+    }
+  }, " · ", (chantiers.find(c => c.id === x.chantier) || {}).nom || "chantier ?"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: C.gris,
+      lineHeight: 1.6,
+      marginTop: 8
+    }
+  }, "Elles ne seront ", /*#__PURE__*/React.createElement("b", null, "pas renvoyées"), ". Vous pouvez continuer pour ajouter un intérimaire. Pour corriger une erreur, utilisez « Mes derniers envois » en bas de page."), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setAutreCreneau(true),
+    style: {
+      marginTop: 10,
+      width: "100%",
+      padding: "10px",
+      background: "transparent",
+      border: `1.5px dashed ${C.ligne}`,
+      fontFamily: FM,
+      fontSize: 11,
+      color: C.gris,
+      cursor: "pointer"
+    }
+  }, "+ J'AI TRAVAILLÉ SUR UN AUTRE CRÉNEAU CE JOUR-LÀ")) : maLigne ? /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       borderWidth: 2,
@@ -10671,215 +10733,7 @@ function VueMobile({
       fontSize: 12,
       fontWeight: 700
     }
-  }, "🛏 Déplacement avec logement")))))), blocEtape(5, "SALARIÉS AVEC MOI", `Salariés avec moi : ${resumeCollegues}`, true, () => /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "10px 16px 16px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: C.gris,
-      marginBottom: 10,
-      lineHeight: 1.5
-    }
-  }, "Si vous travaillez avec d'autres salariés, déclarez leurs heures ici.", /*#__PURE__*/React.createElement("b", null, " Une seule personne doit le faire"), " pour éviter de compter les heures en double."), Object.entries(collegues).map(([id, h]) => {
-    const sal = autresSalaries.find(s => s.id === id);
-    return /*#__PURE__*/React.createElement("div", {
-      key: id,
-      style: {
-        marginBottom: 8,
-        border: `1.5px solid ${C.encre}`,
-        background: "#F7F7F2"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        padding: "10px 12px",
-        display: "flex",
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        width: 26,
-        height: 26,
-        flexShrink: 0,
-        background: C.encre,
-        color: C.jaune,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 10,
-        fontWeight: 700
-      }
-    }, initiales((sal === null || sal === void 0 ? void 0 : sal.nom) || "?")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        flex: 1,
-        minWidth: 0
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 13,
-        fontWeight: 700
-      }
-    }, (sal === null || sal === void 0 ? void 0 : sal.nom) || id), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 10,
-        color: C.gris
-      }
-    }, (sal === null || sal === void 0 ? void 0 : sal.poste) || "")), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: FT,
-        fontSize: 16,
-        fontWeight: 800
-      }
-    }, fmtH(calcHeures(h))), /*#__PURE__*/React.createElement("button", {
-      onClick: () => retirerCollegue(id),
-      style: {
-        background: "transparent",
-        border: "none",
-        color: C.orange,
-        fontSize: 16,
-        cursor: "pointer",
-        padding: "0 4px"
-      },
-      title: "Retirer"
-    }, "✕")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        padding: "0 12px 12px"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "repeat(3,1fr)",
-        gap: 6
-      }
-    }, /*#__PURE__*/React.createElement("input", {
-      type: "time",
-      value: h.debut,
-      onChange: e => majCollegue(id, "debut", e.target.value),
-      style: {
-        ...champ,
-        fontSize: 14,
-        padding: "9px 4px",
-        textAlign: "center"
-      }
-    }), /*#__PURE__*/React.createElement("input", {
-      type: "time",
-      value: h.fin,
-      onChange: e => majCollegue(id, "fin", e.target.value),
-      style: {
-        ...champ,
-        fontSize: 14,
-        padding: "9px 4px",
-        textAlign: "center"
-      }
-    }), /*#__PURE__*/React.createElement("input", {
-      type: "number",
-      value: h.pause,
-      min: 0,
-      step: 15,
-      onChange: e => majCollegue(id, "pause", parseInt(e.target.value) || 0),
-      style: {
-        ...champ,
-        fontSize: 14,
-        padding: "9px 4px",
-        textAlign: "center"
-      }
-    })), /*#__PURE__*/React.createElement("div", {
-      onClick: () => majCollegue(id, "deplacement", !h.deplacement),
-      style: {
-        marginTop: 8,
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        fontSize: 11,
-        fontWeight: 700,
-        cursor: "pointer",
-        color: h.deplacement ? C.bleu : C.gris
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        width: 16,
-        height: 16,
-        border: `2px solid ${h.deplacement ? C.bleu : C.gris}`,
-        background: h.deplacement ? C.bleu : "transparent"
-      }
-    }), "🛏 Logé")));
-  }), ajoutCollegue ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 8,
-      padding: "12px",
-      border: `1.5px dashed ${C.encre}`
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    value: rechCollegue,
-    onChange: e => setRechCollegue(e.target.value),
-    placeholder: "🔍 Rechercher un salarié…",
-    style: {
-      ...champ,
-      marginBottom: 8
-    },
-    autoFocus: true
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      maxHeight: 200,
-      overflowY: "auto",
-      border: `1px solid ${C.ligne}`,
-      background: C.papier
-    }
-  }, collegesDisponibles.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "12px",
-      fontSize: 11,
-      color: C.gris,
-      fontStyle: "italic"
-    }
-  }, "Aucun salarié ne correspond.") : collegesDisponibles.map(s => /*#__PURE__*/React.createElement("div", {
-    key: s.id,
-    onClick: () => ajouterCollegue(s.id),
-    style: {
-      padding: "10px 12px",
-      fontSize: 12,
-      cursor: "pointer",
-      borderBottom: `1px solid ${C.ligne}`
-    }
-  }, /*#__PURE__*/React.createElement("b", null, s.nom), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      color: C.gris
-    }
-  }, s.poste)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 8
-    }
-  }, /*#__PURE__*/React.createElement(MBtn, {
-    variant: "ghost",
-    onClick: () => {
-      setAjoutCollegue(false);
-      setRechCollegue("");
-    }
-  }, "FERMER"))) : /*#__PURE__*/React.createElement("button", {
-    onClick: () => setAjoutCollegue(true),
-    style: {
-      width: "100%",
-      padding: "11px",
-      background: "transparent",
-      border: `1.5px dashed ${C.ligne}`,
-      fontFamily: FM,
-      fontSize: 11,
-      color: C.gris,
-      cursor: "pointer"
-    }
-  }, "+ AJOUTER UN SALARIÉ"), collegesPris.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 10,
-      padding: "10px 12px",
-      background: "#FFF8E1",
-      border: `1.5px solid ${C.jaune}`,
-      fontSize: 11.5,
-      lineHeight: 1.6
-    }
-  }, /*#__PURE__*/React.createElement("b", null, "Déjà déclaré(s) ce jour-là"), ", donc absent(s) de la liste :", /*#__PURE__*/React.createElement("br", null), collegesPris.map(s => `${s.nom} (par ${dejaDeclarePar(s.id, date)})`).join(" · "))), "SUIVANT →", "Facultatif : passez si vous étiez seul, ou si chacun déclare ses heures."), blocEtape(6, "MES INTÉRIMAIRES", `Intérimaires : ${resumeInterim}`, true, () => /*#__PURE__*/React.createElement("div", {
+  }, "🛏 Déplacement avec logement")))))), blocEtape(5, "MES INTÉRIMAIRES", `Intérimaires : ${resumeInterim}`, true, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
@@ -10894,6 +10748,29 @@ function VueMobile({
     const actif = !!equipe[i.id];
     const h = equipe[i.id] || {};
     const ag = AGENCES.find(a => a.id === i.agence);
+    // Déjà déclaré ce jour-là : on le montre, mais on ne le propose pas
+    // une seconde fois — il serait payé deux fois.
+    const deja = lignesDuJour(i.id, date);
+    if (deja.length && !actif) return /*#__PURE__*/React.createElement("div", {
+      key: i.id,
+      style: {
+        marginBottom: 8,
+        padding: "12px 14px",
+        border: `1.5px solid ${C.ligne}`,
+        background: C.fond,
+        color: C.gris
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 14,
+        fontWeight: 700
+      }
+    }, i.nom), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        marginTop: 2
+      }
+    }, "✓ Déjà déclaré ce jour-là · ", deja.map(x => `${x.debut}–${x.fin}`).join(", ")));
     return /*#__PURE__*/React.createElement("div", {
       key: i.id,
       style: {
@@ -11065,11 +10942,11 @@ function VueMobile({
       color: C.gris,
       cursor: "pointer"
     }
-  }, "+ NOUVEL INTÉRIMAIRE")), "SUIVANT →", "Facultatif : passez si vous n'aviez pas d'intérimaire."), blocEtape(7, "VÉRIFIER ET ENVOYER", "", true, () => /*#__PURE__*/React.createElement("div", {
+  }, "+ NOUVEL INTÉRIMAIRE")), "SUIVANT →", "Facultatif : passez si vous n'aviez pas d'intérimaire."), blocEtape(6, "VÉRIFIER ET ENVOYER", "", true, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
-  }, [["Date", resumeDate], ["Client", clientChoisi], ["Chantier", chantier ? `${chantier.nom}${chantier.ville && chantier.ville !== "—" ? ` · ${chantier.ville}` : ""}` : "—"], ["Mes heures", resumeHeures], ["Salariés avec moi", resumeCollegues], ["Intérimaires", resumeInterim]].map(([l, v]) => /*#__PURE__*/React.createElement("div", {
+  }, [["Date", resumeDate], ["Client", clientChoisi], ["Chantier", chantier ? `${chantier.nom}${chantier.ville && chantier.ville !== "—" ? ` · ${chantier.ville}` : ""}` : "—"], ["Mes heures", resumeHeures], ["Intérimaires", resumeInterim]].map(([l, v]) => /*#__PURE__*/React.createElement("div", {
     key: l,
     style: {
       display: "flex",
@@ -11106,8 +10983,8 @@ function VueMobile({
     }
   }, erreur), /*#__PURE__*/React.createElement(MBtn, {
     onClick: envoyer,
-    disabled: !!maLigne && Object.keys(collegues).length === 0 && Object.keys(equipe).length === 0
-  }, maLigne ? "✓ ENVOYER MES INTÉRIMAIRES" : "✓ ENVOYER LE RAPPORT"), maLigne && Object.keys(collegues).length === 0 && Object.keys(equipe).length === 0 && /*#__PURE__*/React.createElement("div", {
+    disabled: sautMesHeures && Object.keys(equipe).length === 0
+  }, sautMesHeures ? "✓ ENVOYER MES INTÉRIMAIRES" : "✓ ENVOYER LE RAPPORT"), sautMesHeures && Object.keys(equipe).length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 8,
       fontSize: 11.5,
