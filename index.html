@@ -224,6 +224,17 @@
     }
     .admin-tabs::-webkit-scrollbar { display: none; }
 
+    /* ══ ORDINATEURS DE TAILLE MOYENNE (761 à 1 280 px) ══
+       Portables, écrans zoomés à 125 % : les tableaux de la direction
+       dépassaient, et leurs dernières colonnes (commentaire, état,
+       boutons) étaient coupées. On resserre les marges, sans rien retirer. */
+    @media (min-width: 761px) and (max-width: 1280px) {
+      .vue-direction { padding: 22px 18px !important; }
+      .vue-direction th, .vue-direction td { padding: 10px 8px !important; }
+      .vue-direction .vd-kpis { grid-template-columns: repeat(3, 1fr) !important; }
+      .admin-tabs button { padding: 12px 12px !important; }
+    }
+
     /* ── Print ────────────────────────────────────────── */
     @media print {
       header, footer, .no-print { display: none !important; }
@@ -599,6 +610,8 @@ const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 //  Passé ce délai, seule la direction peut saisir — en connaissance de
 //  cause, avec le chef au téléphone.
 // ============================================================
+const ETAPES = ["Date", "Client", "Adresse du chantier", "Mes heures", "Salariés avec moi", "Mes intérimaires", "Vérifier et envoyer"];
+const ETAPES_MANQUE = ["", "Choisissez le client pour continuer.", "Choisissez l'adresse du chantier pour continuer.", "Indiquez des horaires valables pour continuer.", "", "", ""];
 const JOURS_SAISIE = 6; // aujourd'hui + 5 jours en arrière
 
 /** Date la plus ancienne qu'un chef peut encore saisir. */
@@ -679,7 +692,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v8.6"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v8.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -3828,108 +3841,105 @@ function OngletPointages({
     style: {
       color: C.gris
     }
-  }, "Utilisez les flèches ou le calendrier ci-dessus pour changer de date.")) : /*#__PURE__*/React.createElement(TableWrap, null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement(Th, null, "Date"), /*#__PURE__*/React.createElement(Th, null, "Personne"), /*#__PURE__*/React.createElement(Th, null, "Statut"), /*#__PURE__*/React.createElement(Th, null, "Chantier"), /*#__PURE__*/React.createElement(Th, {
+  }, "Utilisez les flèches ou le calendrier ci-dessus pour changer de date.")) : /*#__PURE__*/React.createElement(TableWrap, null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement(Th, null, "Personne"), /*#__PURE__*/React.createElement(Th, null, "Chantier"), /*#__PURE__*/React.createElement(Th, null, "Horaires"), /*#__PURE__*/React.createElement(Th, {
     r: true
-  }, "Début"), /*#__PURE__*/React.createElement(Th, {
-    r: true
-  }, "Fin"), /*#__PURE__*/React.createElement(Th, {
-    r: true
-  }, "Pause"), /*#__PURE__*/React.createElement(Th, {
-    r: true
-  }, "Total"), /*#__PURE__*/React.createElement(Th, {
-    r: true
-  }, "H.Nuit"), /*#__PURE__*/React.createElement(Th, {
-    r: true
-  }, "H.100%"), /*#__PURE__*/React.createElement(Th, null, "Logé"), /*#__PURE__*/React.createElement(Th, null, "Commentaire"), /*#__PURE__*/React.createElement(Th, null, "État RH"), /*#__PURE__*/React.createElement(Th, null))), /*#__PURE__*/React.createElement("tbody", null, liste.map(p => {
+  }, "Total"), /*#__PURE__*/React.createElement(Th, null, "Majorations"), /*#__PURE__*/React.createElement(Th, null, "Logé"), /*#__PURE__*/React.createElement(Th, null, "Commentaire"), /*#__PURE__*/React.createElement(Th, null, "État RH"), /*#__PURE__*/React.createElement(Th, null))), /*#__PURE__*/React.createElement("tbody", null, liste.map(p => {
     const pers = trouver(p.salarie);
     const ch = chantiers.find(c => c.id === p.chantier);
     const ag = p.interim ? AGENCES.find(a => a.id === (pers === null || pers === void 0 ? void 0 : pers.agence)) : null;
-    const dateCourte = p.date ? new Date(p.date + "T00:00:00").toLocaleDateString("fr-FR", {
-      weekday: "short",
-      day: "numeric",
-      month: "short"
-    }) : "—";
     const hTot = calcHeures(p);
     const hNuit = calcHNuit(p);
+    const h100 = calcH100(p);
     const enEdition = editId === p.id;
     const hEdit = enEdition ? calcHeures({
       ...p,
       ...editData
     }) : hTot;
+    const pastille = {
+      fontSize: 10,
+      padding: "2px 7px",
+      fontWeight: 700,
+      whiteSpace: "nowrap"
+    };
     return /*#__PURE__*/React.createElement("tr", {
       key: p.id,
       style: {
         borderBottom: `1px solid ${C.ligne}`,
-        background: hTot > 10 ? "#FFF8F8" : enEdition ? "#FFFDE7" : "transparent"
+        background: hTot > 10 ? "#FFF8F8" : enEdition ? "#FFFDE7" : "transparent",
+        verticalAlign: "top"
       }
-    }, /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("input", {
+    }, /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        minWidth: 150
+      }
+    }, /*#__PURE__*/React.createElement("select", {
+      value: editData.salarie,
+      onChange: e => setEditData({
+        ...editData,
+        salarie: e.target.value
+      }),
+      style: iStyle
+    }, tousGens.map(x => /*#__PURE__*/React.createElement("option", {
+      key: x.id,
+      value: x.id
+    }, x.nom, " (", x._t, ")"))), /*#__PURE__*/React.createElement("input", {
       type: "date",
       value: editData.date,
       onChange: e => setEditData({
         ...editData,
         date: e.target.value
       }),
+      style: iStyle
+    })) : /*#__PURE__*/React.createElement("div", {
       style: {
-        ...iStyle,
-        width: 140
+        minWidth: 150
       }
-    }) : /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 11,
-        fontWeight: 500
-      }
-    }, dateCourte), p.modifiePar === "RH" && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 9,
-        color: C.gris,
-        marginTop: 2
-      }
-    }, "✎ Modifié RH"), p.modifiePar && p.modifiePar !== "RH" && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 9,
-        color: C.orange,
-        fontWeight: 700,
-        marginTop: 2
-      },
-      title: p.modifieLe ? `le ${String(p.modifieLe).slice(0, 10).split("-").reverse().join("/")}` : ""
-    }, "✎ Rectifié par ", (trouver(p.modifiePar) || {}).nom || p.modifiePar)), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("select", {
-      value: editData.salarie,
-      onChange: e => setEditData({
-        ...editData,
-        salarie: e.target.value
-      }),
-      style: {
-        ...iStyle,
-        width: 190
-      }
-    }, tousGens.map(x => /*#__PURE__*/React.createElement("option", {
-      key: x.id,
-      value: x.id
-    }, x.nom, " (", x._t, ")"))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", {
+    }, /*#__PURE__*/React.createElement("b", {
       style: {
         fontSize: 13
       }
-    }, (pers === null || pers === void 0 ? void 0 : pers.nom) || p.salarie), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    }, (pers === null || pers === void 0 ? void 0 : pers.nom) || p.salarie), /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 11,
-        color: C.gris
+        marginTop: 4,
+        display: "flex",
+        gap: 6,
+        flexWrap: "wrap",
+        alignItems: "center"
       }
-    }, (pers === null || pers === void 0 ? void 0 : pers.poste) || "—", p.chefNom ? ` · Chef: ${p.chefNom}` : ""))), /*#__PURE__*/React.createElement(Td, null, p.interim ? /*#__PURE__*/React.createElement("span", {
+    }, p.interim ? /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: 10,
-        padding: "3px 8px",
+        ...pastille,
         color: "#fff",
-        fontWeight: 700,
-        background: ag === null || ag === void 0 ? void 0 : ag.couleur
+        background: (ag === null || ag === void 0 ? void 0 : ag.couleur) || C.bleu
       }
     }, (ag === null || ag === void 0 ? void 0 : ag.nom) || "INTÉRIM") : /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: 10,
-        padding: "3px 8px",
-        fontWeight: 700,
+        ...pastille,
         border: `1px solid ${C.encre}`
       }
-    }, "INTERNE")), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("select", {
+    }, "INTERNE"), p.chefNom && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10.5,
+        color: C.gris
+      }
+    }, "saisi par ", p.chefNom)), p.modifiePar === "RH" && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: C.gris,
+        marginTop: 3
+      }
+    }, "✎ Modifié par la direction"), p.modifiePar && p.modifiePar !== "RH" && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: C.orange,
+        fontWeight: 700,
+        marginTop: 3
+      },
+      title: p.modifieLe ? `le ${String(p.modifieLe).slice(0, 10).split("-").reverse().join("/")}` : ""
+    }, "✎ Rectifié par ", (trouver(p.modifiePar) || {}).nom || p.modifiePar))), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("select", {
       value: editData.chantier,
       onChange: e => setEditData({
         ...editData,
@@ -3937,22 +3947,45 @@ function OngletPointages({
       }),
       style: {
         ...iStyle,
-        width: 200
+        minWidth: 150
       }
     }, chantiers.map(c => /*#__PURE__*/React.createElement("option", {
       key: c.id,
       value: c.id
-    }, libelleChantier(c)))) : ch ? /*#__PURE__*/React.createElement("span", {
+    }, libelleChantier(c)))) : ch ? /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 11,
-        padding: "3px 8px",
-        fontWeight: 700,
-        background: ch.couleur,
-        color: ch.couleur === "#F5C518" ? "#0A0A0A" : "#fff"
+        minWidth: 140,
+        maxWidth: 240,
+        borderLeft: `4px solid ${ch.couleur}`,
+        paddingLeft: 8
       }
-    }, libelleChantier(ch)) : "—"), /*#__PURE__*/React.createElement(Td, {
-      r: true
-    }, enEdition ? /*#__PURE__*/React.createElement("input", {
+    }, clientDe(ch) && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: "0.06em",
+        color: C.gris,
+        textTransform: "uppercase"
+      }
+    }, clientDe(ch)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12.5,
+        fontWeight: 700,
+        lineHeight: 1.35
+      }
+    }, ch.nom), ch.ville && ch.ville !== "—" && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10.5,
+        color: C.gris
+      }
+    }, ch.ville)) : "—"), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 6,
+        minWidth: 136
+      }
+    }, /*#__PURE__*/React.createElement("input", {
       type: "time",
       value: editData.debut,
       onChange: e => setEditData({
@@ -3961,12 +3994,9 @@ function OngletPointages({
       }),
       style: {
         ...iStyle,
-        width: 90,
         textAlign: "center"
       }
-    }) : p.debut), /*#__PURE__*/React.createElement(Td, {
-      r: true
-    }, enEdition ? /*#__PURE__*/React.createElement("input", {
+    }), /*#__PURE__*/React.createElement("input", {
       type: "time",
       value: editData.fin,
       onChange: e => setEditData({
@@ -3975,12 +4005,17 @@ function OngletPointages({
       }),
       style: {
         ...iStyle,
-        width: 90,
         textAlign: "center"
       }
-    }) : p.fin), /*#__PURE__*/React.createElement(Td, {
-      r: true
-    }, enEdition ? /*#__PURE__*/React.createElement("input", {
+    }), /*#__PURE__*/React.createElement("label", {
+      style: {
+        gridColumn: "1 / 3",
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 11
+      }
+    }, "Pause", /*#__PURE__*/React.createElement("input", {
       type: "number",
       value: editData.pause,
       onChange: e => setEditData({
@@ -3992,41 +4027,50 @@ function OngletPointages({
         width: 70,
         textAlign: "center"
       }
-    }) : `${p.pause}min`), /*#__PURE__*/React.createElement(Td, {
+    }), " min")) : /*#__PURE__*/React.createElement("div", {
+      style: {
+        whiteSpace: "nowrap",
+        fontFamily: FM,
+        fontSize: 13
+      }
+    }, p.debut, " – ", p.fin, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10.5,
+        color: C.gris,
+        marginTop: 2
+      }
+    }, "pause ", p.pause, " min"))), /*#__PURE__*/React.createElement(Td, {
       r: true
     }, /*#__PURE__*/React.createElement("b", {
       style: {
-        color: hEdit > 10 ? C.orange : "inherit"
+        fontSize: 14,
+        color: hEdit > 10 ? C.orange : "inherit",
+        whiteSpace: "nowrap"
       }
-    }, fmtH(enEdition ? hEdit : hTot))), /*#__PURE__*/React.createElement(Td, {
-      r: true
-    }, hNuit > 0 ? /*#__PURE__*/React.createElement("span", {
+    }, fmtH(enEdition ? hEdit : hTot))), /*#__PURE__*/React.createElement(Td, null, hNuit > 0 || h100 > 0 ? /*#__PURE__*/React.createElement("div", {
       style: {
-        color: "#6C3483",
-        fontWeight: 700,
-        fontSize: 11
+        display: "flex",
+        flexDirection: "column",
+        gap: 3
       }
-    }, fmtH(hNuit)) : /*#__PURE__*/React.createElement("span", {
+    }, hNuit > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...pastille,
+        color: "#6C3483",
+        border: "1px solid #6C3483"
+      }
+    }, "Nuit ", fmtH(hNuit)), h100 > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...pastille,
+        color: "#C0392B",
+        border: "1px solid #C0392B"
+      },
+      title: nomFerie(p.date) || "Dimanche"
+    }, "100 % ", fmtH(h100))) : /*#__PURE__*/React.createElement("span", {
       style: {
         color: C.ligne
       }
-    }, "—")), /*#__PURE__*/React.createElement(Td, {
-      r: true
-    }, (() => {
-      const h100 = calcH100(p);
-      return h100 > 0 ? /*#__PURE__*/React.createElement("span", {
-        style: {
-          color: "#C0392B",
-          fontWeight: 700,
-          fontSize: 11
-        },
-        title: nomFerie(p.date) || "Dimanche"
-      }, fmtH(h100)) : /*#__PURE__*/React.createElement("span", {
-        style: {
-          color: C.ligne
-        }
-      }, "—");
-    })()), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("label", {
+    }, "—")), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("label", {
       style: {
         display: "flex",
         alignItems: "center",
@@ -4044,9 +4088,7 @@ function OngletPointages({
       })
     }), "🛏") : p.deplacement ? /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: 10,
-        padding: "3px 8px",
-        fontWeight: 700,
+        ...pastille,
         color: "#fff",
         background: C.bleu
       },
@@ -4065,13 +4107,18 @@ function OngletPointages({
       rows: 2,
       style: {
         ...iStyle,
-        width: 160,
+        minWidth: 100,
         resize: "vertical",
         fontSize: 11
       }
-    }) : /*#__PURE__*/React.createElement(React.Fragment, null, p.commentaire ? /*#__PURE__*/React.createElement("span", {
+    }) : /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 10,
+        minWidth: 100,
+        maxWidth: 220
+      }
+    }, p.commentaire ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
         color: "#6C3483",
         fontStyle: "italic"
       }
@@ -4083,7 +4130,7 @@ function OngletPointages({
     }, "—"), p.motifEcart && /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: p.commentaire ? 4 : 0,
-        fontSize: 10,
+        fontSize: 11,
         color: C.orange,
         fontWeight: 600,
         lineHeight: 1.4
@@ -4092,13 +4139,15 @@ function OngletPointages({
       style: {
         color: C.vert,
         fontSize: 11,
-        fontWeight: 700
+        fontWeight: 700,
+        whiteSpace: "nowrap"
       }
     }, "● VALIDÉ") : /*#__PURE__*/React.createElement("span", {
       style: {
         color: C.orange,
         fontSize: 11,
-        fontWeight: 700
+        fontWeight: 700,
+        whiteSpace: "nowrap"
       }
     }, "● ATTENTE")), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("div", {
       style: {
@@ -4115,21 +4164,28 @@ function OngletPointages({
     }, "ANNULER")) : /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
-        gap: 6
+        gap: 6,
+        justifyContent: "flex-end",
+        flexWrap: "wrap",
+        maxWidth: 110,
+        marginLeft: "auto"
       }
     }, /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
-      onClick: () => ouvrirEdit(p)
+      onClick: () => ouvrirEdit(p),
+      title: "Modifier"
     }, "✎"), p.valide ? /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
       onClick: () => devalider(p.id),
       title: "Revenir sur la validation"
     }, "↺") : /*#__PURE__*/React.createElement(Btn, {
       variant: "mini",
-      onClick: () => valider(p.id)
+      onClick: () => valider(p.id),
+      title: "Valider"
     }, "✓"), /*#__PURE__*/React.createElement(Btn, {
       variant: "danger-mini",
-      onClick: () => supprPointage(p.id)
+      onClick: () => supprPointage(p.id),
+      title: "Supprimer"
     }, "✕"))));
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -8855,6 +8911,39 @@ function VueMobile({
   };
   const chantiersActifs = chantiers.filter(c => c.actif !== false);
 
+  // ---- ÉTAPES ----
+  const [etape, setEtape] = useState(1);
+  const premierAffichage = useRef(true);
+  useEffect(() => {
+    if (premierAffichage.current) {
+      premierAffichage.current = false;
+      return;
+    }
+    const el = document.getElementById(`etape-${etape}`);
+    if (el) el.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  }, [etape]);
+  // Le client choisi à l'étape 2. Repris du dernier chantier utilisé.
+  const [clientChoisi, setClientChoisi] = useState(() => {
+    const c = chantiers.find(x => x.id === memoire.chantierId);
+    return c ? clientDe(c) : "";
+  });
+  const [clientAutreOuvert, setClientAutreOuvert] = useState(false);
+  const [rechClient, setRechClient] = useState("");
+  const [autresClients, setAutresClients] = useState(false);
+  const choisirClientEtape = c => {
+    setClientChoisi(c);
+    // Un chantier d'un autre client ne peut pas rester choisi.
+    const ch = chantiers.find(x => x.id === chantierId);
+    if (ch && clientDe(ch) !== c) setChantier("");
+  };
+  const donnerClient = (id, client) => setChantiers(chantiers.map(c => c.id === id ? {
+    ...c,
+    client
+  } : c));
+
   // ---- LISTES ALLÉGÉES ----
   // Chaque chef retire de SES listes les clients et chantiers qui ne le
   // concernent plus. Rien n'est effacé du serveur : la liste des autres chefs
@@ -8877,6 +8966,12 @@ function VueMobile({
   };
   const [gererChantiers, setGererChantiers] = useState(false);
   const [gererClients, setGererClients] = useState(false);
+  const clientsVisibles = [...new Set(chantiersActifs.map(clientDe).filter(Boolean))].filter(c => !(masques.clients || []).includes(c) || c === clientChoisi).sort((a, b) => a.localeCompare(b));
+  const visibleChef = c => !(masques.chantiers || []).includes(c.id) || c.id === chantierId;
+  const parAdresse = (a, b) => (a.nom || "").localeCompare(b.nom || "");
+  const chantiersDuClient = chantiersActifs.filter(c => clientDe(c) === clientChoisi && visibleChef(c)).sort(parAdresse);
+  const chantiersSansClient = chantiersActifs.filter(c => !clientDe(c) && visibleChef(c)).sort(parAdresse);
+  const chantiersAutresClients = chantiersActifs.filter(c => clientDe(c) && clientDe(c) !== clientChoisi && visibleChef(c)).sort((a, b) => libelleChantier(a).localeCompare(libelleChantier(b)));
   const chantiersVisibles = chantiersActifs.filter(c => !(masques.chantiers || []).includes(c.id) || c.id === chantierId).sort((a, b) => libelleChantier(a).localeCompare(libelleChantier(b)));
   const chantier = chantiers.find(c => c.id === chantierId);
 
@@ -8984,9 +9079,9 @@ function VueMobile({
   const [errChantier, setErrChantier] = useState("");
   const creerChantier = () => {
     if (nomChantier.trim().length < 2) return;
-    const client = (clientChantier === "__autre__" ? clientAutre : clientChantier).trim();
+    const client = clientChoisi.trim();
     if (client.length < 2) {
-      setErrChantier("Choisissez d'abord le client, dans la case Client juste en dessous.");
+      setErrChantier("Choisissez d'abord le client (étape 2).");
       return;
     }
     setErrChantier("");
@@ -9142,6 +9237,7 @@ function VueMobile({
     setDepl(false);
     setDate(auj);
     setErreur("");
+    setEtape(1);
   };
 
   /* ---- MON récapitulatif : MES heures, et rien d'autre ----
@@ -9330,6 +9426,180 @@ function VueMobile({
     background: C.papier,
     border: `1.5px solid ${C.encre}`,
     marginBottom: 14
+  };
+
+  // ---------- AIDES DE LA SAISIE PAR ÉTAPES ----------
+  const resumeDate = (() => {
+    const t = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long"
+    });
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  })();
+  const resumeHeures = maLigne ? `Déjà saisie par ${maLigne.chefNom || "un collègue"} · ${maLigne.debut}–${maLigne.fin}` : `${debut}–${fin} · pause ${pause} min · ${fmtH(mesHeures)}${deplacement ? " · logé" : ""}`;
+  // « BAKAYOKO Moussa (09:30–16:00) » : chacun avec SES horaires, pour que
+  // le chef relise tout avant d'envoyer.
+  const avecHoraires = (saisies, liste) => Object.entries(saisies).map(([id, h]) => `${(liste.find(x => x.id === id) || {}).nom || id} (${h.debut}–${h.fin})`).join(", ");
+  const resumeCollegues = Object.keys(collegues).length ? avecHoraires(collegues, salaries) : "Aucun";
+  const resumeInterim = Object.keys(equipe).length ? avecHoraires(equipe, interimaires) : "Aucun";
+
+  // Une ligne à toucher, pour choisir un client ou un chantier. Plus lisible
+  // qu'un menu déroulant, qui coupait les noms longs.
+  const ligneChoix = (cle, libelle, choisi, onChoisir) => /*#__PURE__*/React.createElement("div", {
+    key: cle,
+    onClick: onChoisir,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "12px",
+      marginBottom: 6,
+      cursor: "pointer",
+      background: choisi ? C.encre : "#fff",
+      color: choisi ? C.jaune : C.encre,
+      border: `1.5px solid ${choisi ? C.encre : C.ligne}`
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      fontSize: 13,
+      fontWeight: 700,
+      overflowWrap: "anywhere"
+    }
+  }, libelle), choisi && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 16
+    }
+  }, "✓"));
+
+  /* Une étape : faite (résumé + « modifier »), en cours (ouverte), ou à venir
+     (verrouillée). Fonction et non composant : un composant déclaré ici
+     serait recréé à chaque frappe, et le champ en cours perdrait le focus. */
+  const blocEtape = (n, titre, resume, rempli, contenu, libelleSuivant = "SUIVANT →", aide = "") => {
+    if (etape > n) return /*#__PURE__*/React.createElement("div", {
+      key: n,
+      onClick: () => setEtape(n),
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "11px 12px",
+        marginBottom: 8,
+        background: C.papier,
+        border: `1.5px solid ${C.ligne}`,
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 22,
+        height: 22,
+        flexShrink: 0,
+        background: C.vert,
+        color: "#fff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 13,
+        fontWeight: 700
+      }
+    }, "✓"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        fontSize: 12.5,
+        fontWeight: 700,
+        overflowWrap: "anywhere"
+      }
+    }, resume || titre), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: C.gris,
+        textDecoration: "underline",
+        flexShrink: 0
+      }
+    }, "modifier"));
+    if (etape < n) return /*#__PURE__*/React.createElement("div", {
+      key: n,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "11px 12px",
+        marginBottom: 8,
+        border: `1.5px dashed ${C.ligne}`,
+        color: "#A8A398",
+        fontSize: 12.5
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 22,
+        height: 22,
+        flexShrink: 0,
+        border: `1.5px solid ${C.ligne}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 11
+      }
+    }, n), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1
+      }
+    }, ETAPES[n - 1]), /*#__PURE__*/React.createElement("span", null, "🔒"));
+    return /*#__PURE__*/React.createElement("div", {
+      key: n,
+      id: `etape-${n}`,
+      style: {
+        ...boiteStyle,
+        border: `2px solid ${C.encre}`,
+        scrollMarginTop: 10
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: C.jaune,
+        padding: "10px 16px",
+        fontFamily: FM,
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: "0.1em"
+      }
+    }, n, " / ", ETAPES.length, " · ", titre), contenu(), libelleSuivant && /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "0 16px 16px"
+      }
+    }, aide && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: C.gris,
+        marginBottom: 8,
+        lineHeight: 1.5
+      }
+    }, aide), /*#__PURE__*/React.createElement(MBtn, {
+      onClick: () => {
+        if (rempli) setEtape(n + 1);
+      },
+      disabled: !rempli
+    }, libelleSuivant), !rempli && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 6,
+        fontSize: 11,
+        color: C.orange,
+        fontWeight: 700
+      }
+    }, ETAPES_MANQUE[n - 1]), n > 1 && /*#__PURE__*/React.createElement("button", {
+      onClick: () => setEtape(n - 1),
+      style: {
+        marginTop: 8,
+        width: "100%",
+        padding: "9px",
+        background: "transparent",
+        border: "none",
+        fontFamily: FM,
+        fontSize: 11,
+        color: C.gris,
+        cursor: "pointer"
+      }
+    }, "← Étape précédente")));
   };
   const titreBoite = {
     fontFamily: FM,
@@ -9678,10 +9948,19 @@ function VueMobile({
       fontWeight: 600
     }
   }, "Aucune heure déclarée sur cette période."))), /*#__PURE__*/React.createElement("div", {
-    style: boiteStyle
-  }, /*#__PURE__*/React.createElement("div", {
-    style: titreBoite
-  }, "DATE DU RAPPORT"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 3,
+      margin: "6px 0 12px"
+    }
+  }, ETAPES.map((_, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      flex: 1,
+      height: 5,
+      background: i < etape ? C.encre : C.ligne
+    }
+  }))), blocEtape(1, "DATE DU RAPPORT", resumeDate, true, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
@@ -9759,40 +10038,119 @@ function VueMobile({
       color: C.encre,
       fontWeight: 700
     }
-  }, nomFerie(date).toUpperCase(), " — jour férié"))), /*#__PURE__*/React.createElement("div", {
-    style: boiteStyle
-  }, /*#__PURE__*/React.createElement("div", {
-    style: titreBoite
-  }, "CHANTIER"), /*#__PURE__*/React.createElement("div", {
+  }, nomFerie(date).toUpperCase(), " — jour férié"))), blocEtape(2, "CLIENT", clientChoisi ? `Client : ${clientChoisi}` : "", clientChoisi.length >= 2, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
-  }, !nouveauChantier ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("select", {
-    value: chantierId,
-    onChange: e => setChantier(e.target.value),
-    style: champ
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "— Choisir le chantier —"), chantiersVisibles.map(c => /*#__PURE__*/React.createElement("option", {
-    key: c.id,
-    value: c.id
-  }, libelleChantier(c, true)))), chantier && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, clientsVisibles.length > 8 && /*#__PURE__*/React.createElement("input", {
+    value: rechClient,
+    onChange: e => setRechClient(e.target.value),
+    placeholder: "🔍 Rechercher un client",
     style: {
-      marginTop: 10,
-      padding: "8px 12px",
-      background: chantier.couleur,
-      color: chantier.couleur === "#F5C518" ? "#0A0A0A" : "#fff",
+      ...champ,
+      marginBottom: 8
+    }
+  }), clientsVisibles.filter(c => !rechClient.trim() || c.toLowerCase().includes(rechClient.trim().toLowerCase())).map(c => ligneChoix(c, c, clientChoisi === c, () => choisirClientEtape(c))), clientAutreOuvert ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 6,
+      padding: 10,
+      border: `1.5px dashed ${C.encre}`
+    }
+  }, /*#__PURE__*/React.createElement("textarea", {
+    value: clientAutre,
+    onChange: e => setClientAutre(e.target.value.replace(/\n/g, " ")),
+    placeholder: "Nom du nouveau client",
+    rows: 2,
+    autoFocus: true,
+    style: {
+      ...champ,
+      marginBottom: 8,
+      resize: "none",
+      lineHeight: 1.4,
+      fontFamily: "inherit"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(MBtn, {
+    onClick: () => {
+      if (clientAutre.trim().length < 2) return;
+      choisirClientEtape(clientAutre.trim());
+      setClientAutreOuvert(false);
+    },
+    disabled: clientAutre.trim().length < 2
+  }, "✓ VALIDER"), /*#__PURE__*/React.createElement(MBtn, {
+    variant: "ghost",
+    onClick: () => {
+      setClientAutreOuvert(false);
+      setClientAutre("");
+    }
+  }, "ANNULER"))) : /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setClientAutreOuvert(true);
+      setClientAutre("");
+    },
+    style: {
+      marginTop: 4,
+      width: "100%",
+      padding: "11px",
+      background: "transparent",
+      border: `1.5px dashed ${C.ligne}`,
+      fontFamily: FM,
+      fontSize: 11,
+      color: C.gris,
+      cursor: "pointer"
+    }
+  }, "+ AUTRE CLIENT"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setGererClients(!gererClients),
+    style: {
+      marginTop: 6,
+      width: "100%",
+      padding: "9px",
+      background: "transparent",
+      border: "none",
+      fontFamily: FM,
+      fontSize: 11,
+      color: C.gris,
+      cursor: "pointer",
+      textDecoration: "underline"
+    }
+  }, gererClients ? "Fermer" : `Alléger ma liste de clients${(masques.clients || []).length ? ` (${masques.clients.length} retiré${masques.clients.length > 1 ? "s" : ""})` : ""}`), gererClients && /*#__PURE__*/React.createElement(ListeAllegee, {
+    elements: tousClients.map(c => ({
+      cle: c,
+      libelle: c
+    })),
+    retires: masques.clients || [],
+    onBasculer: cle => basculerMasque("clients", cle)
+  }))), blocEtape(3, "ADRESSE DU CHANTIER", chantier ? `${chantier.nom}${chantier.ville && chantier.ville !== "—" ? ` · ${chantier.ville}` : ""}` : "", !!chantier && clientDe(chantier) === clientChoisi, () => /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 16px 16px"
+    }
+  }, !nouveauChantier ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.gris,
+      marginBottom: 6
+    }
+  }, "Chantiers ", /*#__PURE__*/React.createElement("b", null, clientChoisi), " :"), chantiersDuClient.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
       fontSize: 12,
-      fontWeight: 700
+      color: C.gris,
+      fontStyle: "italic",
+      marginBottom: 6
     }
-  }, clientDe(chantier) && /*#__PURE__*/React.createElement("div", {
+  }, "Aucun chantier enregistré pour ce client."), chantiersDuClient.map(c => ligneChoix(c.id, `${c.nom}${c.ville && c.ville !== "—" ? ` · ${c.ville}` : ""}`, chantierId === c.id, () => setChantier(c.id))), chantiersSansClient.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 10,
-      letterSpacing: "0.08em",
-      marginBottom: 2,
-      opacity: .9
+      fontSize: 11,
+      color: C.gris,
+      margin: "10px 0 6px"
     }
-  }, clientDe(chantier).toUpperCase()), "📍 ", chantier.nom, chantier.ville && chantier.ville !== "—" ? ` — ${chantier.ville}` : ""), /*#__PURE__*/React.createElement("a", {
+  }, "Chantiers sans client (ils seront rangés chez ", /*#__PURE__*/React.createElement("b", null, clientChoisi), ") :"), chantiersSansClient.map(c => ligneChoix(c.id, `${c.nom}${c.ville && c.ville !== "—" ? ` · ${c.ville}` : ""}`, false, () => {
+    donnerClient(c.id, clientChoisi);
+    setChantier(c.id);
+  }))), chantier && clientDe(chantier) === clientChoisi && /*#__PURE__*/React.createElement("a", {
     href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([chantier.nom, chantier.ville].filter(v => v && v !== "—").join(" "))}`,
     target: "_blank",
     rel: "noopener noreferrer",
@@ -9808,7 +10166,7 @@ function VueMobile({
       textDecoration: "none",
       fontWeight: 700
     }
-  }, "🗺 ITINÉRAIRE GOOGLE MAPS")), /*#__PURE__*/React.createElement("button", {
+  }, "🗺 ITINÉRAIRE GOOGLE MAPS"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setNouveauChantier(true),
     style: {
       marginTop: 10,
@@ -9821,7 +10179,26 @@ function VueMobile({
       color: C.gris,
       cursor: "pointer"
     }
-  }, "+ NOUVEAU CHANTIER"), /*#__PURE__*/React.createElement("button", {
+  }, "+ NOUVELLE ADRESSE POUR ", clientChoisi.toUpperCase()), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setAutresClients(!autresClients),
+    style: {
+      marginTop: 6,
+      width: "100%",
+      padding: "9px",
+      background: "transparent",
+      border: "none",
+      fontFamily: FM,
+      fontSize: 11,
+      color: C.gris,
+      cursor: "pointer",
+      textDecoration: "underline"
+    }
+  }, autresClients ? "Masquer les autres clients" : "Le chantier est enregistré chez un autre client ?"), autresClients && chantiersAutresClients.map(c => ligneChoix(c.id, libelleChantier(c, true), false, () => {
+    if (!window.confirm(`Ce chantier est enregistré chez « ${clientDe(c)} ».\n\nLe passer chez « ${clientChoisi} » ? Le changement vaut pour tout le monde.`)) return;
+    donnerClient(c.id, clientChoisi);
+    setChantier(c.id);
+    setAutresClients(false);
+  })), /*#__PURE__*/React.createElement("button", {
     onClick: () => setGererChantiers(!gererChantiers),
     style: {
       marginTop: 6,
@@ -9843,6 +10220,12 @@ function VueMobile({
     retires: masques.chantiers || [],
     onBasculer: cle => basculerMasque("chantiers", cle)
   })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: C.gris,
+      marginBottom: 8
+    }
+  }, "Nouvelle adresse pour ", /*#__PURE__*/React.createElement("b", null, clientChoisi)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 9,
       color: C.gris,
@@ -9928,93 +10311,11 @@ function VueMobile({
       fontWeight: 700,
       color: C.orange
     }
-  }, errChantier)))), (chantier || nouveauChantier) && /*#__PURE__*/React.createElement("div", {
-    style: boiteStyle
-  }, /*#__PURE__*/React.createElement("div", {
-    style: titreBoite
-  }, "CLIENT ", /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.orange
-    }
-  }, "*")), /*#__PURE__*/React.createElement("div", {
+  }, errChantier)))), blocEtape(4, maLigne ? "MA JOURNÉE" : "MES HEURES", `Mes heures : ${resumeHeures}`, !!maLigne || mesHeures > 0, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
-  }, (() => {
-    const valeur = nouveauChantier ? clientChantier : clientLibre ? "__autre__" : clientDuChantier;
-    const visibles = tousClients.filter(c => !(masques.clients || []).includes(c));
-    const liste = clientDuChantier && !visibles.includes(clientDuChantier) ? [clientDuChantier, ...visibles] : visibles;
-    const libre = nouveauChantier ? clientChantier === "__autre__" : clientLibre;
-    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("select", {
-      value: valeur,
-      onChange: e => choisirClient(e.target.value),
-      style: {
-        ...champ,
-        marginBottom: libre ? 8 : 0
-      }
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "— Choisir le client —"), liste.map(c => /*#__PURE__*/React.createElement("option", {
-      key: c,
-      value: c
-    }, c)), /*#__PURE__*/React.createElement("option", {
-      value: "__autre__"
-    }, "+ Autre client…")), libre && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("textarea", {
-      value: clientAutre,
-      onChange: e => setClientAutre(e.target.value.replace(/\n/g, " ")),
-      placeholder: "Nom du client",
-      rows: 2,
-      autoFocus: true,
-      style: {
-        ...champ,
-        marginBottom: 8,
-        resize: "none",
-        lineHeight: 1.4,
-        fontFamily: "inherit"
-      }
-    }), !nouveauChantier && /*#__PURE__*/React.createElement(MBtn, {
-      onClick: () => {
-        if (clientAutre.trim().length < 2) return;
-        appliquerClient(clientAutre);
-        setClientLibre(false);
-      }
-    }, "✓ VALIDER CE CLIENT")), !libre && valeur && valeur !== "__autre__" && /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 8,
-        fontSize: 13,
-        fontWeight: 700,
-        overflowWrap: "anywhere"
-      }
-    }, valeur), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: !nouveauChantier && !clientDuChantier ? C.orange : C.gris,
-        marginTop: 8,
-        fontWeight: !nouveauChantier && !clientDuChantier ? 700 : 400
-      }
-    }, nouveauChantier ? "Obligatoire. Il sera rangé avec le chantier à sa création." : clientDuChantier ? "Repris du chantier. Vous pouvez le corriger." : "Obligatoire : indiquez le client de ce chantier."), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setGererClients(!gererClients),
-      style: {
-        marginTop: 6,
-        width: "100%",
-        padding: "9px",
-        background: "transparent",
-        border: "none",
-        fontFamily: FM,
-        fontSize: 11,
-        color: C.gris,
-        cursor: "pointer",
-        textDecoration: "underline"
-      }
-    }, gererClients ? "Fermer" : `Alléger ma liste de clients${(masques.clients || []).length ? ` (${masques.clients.length} retiré${masques.clients.length > 1 ? "s" : ""})` : ""}`), gererClients && /*#__PURE__*/React.createElement(ListeAllegee, {
-      elements: tousClients.map(c => ({
-        cle: c,
-        libelle: c
-      })),
-      retires: masques.clients || [],
-      onBasculer: cle => basculerMasque("clients", cle)
-    }));
-  })())), maLigne ? /*#__PURE__*/React.createElement("div", {
+  }, maLigne ? /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       borderWidth: 2,
@@ -10260,21 +10561,7 @@ function VueMobile({
       fontSize: 11.5,
       color: C.gris
     }
-  }, "Choisissez une raison : sans elle, la direction ne peut pas savoir laquelle des deux feuilles est la bonne.")))) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...boiteStyle,
-      borderWidth: 2
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...titreBoite,
-      color: C.encre
-    }
-  }, "MES HEURES"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "10px 16px 16px"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, "Choisissez une raison : sans elle, la direction ne peut pas savoir laquelle des deux feuilles est la bonne.")))) : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr 1fr",
@@ -10384,11 +10671,7 @@ function VueMobile({
       fontSize: 12,
       fontWeight: 700
     }
-  }, "🛏 Déplacement avec logement")))), /*#__PURE__*/React.createElement("div", {
-    style: boiteStyle
-  }, /*#__PURE__*/React.createElement("div", {
-    style: titreBoite
-  }, "SALARIÉS AVEC MOI ", Object.keys(collegues).length > 0 ? `· ${Object.keys(collegues).length}` : ""), /*#__PURE__*/React.createElement("div", {
+  }, "🛏 Déplacement avec logement")))))), blocEtape(5, "SALARIÉS AVEC MOI", `Salariés avec moi : ${resumeCollegues}`, true, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
@@ -10596,11 +10879,7 @@ function VueMobile({
       fontSize: 11.5,
       lineHeight: 1.6
     }
-  }, /*#__PURE__*/React.createElement("b", null, "Déjà déclaré(s) ce jour-là"), ", donc absent(s) de la liste :", /*#__PURE__*/React.createElement("br", null), collegesPris.map(s => `${s.nom} (par ${dejaDeclarePar(s.id, date)})`).join(" · ")))), /*#__PURE__*/React.createElement("div", {
-    style: boiteStyle
-  }, /*#__PURE__*/React.createElement("div", {
-    style: titreBoite
-  }, "MES INTÉRIMAIRES ", Object.keys(equipe).length > 0 ? `· ${Object.keys(equipe).length} présent(s)` : ""), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", null, "Déjà déclaré(s) ce jour-là"), ", donc absent(s) de la liste :", /*#__PURE__*/React.createElement("br", null), collegesPris.map(s => `${s.nom} (par ${dejaDeclarePar(s.id, date)})`).join(" · "))), "SUIVANT →", "Facultatif : passez si vous étiez seul, ou si chacun déclare ses heures."), blocEtape(6, "MES INTÉRIMAIRES", `Intérimaires : ${resumeInterim}`, true, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
@@ -10786,7 +11065,36 @@ function VueMobile({
       color: C.gris,
       cursor: "pointer"
     }
-  }, "+ NOUVEL INTÉRIMAIRE"))), erreur && /*#__PURE__*/React.createElement("div", {
+  }, "+ NOUVEL INTÉRIMAIRE")), "SUIVANT →", "Facultatif : passez si vous n'aviez pas d'intérimaire."), blocEtape(7, "VÉRIFIER ET ENVOYER", "", true, () => /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 16px 16px"
+    }
+  }, [["Date", resumeDate], ["Client", clientChoisi], ["Chantier", chantier ? `${chantier.nom}${chantier.ville && chantier.ville !== "—" ? ` · ${chantier.ville}` : ""}` : "—"], ["Mes heures", resumeHeures], ["Salariés avec moi", resumeCollegues], ["Intérimaires", resumeInterim]].map(([l, v]) => /*#__PURE__*/React.createElement("div", {
+    key: l,
+    style: {
+      display: "flex",
+      gap: 10,
+      padding: "8px 0",
+      borderBottom: `1px solid ${C.ligne}`,
+      fontSize: 12.5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 110,
+      flexShrink: 0,
+      color: C.gris,
+      fontSize: 11
+    }
+  }, l), /*#__PURE__*/React.createElement("b", {
+    style: {
+      flex: 1,
+      overflowWrap: "anywhere"
+    }
+  }, v))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 14
+    }
+  }), erreur && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 12,
       padding: "12px 14px",
@@ -10806,7 +11114,7 @@ function VueMobile({
       color: C.gris,
       lineHeight: 1.6
     }
-  }, "Vos heures de ce jour sont déjà enregistrées. Rien à envoyer — sauf si vous ajoutez un intérimaire ci-dessus."), mesDerniers.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Vos heures de ce jour sont déjà enregistrées. Rien à envoyer — sauf si vous ajoutez un intérimaire ci-dessus.")), null), mesDerniers.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       ...boiteStyle,
       marginTop: 24
