@@ -472,6 +472,39 @@ const calcHNuit = p => {
 // Arrondi à la minute sur le TOTAL : 1,999 h donnait « 1h60 ».
 /* Un chantier se reconnaît d'abord à son client : « Vinci — 14 rue de la
    Paix · Paris ». Utilisé partout où l'on choisit ou affiche un chantier. */
+/* NOMS DE CLIENTS QUI SE RESSEMBLENT
+   « Spielberg Batignolles » pour « Spie Batignolles » : le clavier du
+   téléphone corrige tout seul un mot qu'il ne connaît pas. On compare les
+   noms sans accents ni casse : un mot important en commun, ou quelques
+   lettres de différence, suffisent à demander « Vouliez-vous dire… ? ». */
+const cleClient = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function ecartLettres(a, b) {
+  const m = a.length,
+    n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prec = Array.from({
+    length: n + 1
+  }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cour = [i];
+    for (let j = 1; j <= n; j++) cour[j] = Math.min(prec[j] + 1, cour[j - 1] + 1, prec[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prec = cour;
+  }
+  return prec[n];
+}
+const clientsProches = (nom, liste) => {
+  const k = cleClient(nom);
+  if (k.length < 2) return [];
+  const mots = k.split(" ").filter(m => m.length >= 4);
+  return (liste || []).filter(c => {
+    const kc = cleClient(c);
+    if (!kc) return false;
+    if (kc === k) return true;
+    const mc = kc.split(" ");
+    return mots.some(m => mc.includes(m)) || ecartLettres(k, kc) <= Math.max(2, Math.floor(Math.min(k.length, kc.length) * 0.25));
+  });
+};
 const clientDe = c => c && c.client && c.client !== "—" ? c.client : "";
 const libelleChantier = (c, avecVille) => !c ? "—" : [clientDe(c), (c.nom || "") + (avecVille && c.ville && c.ville !== "—" ? ` · ${c.ville}` : "")].filter(Boolean).join(" — ");
 const fmtH = n => {
@@ -692,7 +725,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v9.0"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v9.1"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -3532,6 +3565,35 @@ function OngletPointages({
     valide: false
   } : p));
 
+  // ---- Corriger un chantier sans quitter les pointages ----
+  // Le chantier est corrigé UNE fois, et toutes ses lignes suivent : son
+  // identifiant ne change pas.
+  const [chEdit, setChEdit] = useState(null);
+  const clientsExistants = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const ouvrirChantier = ch => setChEdit({
+    id: ch.id,
+    nom: ch.nom || "",
+    ville: ch.ville === "—" ? "" : ch.ville || "",
+    client: clientDe(ch)
+  });
+  const sauverChantier = () => {
+    if ((chEdit.nom || "").trim().length < 2) {
+      window.alert("Nom / adresse trop court.");
+      return;
+    }
+    if ((chEdit.client || "").trim().length < 2) {
+      window.alert("Le client est obligatoire.");
+      return;
+    }
+    setChantiers(chantiers.map(c => c.id === chEdit.id ? {
+      ...c,
+      nom: chEdit.nom.trim(),
+      ville: chEdit.ville.trim() || "—",
+      client: chEdit.client.trim()
+    } : c));
+    setChEdit(null);
+  };
+
   // ---- Ajouter un pointage (n'importe qui, n'importe quel jour) ----
   const vide = {
     salarie: "",
@@ -3656,7 +3718,83 @@ function OngletPointages({
         setErrAjout("");
       }
     }, ajout ? "✕ Annuler" : "+ RÉGULARISER / AJOUTER DES HEURES"))
-  }, ajout && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+  }, chEdit && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: FM,
+      fontSize: 10,
+      letterSpacing: "0.2em",
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 6
+    }
+  }, "CORRIGER LE CHANTIER"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.gris,
+      marginBottom: 12
+    }
+  }, "La correction vaut pour ", /*#__PURE__*/React.createElement("b", null, "les ", pointagesTous.filter(p => p.chantier === chEdit.id).length, " pointage(s)"), " de ce chantier, passés et à venir."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement(Champ, {
+    label: "CLIENT *"
+  }, /*#__PURE__*/React.createElement("input", {
+    list: "liste-clients-dir",
+    value: chEdit.client,
+    onChange: e => setChEdit({
+      ...chEdit,
+      client: e.target.value
+    }),
+    spellCheck: false,
+    style: {
+      ...inputStyle,
+      minWidth: 220
+    }
+  })), /*#__PURE__*/React.createElement(Champ, {
+    label: "NOM / ADRESSE *"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: chEdit.nom,
+    onChange: e => setChEdit({
+      ...chEdit,
+      nom: e.target.value
+    }),
+    spellCheck: false,
+    style: {
+      ...inputStyle,
+      minWidth: 240
+    }
+  })), /*#__PURE__*/React.createElement(Champ, {
+    label: "VILLE"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: chEdit.ville,
+    onChange: e => setChEdit({
+      ...chEdit,
+      ville: e.target.value
+    }),
+    spellCheck: false,
+    style: inputStyle
+  })), /*#__PURE__*/React.createElement(Btn, {
+    onClick: sauverChantier
+  }, "✓ ENREGISTRER"), /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    onClick: () => setChEdit(null)
+  }, "ANNULER")), /*#__PURE__*/React.createElement("datalist", {
+    id: "liste-clients-dir"
+  }, clientsExistants.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  }))), clientsProches(chEdit.client, clientsExistants).filter(c => c !== chEdit.client.trim()).length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8,
+      fontSize: 12,
+      color: "#B7770D",
+      fontWeight: 700
+    }
+  }, "Client proche déjà connu : ", clientsProches(chEdit.client, clientsExistants).filter(c => c !== chEdit.client.trim()).join(", "))), ajout && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: FM,
       fontSize: 10,
@@ -4090,7 +4228,20 @@ function OngletPointages({
         fontSize: 10.5,
         color: C.gris
       }
-    }, ch.ville)) : "—"), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("div", {
+    }, ch.ville), /*#__PURE__*/React.createElement("button", {
+      onClick: () => ouvrirChantier(ch),
+      title: "Corriger ce chantier (nom, adresse, client)",
+      style: {
+        marginTop: 3,
+        padding: 0,
+        background: "transparent",
+        border: "none",
+        fontSize: 10.5,
+        color: C.gris,
+        cursor: "pointer",
+        textDecoration: "underline"
+      }
+    }, "✎ corriger")) : "—"), /*#__PURE__*/React.createElement(Td, null, enEdition ? /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
@@ -5710,6 +5861,28 @@ function OngletChantiers({
     if (window.confirm("Supprimer ce chantier ?")) setChantiers(chantiers.filter(c => c.id !== id));
   };
 
+  // ---- CLIENTS : renommer, ou fusionner deux orthographes ----
+  // « Spielberg Batignolles » renommé « Spie Batignolles » : tous ses
+  // chantiers passent d'un coup chez le bon client.
+  const listeClients = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const [clientEdit, setClientEdit] = useState(null); // {ancien, nouveau}
+  const renommerClient = () => {
+    const nv = (clientEdit.nouveau || "").trim();
+    if (nv.length < 2) {
+      window.alert("Nom trop court.");
+      return;
+    }
+    const existant = listeClients.find(c => cleClient(c) === cleClient(nv) && c !== clientEdit.ancien);
+    const n = chantiers.filter(c => clientDe(c) === clientEdit.ancien).length;
+    if (!window.confirm(existant ? `« ${clientEdit.ancien} » sera FUSIONNÉ avec « ${existant} ».\n\n${n} chantier(s) passeront chez « ${existant} ».` : `« ${clientEdit.ancien} » devient « ${nv} » sur ${n} chantier(s).`)) return;
+    const cible = existant || nv;
+    setChantiers(chantiers.map(c => clientDe(c) === clientEdit.ancien ? {
+      ...c,
+      client: cible
+    } : c));
+    setClientEdit(null);
+  };
+
   // ---- Modification : nom / adresse, ville, client ----
   // L'identifiant ne change pas : les heures déjà saisies suivent donc le
   // chantier renommé, sur l'écran comme sur les rapports.
@@ -5788,7 +5961,96 @@ function OngletChantiers({
     style: {
       marginLeft: "auto"
     }
-  }, "CRÉER")), errAjout && /*#__PURE__*/React.createElement(ErrBox, null, errAjout)), chantiers.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, null, "Aucun chantier. Créez-en un ci-dessus ou depuis l'app chef d'équipe.") : /*#__PURE__*/React.createElement("div", {
+  }, "CRÉER")), errAjout && /*#__PURE__*/React.createElement(ErrBox, null, errAjout)), listeClients.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 20,
+      padding: "14px 16px",
+      background: C.papier,
+      border: `1.5px solid ${C.ligne}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: FM,
+      fontSize: 10,
+      letterSpacing: "0.2em",
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 10
+    }
+  }, "CLIENTS — ", listeClients.length, " · une faute d'orthographe ? Renommez-la ici, tous ses chantiers suivent."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, listeClients.map(cl => {
+    const n = chantiers.filter(c => clientDe(c) === cl).length;
+    const proches = clientsProches(cl, listeClients.filter(x => x !== cl));
+    return /*#__PURE__*/React.createElement("div", {
+      key: cl,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap",
+        padding: "6px 0",
+        borderBottom: `1px solid ${C.ligne}`
+      }
+    }, clientEdit && clientEdit.ancien === cl ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+      value: clientEdit.nouveau,
+      onChange: e => setClientEdit({
+        ...clientEdit,
+        nouveau: e.target.value
+      }),
+      list: "liste-clients-ch",
+      spellCheck: false,
+      autoFocus: true,
+      style: {
+        ...inputStyle,
+        minWidth: 240
+      },
+      onKeyDown: e => {
+        if (e.key === "Enter") renommerClient();
+        if (e.key === "Escape") setClientEdit(null);
+      }
+    }), /*#__PURE__*/React.createElement(Btn, {
+      onClick: renommerClient
+    }, "✓ RENOMMER"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => setClientEdit(null)
+    }, "ANNULER")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("b", {
+      style: {
+        fontSize: 13,
+        minWidth: 200
+      }
+    }, cl), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: C.gris
+      }
+    }, n, " chantier(s)"), proches.length > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        color: "#B7770D"
+      }
+    }, "⚠ ressemble à : ", proches.join(", ")), /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: "auto"
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => setClientEdit({
+        ancien: cl,
+        nouveau: cl
+      })
+    }, "✎ RENOMMER / FUSIONNER"))));
+  })), /*#__PURE__*/React.createElement("datalist", {
+    id: "liste-clients-ch"
+  }, listeClients.map(c => /*#__PURE__*/React.createElement("option", {
+    key: c,
+    value: c
+  })))), chantiers.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, null, "Aucun chantier. Créez-en un ci-dessus ou depuis l'app chef d'équipe.") : /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))",
@@ -9057,6 +9319,7 @@ function VueMobile({
     return c ? clientDe(c) : "";
   });
   const [clientAutreOuvert, setClientAutreOuvert] = useState(false);
+  const [proposes, setProposes] = useState(null); // « Vouliez-vous dire… ? »
   const [rechClient, setRechClient] = useState("");
   const [autresClients, setAutresClients] = useState(false);
   const choisirClientEtape = c => {
@@ -10189,10 +10452,17 @@ function VueMobile({
     }
   }, /*#__PURE__*/React.createElement("textarea", {
     value: clientAutre,
-    onChange: e => setClientAutre(e.target.value.replace(/\n/g, " ")),
+    onChange: e => {
+      setClientAutre(e.target.value.replace(/\n/g, " "));
+      setProposes(null);
+    },
     placeholder: "Nom du nouveau client",
     rows: 2,
     autoFocus: true,
+    spellCheck: false,
+    autoCorrect: "off",
+    autoCapitalize: "words",
+    autoComplete: "off",
     style: {
       ...champ,
       marginBottom: 8,
@@ -10200,7 +10470,39 @@ function VueMobile({
       lineHeight: 1.4,
       fontFamily: "inherit"
     }
-  }), /*#__PURE__*/React.createElement("div", {
+  }), proposes && proposes.length > 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 8,
+      padding: 10,
+      background: "#FFF8E1",
+      border: `1.5px solid ${C.jaune}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      marginBottom: 8
+    }
+  }, "Vouliez-vous dire :"), proposes.map(c => /*#__PURE__*/React.createElement("div", {
+    key: c,
+    style: {
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement(MBtn, {
+    onClick: () => {
+      choisirClientEtape(c);
+      setClientAutreOuvert(false);
+      setProposes(null);
+      setClientAutre("");
+    }
+  }, "✓ ", c))), /*#__PURE__*/React.createElement(MBtn, {
+    variant: "ghost",
+    onClick: () => {
+      choisirClientEtape(clientAutre.trim());
+      setClientAutreOuvert(false);
+      setProposes(null);
+    }
+  }, "Non, c'est bien « ", clientAutre.trim(), " »")) : /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8
@@ -10208,6 +10510,11 @@ function VueMobile({
   }, /*#__PURE__*/React.createElement(MBtn, {
     onClick: () => {
       if (clientAutre.trim().length < 2) return;
+      const p = clientsProches(clientAutre, tousClients);
+      if (p.length) {
+        setProposes(p);
+        return;
+      }
       choisirClientEtape(clientAutre.trim());
       setClientAutreOuvert(false);
     },
@@ -10217,6 +10524,7 @@ function VueMobile({
     onClick: () => {
       setClientAutreOuvert(false);
       setClientAutre("");
+      setProposes(null);
     }
   }, "ANNULER"))) : /*#__PURE__*/React.createElement("button", {
     onClick: () => {
@@ -10367,6 +10675,9 @@ function VueMobile({
     value: nomChantier,
     onChange: e => setNomChantier(e.target.value),
     placeholder: "Tapez l'adresse…",
+    spellCheck: false,
+    autoCorrect: "off",
+    autoComplete: "off",
     style: {
       ...champ,
       marginBottom: 0
@@ -10417,6 +10728,9 @@ function VueMobile({
     value: villeChantier,
     onChange: e => setVilleChantier(e.target.value),
     placeholder: "Ville",
+    spellCheck: false,
+    autoCorrect: "off",
+    autoComplete: "off",
     style: {
       ...champ,
       marginBottom: 8
