@@ -629,6 +629,36 @@ function calcMajorations(ptgs) {
 // Nuitées : nombre de journées avec déplacement + logement
 const calcNuitees = ptgs => (ptgs || []).filter(p => p.deplacement).length;
 
+// ---- MOIS DE PAIE ----
+// Une journée se paie normalement sur le mois de sa date. Une RÉGULARISATION
+// d'un mois déjà clos (le samedi de septembre oublié, rattrapé en octobre)
+// se paie sur le mois où elle est faite : le rapport de septembre, déjà
+// transmis, ne bouge plus. « moisPaie » vide = le mois de la date.
+const moisDeDate = p => String(p.date || "").slice(0, 7);
+const moisDePaie = p => p.moisPaie && p.moisPaie !== moisDeDate(p) ? p.moisPaie : moisDeDate(p);
+const estReportee = p => moisDePaie(p) !== moisDeDate(p);
+const nomMois = ym => {
+  const [a, m] = String(ym).split("-").map(Number);
+  return a && m ? new Date(Date.UTC(a, m - 1, 1)).toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC"
+  }) : "";
+};
+/** Écart de majorations qu'apportent « ajout » à une semaine qui contient déjà « base ». */
+function majorationsEnPlus(base, ajout) {
+  const avec = calcMajorations([...base, ...ajout]),
+    sans = calcMajorations(base);
+  const r = n => Math.round(n * 100) / 100;
+  return {
+    hBase: r(avec.hBase - sans.hBase),
+    h25: r(avec.h25 - sans.h25),
+    h50: r(avec.h50 - sans.h50),
+    h100: r(avec.h100 - sans.h100),
+    hOrdinaire: r(avec.hOrdinaire - sans.hOrdinaire)
+  };
+}
+
 // ============================================================
 //  CODES D'ACCÈS PERSONNELS + SOLDE DE CONGÉS
 // ============================================================
@@ -725,7 +755,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v9.2"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v9.3"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -3538,7 +3568,8 @@ function OngletPointages({
       pause: p.pause,
       chantier: p.chantier,
       commentaire: p.commentaire || "",
-      deplacement: !!p.deplacement
+      deplacement: !!p.deplacement,
+      moisPaie: estReportee(p) ? p.moisPaie : ""
     });
   };
   const annulerEdit = () => {
@@ -3693,8 +3724,12 @@ function OngletPointages({
     deplacement: false,
     commentaire: "",
     motif: "",
-    confirme: false
+    confirme: false,
+    moisPaie: ""
   };
+  const moisCourant = auj.slice(0, 7);
+  // Date d'un mois déjà clos : payée sur le mois en cours, sauf choix contraire.
+  const moisPaieAjout = a => !a || !a.date || a.date.slice(0, 7) >= moisCourant ? "" : a.moisPaie || moisCourant;
   const [ajout, setAjout] = useState(null); // null = formulaire fermé
   const [errAjout, setErrAjout] = useState("");
   /* RÉGULARISATION : la direction ajoute des heures oubliées, à toute date,
@@ -3742,6 +3777,7 @@ function OngletPointages({
       pause: Number(a.pause) || 0,
       commentaire: `Régularisation : ${motif}${detail}`,
       deplacement: !!a.deplacement,
+      moisPaie: moisPaieAjout(a) === a.date.slice(0, 7) ? "" : moisPaieAjout(a),
       interim: estInterim(a.salarie),
       valide: true,
       chefNom: "Direction"
@@ -3864,7 +3900,23 @@ function OngletPointages({
       date: e.target.value
     }),
     style: inputStyle
-  })), /*#__PURE__*/React.createElement(Champ, {
+  })), moisPaieAjout(ajout) && /*#__PURE__*/React.createElement(Champ, {
+    label: "PAYÉ SUR LE RAPPORT DE"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: moisPaieAjout(ajout),
+    onChange: e => setAjout({
+      ...ajout,
+      moisPaie: e.target.value
+    }),
+    style: {
+      ...selectStyle,
+      borderColor: "#6C3483"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: moisCourant
+  }, nomMois(moisCourant), " (mois en cours — recommandé)"), /*#__PURE__*/React.createElement("option", {
+    value: ajout.date.slice(0, 7)
+  }, nomMois(ajout.date.slice(0, 7)), " (mois de la date, déjà clos)"))), /*#__PURE__*/React.createElement(Champ, {
     label: "CHANTIER"
   }, /*#__PURE__*/React.createElement("select", {
     value: ajout.chantier,
@@ -3980,7 +4032,20 @@ function OngletPointages({
     }
   }, "Total : ", /*#__PURE__*/React.createElement("b", null, fmtH(calcHeures(ajout)))), /*#__PURE__*/React.createElement(Btn, {
     onClick: ajouterPointage
-  }, "ENREGISTRER")), lignesExistantes.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "ENREGISTRER")), moisPaieAjout(ajout) === moisCourant && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      padding: "8px 14px",
+      background: "#F5EEF8",
+      borderLeft: "4px solid #6C3483",
+      fontSize: 12,
+      lineHeight: 1.5
+    }
+  }, "Le ", new Date(ajout.date + "T00:00:00").toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long"
+  }), " appartient à un mois clos : ces heures seront payées sur le rapport de ", /*#__PURE__*/React.createElement("b", null, nomMois(moisCourant)), ", dans un bloc « Régularisations ». Le rapport de ", nomMois(ajout.date.slice(0, 7)), " ne change pas."), lignesExistantes.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12,
       padding: "10px 14px",
@@ -4150,7 +4215,23 @@ function OngletPointages({
         date: e.target.value
       }),
       style: iStyle
-    })) : /*#__PURE__*/React.createElement("div", {
+    }), (String(editData.date).slice(0, 7) < auj.slice(0, 7) || editData.moisPaie) && /*#__PURE__*/React.createElement("select", {
+      value: editData.moisPaie || "",
+      onChange: e => setEditData({
+        ...editData,
+        moisPaie: e.target.value
+      }),
+      style: {
+        ...iStyle,
+        fontSize: 11
+      },
+      title: "Sur quel rapport mensuel ces heures sont payées"
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "Payé en ", nomMois(String(editData.date).slice(0, 7))), [auj.slice(0, 7), editData.moisPaie].filter((m, k, t) => m && m !== String(editData.date).slice(0, 7) && t.indexOf(m) === k).map(m => /*#__PURE__*/React.createElement("option", {
+      key: m,
+      value: m
+    }, "Payé en ", nomMois(m), " (régul.)")))) : /*#__PURE__*/React.createElement("div", {
       style: {
         minWidth: 150
       }
@@ -4184,12 +4265,31 @@ function OngletPointages({
         background: "#6C3483"
       },
       title: p.commentaire
-    }, "RÉGUL."), p.chefNom && /*#__PURE__*/React.createElement("span", {
+    }, "RÉGUL."), estReportee(p) && /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...pastille,
+        border: "1px solid #6C3483",
+        color: "#6C3483"
+      },
+      title: "Payée sur ce mois-là, et non sur le mois de la date"
+    }, "PAYÉ EN ", nomMois(moisDePaie(p)).toUpperCase()), p.chefNom && /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10.5,
         color: C.gris
       }
-    }, "saisi par ", p.chefNom)), p.modifiePar === "RH" && /*#__PURE__*/React.createElement("div", {
+    }, "saisi par ", p.chefNom)), String((pers === null || pers === void 0 ? void 0 : pers.note) || "").trim() && /*#__PURE__*/React.createElement("div", {
+      title: pers.note,
+      style: {
+        fontSize: 10.5,
+        marginTop: 4,
+        padding: "2px 6px",
+        background: "#FFF9C4",
+        maxWidth: 240,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, "📝 ", pers.note), p.modifiePar === "RH" && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 10,
         color: C.gris,
@@ -5306,7 +5406,13 @@ function OngletSalaries({
         fontSize: 9,
         color: C.gris
       }
-    }, s.id)))), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
+    }, s.id))), /*#__PURE__*/React.createElement(PenseBete, {
+      note: s.note,
+      onSave: t => setSalaries(salaries.map(x => x.id === s.id ? {
+        ...x,
+        note: t
+      } : x))
+    })), /*#__PURE__*/React.createElement(Td, null, /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10,
         padding: "3px 8px",
@@ -5765,7 +5871,13 @@ function OngletInterim({
         color: "#fff",
         letterSpacing: "0.1em"
       }
-    }, "MISSION TERMINÉE"))), /*#__PURE__*/React.createElement(Td, null, i.poste), /*#__PURE__*/React.createElement(Td, null, estChefPoste(i.poste) ? /*#__PURE__*/React.createElement("span", {
+    }, "MISSION TERMINÉE")), /*#__PURE__*/React.createElement(PenseBete, {
+      note: i.note,
+      onSave: t => setInterimaires(interimaires.map(x => x.id === i.id ? {
+        ...x,
+        note: t
+      } : x))
+    })), /*#__PURE__*/React.createElement(Td, null, i.poste), /*#__PURE__*/React.createElement(Td, null, estChefPoste(i.poste) ? /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 11,
         color: C.gris,
@@ -6336,7 +6448,11 @@ function OngletPaie({
     month: "short"
   }).toUpperCase();
   const personnesFiltrees = personneId === "tous" ? tousLesPersonnes : tousLesPersonnes.filter(p => p.id === personneId);
-  const ptgPlage = pointages.filter(p => plage.includes(p.date));
+  // En vue MOIS, une régularisation se range sur son mois de paie : elle sort
+  // du mois de sa date (déjà clos et transmis) et rejoint celui où elle a été
+  // faite, dans un bloc à part. Les autres vues suivent les dates réelles.
+  const ptgPlage = pointages.filter(p => plage.includes(p.date) && !(modeVue === "mois" && estReportee(p)));
+  const ptgRegul = modeVue === "mois" ? pointages.filter(p => estReportee(p) && moisDePaie(p) === moisSel) : [];
   // ---- Aperçu avant impression ----
   // Affiche à l'écran exactement ce qui sera imprimé, avant de lancer le PDF.
   const [apercu, setApercu] = useState(null); // null | "interne" | "interim" | "personne"
@@ -6661,8 +6777,36 @@ function OngletPaie({
   }, "Majorations : base 35 h · 36e-43e h = +25 % · au-delà de 43 h = +50 % · dimanche/férié = +100 %")), tousLesPersonnes.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, null, "Aucun salarié ni intérimaire enregistré.") : personnesFiltrees.map(p => {
     const ag = p._type === "interim" ? AGENCES.find(a => a.id === p.agence) : null;
     const ptgPersonne = ptgPlage.filter(x => x.salarie === p.id);
-    const totalH = ptgPersonne.reduce((s, x) => s + calcHeures(x), 0);
-    const totalNuit = ptgPersonne.reduce((s, x) => s + calcHNuit(x), 0);
+    // Régularisations payées ce mois-ci. Leurs majorations se calculent dans
+    // leur VRAIE semaine : un samedi rattrapé dans une semaine déjà à 40 h
+    // part en +25 %, pas en base.
+    const regul = ptgRegul.filter(x => x.salarie === p.id).sort((a, b) => a.date.localeCompare(b.date) || String(a.debut).localeCompare(String(b.debut)));
+    const regulParSem = {};
+    regul.forEach(x => {
+      const {
+        cle
+      } = infoSemaine(x.date);
+      (regulParSem[cle] = regulParSem[cle] || []).push(x);
+    });
+    const majRegul = Object.entries(regulParSem).reduce((a, [cle, lignes]) => {
+      const ids = new Set(lignes.map(x => x.id));
+      const base = pointages.filter(x => x.salarie === p.id && !ids.has(x.id) && infoSemaine(x.date).cle === cle && !(estReportee(x) && moisDePaie(x) > moisSel));
+      const m = majorationsEnPlus(base, lignes);
+      return {
+        hBase: a.hBase + m.hBase,
+        h25: a.h25 + m.h25,
+        h50: a.h50 + m.h50,
+        h100: a.h100 + m.h100
+      };
+    }, {
+      hBase: 0,
+      h25: 0,
+      h50: 0,
+      h100: 0
+    });
+    const totalRegul = regul.reduce((s, x) => s + calcHeures(x), 0);
+    const totalH = ptgPersonne.reduce((s, x) => s + calcHeures(x), 0) + totalRegul;
+    const totalNuit = [...ptgPersonne, ...regul].reduce((s, x) => s + calcHNuit(x), 0);
     const parSemaine = {};
     ptgPersonne.forEach(x => {
       const {
@@ -6686,16 +6830,13 @@ function OngletPaie({
         h100: a.h100 + m.h100
       };
     }, {
-      hBase: 0,
-      h25: 0,
-      h50: 0,
-      h100: 0
+      ...majRegul
     });
     maj.hBase = _r(maj.hBase);
     maj.h25 = _r(maj.h25);
     maj.h50 = _r(maj.h50);
     maj.h100 = _r(maj.h100);
-    const nuitees = calcNuitees(ptgPersonne);
+    const nuitees = calcNuitees([...ptgPersonne, ...regul]);
     const parDate = {};
     ptgPersonne.forEach(x => {
       if (!parDate[x.date]) parDate[x.date] = [];
@@ -6862,7 +7003,7 @@ function OngletPaie({
           month: "2-digit"
         })}` : "", " ", "(", nbJoursDecomptes(a), " j)");
       })))));
-    })(), ptgPersonne.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    })(), ptgPersonne.length === 0 && regul.length === 0 ? /*#__PURE__*/React.createElement("div", {
       style: {
         padding: "20px",
         fontSize: 12,
@@ -7171,6 +7312,254 @@ function OngletPaie({
           }
         }, fmtH(mS.hOrdinaire), "/35h ✓")))));
       });
+      if (regul.length) {
+        const mR = {
+          h25: _r(majRegul.h25),
+          h50: _r(majRegul.h50),
+          h100: _r(majRegul.h100)
+        };
+        rows.push(/*#__PURE__*/React.createElement("tr", {
+          key: "regul-titre",
+          style: {
+            borderTop: `2px solid #6C3483`,
+            background: "#F5EEF8"
+          }
+        }, /*#__PURE__*/React.createElement("td", {
+          colSpan: 11,
+          style: {
+            padding: "8px 16px",
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#6C3483",
+            letterSpacing: "0.1em"
+          }
+        }, "RÉGULARISATIONS — JOURNÉES DE MOIS PRÉCÉDENTS, PAYÉES SUR CE MOIS")));
+        regul.forEach(x => {
+          const ch = chantiers.find(c => c.id === x.chantier);
+          const h = calcHeures(x);
+          const hNuit = calcHNuit(x);
+          const h1 = calcH100(x);
+          rows.push(/*#__PURE__*/React.createElement("tr", {
+            key: `r-${x.id}`,
+            style: {
+              borderBottom: `1px solid ${C.ligne}`,
+              background: "#FBF7FD"
+            }
+          }, /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              verticalAlign: "top",
+              borderRight: `1px solid ${C.ligne}`,
+              whiteSpace: "nowrap"
+            }
+          }, /*#__PURE__*/React.createElement("div", {
+            style: {
+              fontWeight: 700,
+              fontSize: 11
+            }
+          }, fmtDate(x.date)), /*#__PURE__*/React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "#6C3483",
+              fontWeight: 700
+            }
+          }, new Date(x.date + "T00:00:00").getFullYear())), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px"
+            }
+          }, ch ? /*#__PURE__*/React.createElement("span", {
+            style: {
+              fontSize: 11,
+              padding: "3px 8px",
+              fontWeight: 700,
+              background: ch.couleur,
+              color: ch.couleur === "#F5C518" ? "#0A0A0A" : "#fff"
+            }
+          }, ch.nom) : /*#__PURE__*/React.createElement("span", {
+            style: {
+              color: C.gris
+            }
+          }, "—"), x.commentaire && /*#__PURE__*/React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: C.gris,
+              marginTop: 3
+            }
+          }, x.commentaire)), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              fontSize: 11,
+              color: C.gris
+            }
+          }, ch ? `📍 ${ch.ville}` : "—"), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "right",
+              fontWeight: 500
+            }
+          }, x.debut), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "right",
+              fontWeight: 500
+            }
+          }, x.fin), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "right",
+              color: C.gris
+            }
+          }, x.pause, "min"), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "right"
+            }
+          }, /*#__PURE__*/React.createElement("b", {
+            style: {
+              fontFamily: FT,
+              fontSize: 15
+            }
+          }, fmtH(h))), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "right"
+            }
+          }, hNuit > 0 ? /*#__PURE__*/React.createElement("b", {
+            style: {
+              color: "#6C3483",
+              fontSize: 13
+            }
+          }, fmtH(hNuit)) : /*#__PURE__*/React.createElement("span", {
+            style: {
+              color: C.ligne
+            }
+          }, "—")), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "right"
+            }
+          }, h1 > 0 ? /*#__PURE__*/React.createElement("b", {
+            style: {
+              color: "#C0392B",
+              fontSize: 13
+            }
+          }, fmtH(h1)) : /*#__PURE__*/React.createElement("span", {
+            style: {
+              color: C.ligne
+            }
+          }, "—")), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "center"
+            }
+          }, x.deplacement ? /*#__PURE__*/React.createElement("span", {
+            style: {
+              fontSize: 11,
+              fontWeight: 700,
+              color: C.bleu
+            }
+          }, "🛏") : /*#__PURE__*/React.createElement("span", {
+            style: {
+              color: C.ligne
+            }
+          }, "—")), /*#__PURE__*/React.createElement("td", {
+            style: {
+              padding: "10px 16px",
+              textAlign: "center"
+            }
+          }, /*#__PURE__*/React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "#fff",
+              background: "#6C3483",
+              padding: "2px 6px"
+            }
+          }, "RÉGUL."))));
+        });
+        rows.push(/*#__PURE__*/React.createElement("tr", {
+          key: "regul-total",
+          style: {
+            borderTop: `1.5px solid #6C3483`,
+            background: "#F5EEF8"
+          }
+        }, /*#__PURE__*/React.createElement("td", {
+          colSpan: 6,
+          style: {
+            padding: "8px 16px",
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#6C3483",
+            letterSpacing: "0.1em"
+          }
+        }, "SOUS-TOTAL RÉGULARISATIONS"), /*#__PURE__*/React.createElement("td", {
+          style: {
+            padding: "8px 16px",
+            textAlign: "right"
+          }
+        }, /*#__PURE__*/React.createElement("b", {
+          style: {
+            fontFamily: FT,
+            fontSize: 15
+          }
+        }, fmtH(totalRegul))), /*#__PURE__*/React.createElement("td", {
+          style: {
+            padding: "8px 16px",
+            textAlign: "right",
+            fontSize: 10,
+            color: C.gris
+          }
+        }, regul.reduce((s2, x) => s2 + calcHNuit(x), 0) > 0 ? fmtH(regul.reduce((s2, x) => s2 + calcHNuit(x), 0)) : "—"), /*#__PURE__*/React.createElement("td", {
+          style: {
+            padding: "8px 16px",
+            textAlign: "right"
+          }
+        }, mR.h100 > 0 ? /*#__PURE__*/React.createElement("b", {
+          style: {
+            color: "#C0392B",
+            fontSize: 13
+          }
+        }, fmtH(mR.h100)) : /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: C.ligne
+          }
+        }, "—")), /*#__PURE__*/React.createElement("td", {
+          style: {
+            padding: "8px 16px",
+            textAlign: "center",
+            fontSize: 10,
+            color: C.bleu,
+            fontWeight: 700
+          }
+        }, calcNuitees(regul) > 0 ? calcNuitees(regul) : "—"), /*#__PURE__*/React.createElement("td", {
+          style: {
+            padding: "8px 16px",
+            textAlign: "center"
+          }
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            gap: 6,
+            justifyContent: "center",
+            flexWrap: "wrap",
+            fontSize: 10,
+            fontWeight: 700
+          }
+        }, mR.h25 > 0 && /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: "#B7770D"
+          }
+        }, "+25% ", fmtH(mR.h25)), mR.h50 > 0 && /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: C.orange
+          }
+        }, "+50% ", fmtH(mR.h50)), mR.h25 === 0 && mR.h50 === 0 && /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: C.gris
+          },
+          title: "Calculées dans la semaine d'origine"
+        }, "sans maj. sup.")))));
+      }
       rows.push(/*#__PURE__*/React.createElement("tr", {
         key: "total",
         style: {
@@ -11788,6 +12177,116 @@ function EmptyState({
       lineHeight: 1.8
     }
   }, children);
+}
+
+/* PENSE-BÊTE de la direction sur une personne (visite médicale, permis à
+   renouveler, rappeler l'agence…). Le serveur ne le transmet jamais aux
+   chefs ni aux salariés : il reste entre les mains de la direction. */
+function PenseBete({
+  note,
+  onSave
+}) {
+  const [edit, setEdit] = useState(null); // null = lecture ; texte = en cours
+  const texte = String(note || "").trim();
+  if (edit !== null) return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 6,
+      minWidth: 200
+    }
+  }, /*#__PURE__*/React.createElement("textarea", {
+    value: edit,
+    onChange: e => setEdit(e.target.value),
+    rows: 3,
+    autoFocus: true,
+    placeholder: "Ex. : visite médicale le 12/11 · permis à renouveler…",
+    onKeyDown: e => {
+      if (e.key === "Escape") setEdit(null);
+    },
+    style: {
+      width: "100%",
+      boxSizing: "border-box",
+      padding: "6px 8px",
+      fontSize: 12,
+      fontFamily: "inherit",
+      background: "#FFF9C4",
+      border: `1.5px solid ${C.jaune}`,
+      resize: "vertical",
+      outline: "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      onSave(edit.trim());
+      setEdit(null);
+    },
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      padding: "4px 10px",
+      background: C.encre,
+      color: C.jaune,
+      border: "none",
+      cursor: "pointer"
+    }
+  }, "✓ OK"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEdit(null),
+    style: {
+      fontSize: 11,
+      padding: "4px 10px",
+      background: "transparent",
+      border: `1px solid ${C.ligne}`,
+      cursor: "pointer"
+    }
+  }, "Annuler"), texte && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (window.confirm("Effacer ce pense-bête ?")) {
+        onSave("");
+        setEdit(null);
+      }
+    },
+    style: {
+      fontSize: 11,
+      padding: "4px 10px",
+      background: "transparent",
+      border: "none",
+      color: C.orange,
+      cursor: "pointer",
+      marginLeft: "auto"
+    }
+  }, "Effacer")));
+  return texte ? /*#__PURE__*/React.createElement("div", {
+    onClick: () => setEdit(texte),
+    title: "Pense-bête (visible par la direction seulement) — cliquer pour modifier",
+    style: {
+      marginTop: 6,
+      padding: "5px 8px",
+      background: "#FFF9C4",
+      borderLeft: `3px solid ${C.jaune}`,
+      fontSize: 11.5,
+      lineHeight: 1.4,
+      whiteSpace: "pre-wrap",
+      cursor: "pointer",
+      maxWidth: 320
+    }
+  }, "📝 ", texte) : /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEdit(""),
+    title: "Ajouter un pense-bête (visible par la direction seulement)",
+    style: {
+      marginTop: 4,
+      fontSize: 10.5,
+      padding: 0,
+      background: "none",
+      border: "none",
+      color: C.gris,
+      cursor: "pointer",
+      textDecoration: "underline"
+    }
+  }, "📝 ajouter une note");
 }
 function FormInline({
   children
