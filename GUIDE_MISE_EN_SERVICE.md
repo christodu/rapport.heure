@@ -221,9 +221,10 @@ Tout, à toute date, sans limite :
   calculées dans sa vraie semaine ; celui de septembre ne change pas. Le choix
   « mois de la date » reste possible dans le formulaire, et le mois de paie se
   change aussi en modifiant la ligne (✎). Badge **PAYÉ EN …** dans la liste.
-- **Pense-bête** (onglets Salariés et Intérimaires) : « 📝 ajouter une note »
-  sous le nom. Visible par la direction seulement (rappelé dans les
-  pointages), jamais envoyé aux téléphones des chefs ni des salariés.
+- **Pense-bête** (onglet Salariés, salariés seulement) : « 📝 ajouter une
+  note » sous le nom. Rappelé dans les pointages et en tête de la fiche de
+  chaque salarié dans le rapport mensuel. Visible par la direction seulement,
+  jamais envoyé aux téléphones des chefs ni des salariés.
 - **Pointages** : ajouter (n'importe qui, n'importe quel jour), modifier
   personne, date, chantier, horaires, logement, commentaire ; valider, ou
   revenir sur une validation (↺) ; supprimer.
