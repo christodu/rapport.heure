@@ -1,6 +1,6 @@
 -- ============================================================
 --  CHOK BÉTON — SERVEUR SUPABASE
---  Version s3.1 (la fonction chok.version() fait foi)
+--  Version s3.2 (la fonction chok.version() fait foi)
 --
 --  À COLLER EN UNE SEULE FOIS dans : Supabase → SQL Editor → New query
 --  puis cliquer sur « Run ». Le script est REJOUABLE sans risque :
@@ -114,6 +114,9 @@ alter table chok.pointages add column if not exists "motifEcart" text default ''
 -- journée d'un mois déjà clos : le samedi de septembre oublié est payé
 -- sur octobre, sans rouvrir le rapport de septembre déjà transmis.
 alter table chok.pointages add column if not exists "moisPaie" text default '';
+-- Panier repas (salariés). Vide = automatique : tout jour travaillé donne
+-- un panier. « non » = retiré par la direction (repas fourni, etc.).
+alter table chok.pointages add column if not exists panier text default '';
 create index if not exists idx_pointages_date    on chok.pointages(date);
 create index if not exists idx_pointages_salarie on chok.pointages(salarie);
 
@@ -227,7 +230,7 @@ revoke all on all functions in schema chok from public, anon, authenticated;
    arrivé — on a cherché longtemps une panne de serveur alors que la
    question était « quelle version tourne, au juste ? ». */
 create or replace function chok.version() returns text
-language sql immutable as $$ select 's3.1'::text $$;
+language sql immutable as $$ select 's3.2'::text $$;
 
 /* Conversion tolérante vers un vrai booléen.
    Reprend la règle du serveur précédent : toute valeur inattendue vaut
@@ -985,7 +988,7 @@ begin
         -- téléphone d'un chef : un envoi fabriqué pouvait se déclarer
         -- « validé », ou se donner un autre auteur que son expéditeur.
         v_nouv := v_nouv || jsonb_build_array(
-          (v_o - 'valide' - 'creePar' - 'modifiePar' - 'modifieLe' - 'moisPaie')
+          (v_o - 'valide' - 'creePar' - 'modifiePar' - 'modifieLe' - 'moisPaie' - 'panier')
           || jsonb_build_object('creePar',
                case when v_dej is not null then coalesce(nullif(v_dej->>'creePar',''), v_pid)
                     else v_pid end)
@@ -1807,8 +1810,8 @@ select chok.sauvegarde_complete('installation') as sauvegarde_initiale;
 -- ============================================================
 with controles(n, quoi, valeur, attendu, bon) as (
   select 1, 'Version du serveur',
-         chok.version(), 's3.1',
-         chok.version() = 's3.1'
+         chok.version(), 's3.2',
+         chok.version() = 's3.2'
   union all
   select 2, 'Tables verrouillées (RLS active)',
          -- On affiche la LISTE et non un simple nombre : un écart se

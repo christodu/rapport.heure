@@ -586,7 +586,9 @@ begin
       (select note from chok.interimaires where id='T-ITM'), 'Rappeler l''agence');
     r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jchef,'table','pointages',
       'upserts', jsonb_build_array(jsonb_build_object('id','T-PMP','salarie','T-ITM','chantier','T-CH1',
-        'date',v_avhier,'debut','05:00','fin','06:00','pause',0,'moisPaie','2099-01'))));
+        'date',v_avhier,'debut','05:00','fin','06:00','pause',0,'moisPaie','2099-01','panier','non'))));
+    res := chok._v(res,'Un chef ne retire pas un panier (réservé à la direction)',
+      coalesce((select '[' || coalesce(panier,'') || ']' from chok.pointages where id='T-PMP'),'(ligne absente)'), '[]');
     res := chok._v(res,'Un chef ne choisit pas le mois de paie',
       coalesce((select '[' || coalesce("moisPaie",'') || ']' from chok.pointages where id='T-PMP'),
                '(ligne absente) '||r::text), '[]');

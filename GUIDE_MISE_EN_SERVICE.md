@@ -221,6 +221,13 @@ Tout, à toute date, sans limite :
   calculées dans sa vraie semaine ; celui de septembre ne change pas. Le choix
   « mois de la date » reste possible dans le formulaire, et le mois de paie se
   change aussi en modifiant la ligne (✎). Badge **PAYÉ EN …** dans la liste.
+- **Paniers** (salariés seulement) : automatiques, 1 panier par jour
+  travaillé, logé ou non. Rien à saisir pour les chefs. Dans Pointages, la
+  pastille **🥪 PANIER** se clique pour retirer le panier d'une journée
+  (barrée = retiré), et se reclique pour le remettre. Le rapport affiche le
+  panier jour par jour, le nombre par semaine et le total « PANIERS » du mois.
+  Une régularisation d'un jour sans aucune heure donne son panier sur le mois
+  de paie ; un complément d'heures sur un jour déjà payé n'en redonne pas.
 - **Pense-bête** (onglet Salariés, salariés seulement) : « 📝 ajouter une
   note » sous le nom. Rappelé dans les pointages et en tête de la fiche de
   chaque salarié dans le rapport mensuel. Visible par la direction seulement,
