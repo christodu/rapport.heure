@@ -1,6 +1,6 @@
 -- ============================================================
 --  CHOK BÉTON — SERVEUR SUPABASE
---  Version s3.2 (la fonction chok.version() fait foi)
+--  Version s3.3 (la fonction chok.version() fait foi)
 --
 --  À COLLER EN UNE SEULE FOIS dans : Supabase → SQL Editor → New query
 --  puis cliquer sur « Run ». Le script est REJOUABLE sans risque :
@@ -143,6 +143,11 @@ update chok.salaries     set actif = true where actif is null;
 -- direction : retiré de tout ce qu'un chef ou un salarié reçoit.
 alter table chok.salaries     add column if not exists note text default '';
 alter table chok.interimaires add column if not exists note text default '';
+-- ÉTAT DE PAIE MENSUEL : matricule saisi par la direction, et les montants
+-- tapés à la main chaque mois (prime, acomptes, prêts, Navigo…), rangés par
+-- mois : {"2026-10": {"prime": "150", …}}. Réservé à la direction.
+alter table chok.salaries add column if not exists matricule text default '';
+alter table chok.salaries add column if not exists paie jsonb default '{}'::jsonb;
 update chok.interimaires set actif = true where actif is null;
 
 create table if not exists chok.config (
@@ -230,7 +235,7 @@ revoke all on all functions in schema chok from public, anon, authenticated;
    arrivé — on a cherché longtemps une panne de serveur alors que la
    question était « quelle version tourne, au juste ? ». */
 create or replace function chok.version() returns text
-language sql immutable as $$ select 's3.2'::text $$;
+language sql immutable as $$ select 's3.3'::text $$;
 
 /* Conversion tolérante vers un vrai booléen.
    Reprend la règle du serveur précédent : toute valeur inattendue vaut
@@ -626,7 +631,7 @@ begin
     -- Liste des collègues : nom et poste seulement, pour composer l'équipe.
     -- Aucun code, aucune heure, aucun solde de congés.
     select coalesce(jsonb_agg(
-             case when x.id = v_pid then to_jsonb(x) - 'code' - 'note'
+             case when x.id = v_pid then to_jsonb(x) - 'code' - 'note' - 'paie'
                   else jsonb_build_object('id', x.id, 'nom', x.nom,
                                           'poste', x.poste, 'interne', true) end
              order by chok.cle_nom(x.nom)
@@ -646,7 +651,7 @@ begin
   -- ---- SALARIÉ : strictement ses propres données ----
   v_est_interim := exists (select 1 from chok.interimaires where id = v_pid);
   v_moi := chok.trouver_personne(v_pid);
-  if v_moi is not null then v_moi := v_moi - 'code' - 'note'; end if;
+  if v_moi is not null then v_moi := v_moi - 'code' - 'note' - 'paie'; end if;
 
   select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) into v_pointages
     from chok.pointages x where x.salarie = v_pid
@@ -1810,8 +1815,8 @@ select chok.sauvegarde_complete('installation') as sauvegarde_initiale;
 -- ============================================================
 with controles(n, quoi, valeur, attendu, bon) as (
   select 1, 'Version du serveur',
-         chok.version(), 's3.2',
-         chok.version() = 's3.2'
+         chok.version(), 's3.3',
+         chok.version() = 's3.3'
   union all
   select 2, 'Tables verrouillées (RLS active)',
          -- On affiche la LISTE et non un simple nombre : un écart se

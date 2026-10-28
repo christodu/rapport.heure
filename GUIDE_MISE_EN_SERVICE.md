@@ -228,6 +228,14 @@ Tout, à toute date, sans limite :
   panier jour par jour, le nombre par semaine et le total « PANIERS » du mois.
   Une régularisation d'un jour sans aucune heure donne son panier sur le mois
   de paie ; un complément d'heures sur un jour déjà payé n'en redonne pas.
+- **État de paie** (onglet du même nom) : le tableau mensuel à transmettre
+  pour la paie, une colonne par salarié. Calculé automatiquement (cases
+  grises) : heures normales, samedis, heures à 25/50/100 %, A.T, maladie,
+  absences diverses, congés (en jours), paniers, déplacements (jours logés).
+  Saisi par la direction (cases blanches, enregistré en quittant la case) :
+  matricule (une fois pour toutes), maj. poste 10 %, maj. H.D. 50 %, prime,
+  13e mois, acomptes, prêts, saisie, Navigo, frais parking/péage, ventil. MO.
+  Boutons **IMPRIMER / PDF** (A4 paysage) et **EXCEL** (fichier .csv).
 - **Pense-bête** (onglet Salariés, salariés seulement) : « 📝 ajouter une
   note » sous le nom. Rappelé dans les pointages et en tête de la fiche de
   chaque salarié dans le rapport mensuel. Visible par la direction seulement,

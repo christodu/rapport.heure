@@ -574,9 +574,17 @@ begin
     res := chok._v(res,'La direction écrit un pense-bête',
       (select note from chok.interimaires where id='T-ITM') || ' / ' ||
       (select note from chok.salaries where id='T-CHEF'), 'Rappeler l''agence / Visite médicale');
+    perform public.chok_api(jsonb_build_object('action','enregistrer','jeton',jrh,'table','salaries',
+      'upserts', jsonb_build_array(jsonb_build_object('id','T-CHEF','matricule','M042',
+        'paie', jsonb_build_object('2026-10', jsonb_build_object('prime','150'))))));
+    res := chok._v(res,'La direction enregistre matricule et montants du mois',
+      (select matricule || ' ' || (paie->'2026-10'->>'prime') from chok.salaries where id='T-CHEF'), 'M042 150');
+    res := chok._v(res,'Le salarié ne reçoit pas les montants de paie',
+      (position('"paie"' in (public.chok_api(jsonb_build_object('action','charger','jeton',jsal)))::text))::text, '0');
     d := public.chok_api(jsonb_build_object('action','charger','jeton',jchef))->'donnees';
     res := chok._v(res,'Le chef ne reçoit aucun pense-bête (ni le sien, ni celui de ses intérimaires)',
-      (position('"note"' in (d->'salaries')::text) + position('"note"' in (d->'interimaires')::text))::text, '0');
+      (position('"note"' in (d->'salaries')::text) + position('"note"' in (d->'interimaires')::text)
+       + position('"paie"' in (d->'salaries')::text))::text, '0');
     d := public.chok_api(jsonb_build_object('action','charger','jeton',jsal));
     res := chok._v(res,'Le salarié ne reçoit pas de pense-bête',
       (d->>'ok') || ' ' || (position('"note"' in d::text))::text, 'true 0');
