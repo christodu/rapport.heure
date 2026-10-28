@@ -221,13 +221,18 @@ Tout, à toute date, sans limite :
   calculées dans sa vraie semaine ; celui de septembre ne change pas. Le choix
   « mois de la date » reste possible dans le formulaire, et le mois de paie se
   change aussi en modifiant la ligne (✎). Badge **PAYÉ EN …** dans la liste.
-- **Paniers** (salariés seulement) : automatiques, 1 panier par jour
-  travaillé, logé ou non. Rien à saisir pour les chefs. Dans Pointages, la
-  pastille **🥪 PANIER** se clique pour retirer le panier d'une journée
-  (barrée = retiré), et se reclique pour le remettre. Le rapport affiche le
-  panier jour par jour, le nombre par semaine et le total « PANIERS » du mois.
-  Une régularisation d'un jour sans aucune heure donne son panier sur le mois
-  de paie ; un complément d'heures sur un jour déjà payé n'en redonne pas.
+- **Paniers** (salariés seulement), calculés automatiquement chaque jour
+  travaillé :
+  - jour **logé** (grand déplacement) : **2 paniers déplacement** (midi + soir) ;
+  - jour de **retour** (la veille était logée, pas ce soir) : **1 panier
+    déplacement** (midi) ;
+  - autre jour : **1 panier** normal.
+  Le panier déplacement remplace le panier normal. Dans Pointages, colonne
+  « Logé · Panier », la direction peut tout changer pour la journée (🥪 panier
+  0/1, 🧳 déplacement 0/1/2) ; la journée est alors marquée « modifié »,
+  et « ↺ auto » revient au calcul automatique. Le rapport affiche les paniers
+  jour par jour, par semaine et au total (PANIERS / PANIERS DÉPL.) ; l'état de
+  paie a une ligne « Paniers » et une ligne « Paniers Déplacement ».
 - **État de paie** (onglet du même nom) : le tableau mensuel à transmettre
   pour la paie, une colonne par salarié. Calculé automatiquement (cases
   grises) : heures normales, samedis, heures à 25/50/100 %, A.T, maladie,
