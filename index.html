@@ -721,6 +721,16 @@ function compterPaniers(lignes, toutes) {
     d: 0
   });
 }
+/* SEMAINE À CHEVAL SUR DEUX MOIS (ex. lundi 28/09 → dimanche 04/10).
+   Le mois précédent a payé ses jours à lui, sans connaître la fin de la
+   semaine. Le mois suivant paie ce que SES jours ajoutent à la semaine
+   complète : les heures sup' de la semaine entière ne sont ni perdues, ni
+   comptées deux fois. Sans cela, 21 h en septembre + 21 h en octobre
+   = 42 h dans la semaine, et aucune heure à 25 % nulle part. */
+function majSemaineDuMois(lignesSem, toutesPersonne, debutMois) {
+  const avant = (toutesPersonne || []).filter(x => x.date < debutMois && !estReportee(x) && lignesSem.length && infoSemaine(x.date).cle === infoSemaine(lignesSem[0].date).cle);
+  return avant.length ? majorationsEnPlus(avant, lignesSem) : calcMajorations(lignesSem);
+}
 /** Écart de majorations qu'apportent « ajout » à une semaine qui contient déjà « base ». */
 function majorationsEnPlus(base, ajout) {
   const avec = calcMajorations([...base, ...ajout]),
@@ -750,7 +760,7 @@ function majorationsEnPlus(base, ajout) {
 //  cause, avec le chef au téléphone.
 // ============================================================
 const ETAPES = ["Date", "Client", "Adresse du chantier", "Mes heures", "Mes intérimaires", "Vérifier et envoyer"];
-const ETAPES_MANQUE = ["", "Choisissez le client pour continuer.", "Choisissez l'adresse du chantier pour continuer.", "Indiquez des horaires valables pour continuer.", "", ""];
+const ETAPES_MANQUE = ["Vous êtes noté absent ce jour-là : choisissez un autre jour, ou voyez la direction.", "Choisissez le client pour continuer.", "Choisissez l'adresse du chantier pour continuer.", "Indiquez des horaires valables pour continuer.", "", ""];
 const JOURS_SAISIE = 6; // aujourd'hui + 5 jours en arrière
 
 /** Date la plus ancienne qu'un chef peut encore saisir. */
@@ -782,6 +792,12 @@ function saisieOuverte(iso, aujourdIso) {
 //  Le samedi, lui, est réclamé : il est travaillé chez CHOK'BÉTON.
 // ============================================================
 
+/** L'absence posée par la direction sur cette personne ce jour-là, ou null. */
+const absenceLe = (absences, personneId, iso) => (absences || []).find(a => a && a.salarie === personneId && String(a.dateDebut || "") <= iso && iso <= String(a.dateFin || a.dateDebut || "")) || null;
+const libelleAbsence = a => {
+  const t = a && TYPES_ABSENCE.find(x => x.code === a.type);
+  return t ? `${t.icone} ${t.label}` : a && (a.typeLabel || a.type) || "Absence";
+};
 /** Cette personne est-elle déclarée absente ce jour-là ? */
 function estAbsentLe(absences, personneId, iso) {
   return (absences || []).some(a => a && a.salarie === personneId && String(a.dateDebut || "") <= iso && iso <= String(a.dateFin || a.dateDebut || ""));
@@ -831,7 +847,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v9.7"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v9.8"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -6967,8 +6983,9 @@ function OngletPaie({
     const totalSem35 = ptgSemCourante.reduce((s, x) => s + calcHeures(x), 0);
     // Majorations cumulées, calculées semaine par semaine (les paliers sont hebdomadaires)
     const _r = n => Math.round(n * 100) / 100;
+    const majSem = ptgs => modeVue === "mois" ? majSemaineDuMois(ptgs, pointages.filter(x => x.salarie === p.id), moisSel + "-01") : calcMajorations(ptgs);
     const maj = Object.values(parSemaine).reduce((a, ptgs) => {
-      const m = calcMajorations(ptgs);
+      const m = majSem(ptgs);
       return {
         hBase: a.hBase + m.hBase,
         h25: a.h25 + m.h25,
@@ -7002,6 +7019,16 @@ function OngletPaie({
     const pTot = compterPaniers(ptgPersonne, toutesP);
     const nbPaniers = avecPanier ? pTot.n + pRegul.n : 0,
       nbPaniersDep = avecPanier ? pTot.d + pRegul.d : 0;
+    // Jours d'absence de la période (hors dimanches), montrés à leur place dans le tableau.
+    const absJ = {};
+    (absences || []).filter(a => a.salarie === p.id && a.dateDebut).forEach(a => {
+      const fin = new Date((a.dateFin || a.dateDebut) + "T12:00:00Z");
+      for (let d = new Date(a.dateDebut + "T12:00:00Z"); d <= fin; d.setUTCDate(d.getUTCDate() + 1)) {
+        const iso = _isoUTC(d);
+        if (d.getUTCDay() !== 0 && plage.includes(iso)) absJ[iso] = a;
+      }
+    });
+    const nbJAbs = Object.keys(absJ).length;
     const txtPaniers = r => [r.n ? `🥪 ${r.n} panier(s)` : "", r.d ? `🧳 ${r.d} panier(s) dépl.` : ""].filter(Boolean).join(" · ") || "🥪 0 panier";
     const badgePanier = r => r.n || r.d ? /*#__PURE__*/React.createElement("div", {
       style: {
@@ -7201,7 +7228,7 @@ function OngletPaie({
           month: "2-digit"
         })}` : "", " ", "(", nbJoursDecomptes(a), " j)");
       })))));
-    })(), ptgPersonne.length === 0 && regul.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    })(), ptgPersonne.length === 0 && regul.length === 0 && nbJAbs === 0 ? /*#__PURE__*/React.createElement("div", {
       style: {
         padding: "20px",
         fontSize: 12,
@@ -7278,15 +7305,56 @@ function OngletPaie({
       }
     }, "État"))), /*#__PURE__*/React.createElement("tbody", null, (() => {
       const rows = [];
-      const semainesTriees = Object.entries(parSemaine).sort(([a], [b]) => b.localeCompare(a));
+      const semAff = {
+        ...parSemaine
+      };
+      Object.keys(absJ).forEach(d => {
+        const {
+          cle
+        } = infoSemaine(d);
+        if (!semAff[cle]) semAff[cle] = [];
+      });
+      const semainesTriees = Object.entries(semAff).sort(([a], [b]) => b.localeCompare(a));
       semainesTriees.forEach(([semCle, ptgsSem]) => {
-        const datesSem = [...new Set(ptgsSem.map(x => x.date))].sort((a, b) => b.localeCompare(a));
+        const datesSem = [...new Set([...ptgsSem.map(x => x.date), ...Object.keys(absJ).filter(d => infoSemaine(d).cle === semCle)])].sort((a, b) => b.localeCompare(a));
+        const dateRef = datesSem[datesSem.length - 1];
+        const nAbsSem = datesSem.filter(d => absJ[d]).length;
         const totalSemH = ptgsSem.reduce((s, x) => s + calcHeures(x), 0);
         const supSem = calcHSupSemaine(ptgsSem);
-        const mS = calcMajorations(ptgsSem);
+        const mS = majSem(ptgsSem);
         const nuiteesSem = calcNuitees(ptgsSem);
         datesSem.forEach(date => {
           const lignes = ptgsSem.filter(x => x.date === date);
+          if (!lignes.length) {
+            rows.push(/*#__PURE__*/React.createElement("tr", {
+              key: `abs-${date}`,
+              style: {
+                borderBottom: `1px solid ${C.ligne}`,
+                background: "#FFF0F0"
+              }
+            }, /*#__PURE__*/React.createElement("td", {
+              style: {
+                padding: "10px 16px",
+                verticalAlign: "top",
+                borderRight: `1px solid ${C.ligne}`,
+                whiteSpace: "nowrap"
+              }
+            }, /*#__PURE__*/React.createElement("div", {
+              style: {
+                fontWeight: 700,
+                fontSize: 11
+              }
+            }, fmtDate(date))), /*#__PURE__*/React.createElement("td", {
+              colSpan: 10,
+              style: {
+                padding: "10px 16px",
+                fontSize: 12,
+                fontWeight: 700,
+                color: C.orange
+              }
+            }, libelleAbsence(absJ[date]), " — absent", absJ[date].commentaire ? ` · ${absJ[date].commentaire}` : "")));
+            return;
+          }
           const isWE = [0, 6].includes(new Date(date + "T00:00:00").getDay());
           lignes.forEach((x, idx) => {
             const ch = chantiers.find(c => c.id === x.chantier);
@@ -7311,7 +7379,14 @@ function OngletPaie({
                 fontWeight: 700,
                 fontSize: 11
               }
-            }, fmtDate(date)), avecPanier && badgePanier(pjour(lignes))) : null, /*#__PURE__*/React.createElement("td", {
+            }, fmtDate(date)), avecPanier && badgePanier(pjour(lignes)), absJ[date] && /*#__PURE__*/React.createElement("div", {
+              style: {
+                fontSize: 10,
+                color: C.orange,
+                fontWeight: 700,
+                marginTop: 3
+              }
+            }, libelleAbsence(absJ[date]))) : null, /*#__PURE__*/React.createElement("td", {
               style: {
                 padding: "10px 16px"
               }
@@ -7443,7 +7518,12 @@ function OngletPaie({
             color: C.gris,
             letterSpacing: "0.1em"
           }
-        }, infoSemaine(ptgsSem[0].date).label, avecPanier && /*#__PURE__*/React.createElement("span", {
+        }, infoSemaine(dateRef).label, nAbsSem > 0 && /*#__PURE__*/React.createElement("span", {
+          style: {
+            marginLeft: 10,
+            color: C.orange
+          }
+        }, "· ", nAbsSem, " j. d'absence"), avecPanier && /*#__PURE__*/React.createElement("span", {
           style: {
             marginLeft: 10,
             color: C.vert
@@ -7781,7 +7861,12 @@ function OngletPaie({
           fontSize: 11,
           fontWeight: 700
         }
-      }, "TOTAL PÉRIODE", avecPanier && /*#__PURE__*/React.createElement("span", {
+      }, "TOTAL PÉRIODE", nbJAbs > 0 && /*#__PURE__*/React.createElement("span", {
+        style: {
+          marginLeft: 10,
+          color: C.orange
+        }
+      }, "· ", nbJAbs, " j. d'absence"), avecPanier && /*#__PURE__*/React.createElement("span", {
         style: {
           marginLeft: 10,
           color: C.vert
@@ -7910,7 +7995,7 @@ function syntheseMois(pointages, id, mois) {
     h100: 0
   };
   Object.values(parSem).forEach(l => {
-    const r = calcMajorations(l);
+    const r = majSemaineDuMois(l, siennes, mois + "-01");
     m.hBase += r.hBase;
     m.h25 += r.h25;
     m.h50 += r.h50;
@@ -10476,6 +10561,16 @@ function VueMobile({
     }
     // Plus de « En envoyer un second ? » : une confirmation se touche sans
     // la lire. Des heures déjà envoyées ne repartent tout simplement pas.
+    // Absence posée par la direction : aucune heure ce jour-là (le serveur refuse aussi).
+    if (!sautMesHeures && absenceLe(absences, moi.id, date)) {
+      setErreur(`Vous êtes noté absent le ${jourEnClair(date)} (${libelleAbsence(absenceLe(absences, moi.id, date))}). Voyez la direction.`);
+      return;
+    }
+    const absents = Object.keys(equipe).filter(id => absenceLe(absences, id, date));
+    if (absents.length) {
+      setErreur("Absent(s) ce jour-là selon la direction : " + absents.map(id => (interimaires.find(x => x.id === id) || {}).nom || id).join(", ") + ". Retirez-le(s) avant d'envoyer.");
+      return;
+    }
     const dejaLa = Object.keys(equipe).filter(id => lignesDuJour(id, date).length > 0);
     if (dejaLa.length) {
       setErreur("Déjà déclaré(s) ce jour-là : " + dejaLa.map(id => (interimaires.find(x => x.id === id) || {}).nom || id).join(", ") + ". Retirez-le(s) avant d'envoyer.");
@@ -10752,6 +10847,7 @@ function VueMobile({
   };
 
   // ---------- AIDES DE LA SAISIE PAR ÉTAPES ----------
+  const monAbsence = absenceLe(absences, moi.id, date);
   const resumeDate = (() => {
     const t = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", {
       weekday: "long",
@@ -11283,7 +11379,7 @@ function VueMobile({
       height: 5,
       background: i < etape ? C.encre : C.ligne
     }
-  }))), blocEtape(1, "DATE DU RAPPORT", resumeDate, true, () => /*#__PURE__*/React.createElement("div", {
+  }))), blocEtape(1, "DATE DU RAPPORT", resumeDate, !monAbsence, () => /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "10px 16px 16px"
     }
@@ -11305,20 +11401,28 @@ function VueMobile({
       day: "numeric"
     });
     const actif = date === iso;
+    const abs = absenceLe(absences, moi.id, iso);
     return /*#__PURE__*/React.createElement("button", {
       key: iso,
       onClick: () => setDate(iso),
       style: {
         padding: "11px 4px",
-        background: actif ? C.encre : C.fond,
-        color: actif ? C.jaune : C.encre,
-        border: `1.5px solid ${actif ? C.encre : C.ligne}`,
+        background: actif ? abs ? C.orange : C.encre : C.fond,
+        color: actif ? abs ? "#fff" : C.jaune : abs ? C.gris : C.encre,
+        border: `1.5px solid ${actif ? abs ? C.orange : C.encre : C.ligne}`,
         fontFamily: FM,
         fontSize: 11,
         fontWeight: 700,
-        cursor: "pointer"
+        cursor: "pointer",
+        textDecoration: abs && !actif ? "line-through" : "none"
       }
-    }, lib);
+    }, lib, abs && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        fontWeight: 500,
+        textDecoration: "none"
+      }
+    }, "absent"));
   })), /*#__PURE__*/React.createElement("input", {
     type: "date",
     value: date,
@@ -11351,7 +11455,17 @@ function VueMobile({
       color: C.gris,
       marginTop: 6
     }
-  }, "Saisie possible sur ", /*#__PURE__*/React.createElement("b", null, "6 jours"), " : aujourd'hui et les 5 jours précédents."), estFerie(date) && /*#__PURE__*/React.createElement("div", {
+  }, "Saisie possible sur ", /*#__PURE__*/React.createElement("b", null, "6 jours"), " : aujourd'hui et les 5 jours précédents."), monAbsence && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: "10px 12px",
+      background: "#FFF0F0",
+      border: `2px solid ${C.orange}`,
+      fontSize: 12,
+      color: C.encre,
+      lineHeight: 1.5
+    }
+  }, /*#__PURE__*/React.createElement("b", null, libelleAbsence(monAbsence)), " — la direction vous a noté absent ce jour-là. Vous ne pouvez pas saisir d'heures. En cas d'erreur, appelez la direction."), estFerie(date) && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: "9px 12px",
@@ -12106,6 +12220,28 @@ function VueMobile({
     // Déjà déclaré ce jour-là : on le montre, mais on ne le propose pas
     // une seconde fois — il serait payé deux fois.
     const deja = lignesDuJour(i.id, date);
+    const absI = absenceLe(absences, i.id, date);
+    if (absI) return /*#__PURE__*/React.createElement("div", {
+      key: i.id,
+      style: {
+        marginBottom: 8,
+        padding: "12px 14px",
+        border: `1.5px solid ${C.orange}`,
+        background: "#FFF0F0",
+        color: C.gris
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 14,
+        fontWeight: 700,
+        color: C.encre
+      }
+    }, i.nom), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        marginTop: 2
+      }
+    }, libelleAbsence(absI), " — absent ce jour-là, pas d'heures possibles"));
     if (deja.length && !actif) return /*#__PURE__*/React.createElement("div", {
       key: i.id,
       style: {

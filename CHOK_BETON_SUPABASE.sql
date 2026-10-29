@@ -1,6 +1,6 @@
 -- ============================================================
 --  CHOK BÉTON — SERVEUR SUPABASE
---  Version s3.3 (la fonction chok.version() fait foi)
+--  Version s3.4 (la fonction chok.version() fait foi)
 --
 --  À COLLER EN UNE SEULE FOIS dans : Supabase → SQL Editor → New query
 --  puis cliquer sur « Run ». Le script est REJOUABLE sans risque :
@@ -235,7 +235,7 @@ revoke all on all functions in schema chok from public, anon, authenticated;
    arrivé — on a cherché longtemps une panne de serveur alors que la
    question était « quelle version tourne, au juste ? ». */
 create or replace function chok.version() returns text
-language sql immutable as $$ select 's3.3'::text $$;
+language sql immutable as $$ select 's3.4'::text $$;
 
 /* Conversion tolérante vers un vrai booléen.
    Reprend la règle du serveur précédent : toute valeur inattendue vaut
@@ -624,8 +624,12 @@ begin
                     where p.chantier = x.id
                       and (p.salarie = v_pid or coalesce(p."creePar",'') = v_pid));
 
+    -- Ses absences ET celles de ses intérimaires : l'application grise les
+    -- jours où la direction a posé une absence.
     select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) into v_absences
-      from chok.absences x where x.salarie = v_pid
+      from chok.absences x
+     where (x.salarie = v_pid or exists (select 1 from chok.interimaires i
+                                          where i.id = x.salarie and chok.chef_peut_declarer(v_pid, i.id)))
         and (v_depuis is null or coalesce(nullif(x."dateFin",''), x."dateDebut") >= v_depuis);
 
     -- Liste des collègues : nom et poste seulement, pour composer l'équipe.
@@ -923,6 +927,24 @@ begin
               'erreur', 'Ces heures sont déjà enregistrées pour ce jour (' || v_qui || '). ' ||
                         'Rien n''a été renvoyé. Pour les corriger, utilisez « Mes derniers envois ».');
           end if;
+        end if;
+      end loop;
+
+      -- ABSENCE POSÉE PAR LA DIRECTION : pas d'heures ce jour-là. Vaut pour
+      -- une ligne nouvelle ou déplacée sur un jour d'absence ; une ligne
+      -- saisie AVANT que l'absence soit posée reste corrigeable.
+      for v_o in select * from jsonb_array_elements(v_upserts) loop
+        select x.date into v_qui from chok.pointages x where x.id = v_o->>'id';
+        if (v_qui is null or v_qui <> coalesce(v_o->>'date', v_qui))
+           and exists (select 1 from chok.absences a
+                        where a.salarie = coalesce(v_o->>'salarie',
+                                (select salarie from chok.pointages where id = v_o->>'id'))
+                          and coalesce(v_o->>'date', v_qui) between a."dateDebut"
+                              and coalesce(nullif(a."dateFin",''), a."dateDebut")) then
+          perform chok.noter('refus_ecriture', v_role, v_pid, v_table, 'Jour d''absence');
+          return jsonb_build_object('ok', false, 'codeErreur', 'ABSENT',
+            'erreur', 'La direction a noté une absence ce jour-là : pas d''heures possibles. ' ||
+                      'En cas d''erreur, voyez la direction.');
         end if;
       end loop;
 
@@ -1815,8 +1837,8 @@ select chok.sauvegarde_complete('installation') as sauvegarde_initiale;
 -- ============================================================
 with controles(n, quoi, valeur, attendu, bon) as (
   select 1, 'Version du serveur',
-         chok.version(), 's3.3',
-         chok.version() = 's3.3'
+         chok.version(), 's3.4',
+         chok.version() = 's3.4'
   union all
   select 2, 'Tables verrouillées (RLS active)',
          -- On affiche la LISTE et non un simple nombre : un écart se

@@ -233,6 +233,16 @@ Tout, à toute date, sans limite :
   et « ↺ auto » revient au calcul automatique. Le rapport affiche les paniers
   jour par jour, par semaine et au total (PANIERS / PANIERS DÉPL.) ; l'état de
   paie a une ligne « Paniers » et une ligne « Paniers Déplacement ».
+- **Absences = pas d'heures** : un jour où la direction a posé une absence
+  (congé, maladie, A.T…), la personne ne peut plus saisir d'heures, ni son
+  chef pour elle s'il s'agit d'un intérimaire (jour barré « absent » sur le
+  téléphone, refus du serveur). Une ligne saisie AVANT l'absence reste
+  corrigeable. La direction peut toujours ajouter des heures (régularisation).
+  Les absences figurent jour par jour dans le rapport (semaine et mois), avec
+  le nombre de jours d'absence par semaine et sur la période.
+- **Semaine à cheval sur deux mois** : les heures sup' de la semaine
+  complète sont payées sur le mois où elle se termine (le mois précédent a
+  payé ses jours en heures normales). Rien n'est perdu ni compté deux fois.
 - **État de paie** (onglet du même nom) : le tableau mensuel à transmettre
   pour la paie, une colonne par salarié. Calculé automatiquement (cases
   grises) : heures normales, samedis, heures à 25/50/100 %, A.T, maladie,

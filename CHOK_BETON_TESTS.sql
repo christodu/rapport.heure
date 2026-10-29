@@ -607,6 +607,20 @@ begin
     res := chok._v(res,'La direction régularise sur le mois de paie de son choix',
       coalesce((select "moisPaie" from chok.pointages where id='T-PMR'),'(absente) '||coalesce(r->>'erreur','')), '2026-02');
 
+    -- ---------- 16 ter. ABSENCE POSÉE = PAS D'HEURES ----------
+    insert into chok.absences(id,salarie,"dateDebut","dateFin",type) values ('T-ABS1','T-ITM',v_avhier,v_avhier,'MAL');
+    r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jchef,'table','pointages',
+      'upserts', jsonb_build_array(jsonb_build_object('id','T-PABS','salarie','T-ITM','chantier','T-CH1',
+        'date',v_avhier,'debut','13:00','fin','14:00','pause',0))));
+    res := chok._v(res,'Pas d''heures un jour d''absence posée par la direction', r->>'codeErreur', 'ABSENT');
+    d := public.chok_api(jsonb_build_object('action','charger','jeton',jchef))->'donnees';
+    res := chok._v(res,'Le chef reçoit les absences de ses intérimaires',
+      (position('T-ABS1' in (d->'absences')::text) > 0)::text, 'true');
+    r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jrh,'table','pointages',
+      'upserts', jsonb_build_array(jsonb_build_object('id','T-PABR','salarie','T-ITM','chantier','T-CH1',
+        'date',v_avhier,'debut','13:00','fin','14:00','pause',0))));
+    res := chok._v(res,'La direction peut toujours saisir (régularisation)', r->>'ok', 'true');
+
     -- ---------- 17. UN ACCÈS RETIRÉ L'EST TOUT DE SUITE ----------
     r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jrh,'table','salaries',
       'upserts', jsonb_build_array(jsonb_build_object('id','T-SAL','code','3334'))));
