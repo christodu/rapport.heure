@@ -505,6 +505,21 @@ const clientsProches = (nom, liste) => {
     return mots.some(m => mc.includes(m)) || ecartLettres(k, kc) <= Math.max(2, Math.floor(Math.min(k.length, kc.length) * 0.25));
   });
 };
+/* Deux noms de personne désignent-ils probablement la même ? Accents, casse
+   et ORDRE des mots ignorés (« Moussa Diallo » = « DIALLO Moussa »), et
+   petites fautes de frappe tolérées (« Diallo Mousa »). */
+const clePersonne = s => cleClient(s).split(" ").filter(Boolean).sort().join(" ");
+function nomsProches(a, b) {
+  const ka = clePersonne(a),
+    kb = clePersonne(b);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  if (ecartLettres(ka, kb) <= Math.max(2, Math.floor(Math.min(ka.length, kb.length) * 0.2))) return true;
+  // Même nom de famille long ET prénoms proches (« KONATE Zan » / « KONATE Zane »).
+  const ma = ka.split(" "),
+    mb = kb.split(" ");
+  return ma.some(m => m.length >= 5 && mb.includes(m)) && ma.length > 1 && mb.length > 1 && ecartLettres(ma.filter(m => !mb.includes(m)).join(""), mb.filter(m => !ma.includes(m)).join("")) <= 2;
+}
 const clientDe = c => c && c.client && c.client !== "—" ? c.client : "";
 const libelleChantier = (c, avecVille) => !c ? "—" : [clientDe(c), (c.nom || "") + (avecVille && c.ville && c.ville !== "—" ? ` · ${c.ville}` : "")].filter(Boolean).join(" — ");
 const fmtH = n => {
@@ -847,7 +862,7 @@ const jourEnClair = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR
 // ============================================================
 const LOGO_COMPLET = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAAD9AgMAAADvzMlvAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAACPhJREFUeNrtXD1v40YafmZCLZStGMA6HLaJikOQ+Fdw+xQCztK52ML9NfsDUgyuTOUfkMLFFgtZhatrLkD4K5wtVe0dYANhZQgrHicFKYpDzsc7nNEiQDyFZcqceeZ9n/drhkN/Ab82+fs3H5bn936duCfIAgDY4oQgbNn8UkwuTgXC2pHT1EsYT3U1okwyJCfkZFSjg0wy2b0scXYCkEXa++J1Fh1kRvoqAid55/cCQBYfpGdPLDrxLPsM1pUga1SkqO4sKshidtQPa7U3IxoYDWRi+sNZRJD04IAAJgkASB/2aSBZ5ycWXeAsHkj+OWJXbVZp0vWSjA7v4/FJN3q9RoeaCCCTmnHVI8/0cWA0SJoZJ1ziq0ggmVn1Bcm+CNIypBazy2QUSRIkStTqzYBFAVkcfH3YJBKKvjjFE5nJVEuaq/iEFUtUixggNcYVKXbZhkkZKWu6TXiWAYnNhC72bicgF8DGtr8LVVcSwaH5WM59tMFDeKfeE6WqT0NBKKmvCAUpCCB5KEjpxpDBxEu3vh7Dw0oRrC0XCMvgDBr7tt4bCZKcuSdagCVh6mJufeX2+OkGSbFw2Zd0assFktHKGUdg4YQRThyFGYCFc4yFK3q5/WTi0Dh77RSGh7p7XXqXoYnPLI/c0MICFaRaab788vsoKy2DaV7HXM4tqZ3SLHr6ndIX+m4QkyPOPdP8KElEzCV2Qu+TxJZkeprNAiclASApnRI2GuQxkvDWHvKOTMl+PCf7nEiJvAsg/oFIySbIuu5IPR7CTLikUOLKbTYQ/TOSuX9RbpVkkpEDl3X9yq2ha0bucBHAyUVC8ZLElN2IVf2C4iVsGTlAihGVJveMj6OSnG+n6ecAmccGefRJ73JkBdntx9cBS3FqmVrWG06zbMwiOSGWXfLWMWI6kpMLY22c+1mBn3UxNbT/4Aqmo0ASJaHz4iSSpIptT/OTgGQK71+fxOOZ6pE/nASkoaTypMQPpKFkp6UkjQTSULL1pMQGwmJRYgsr0oOS29Hr+NtepWOmRMYj3kxJGQ1kNCUjzkh4e4l7o5PmJclo6+rnQYuXsKX1UY3NT5aZpbrzoMQGIrW8j6DEg/jEFrjslQQdJB0ZuLxAstGU0EECKKGDuCiJAhJACR3ERck+HweyiUQJuapX75vOlkB389lecI97mDmPV3Azn9VpMhLkzKcTi60u39Upj0TJaJDCd8MgpiTcd/XrANHuLQ4okbdBkmxKCiVlwB5kadhbFESJaZLog562y/7nkSCG6U213h4SuxKKl7BAE16QKLkIAiHudDoOwNtBdNsMU+qNRBDtBOdUkYkgZzEClwukoHeQUQPkmJ1OK0hJpiRyqBf0+YwGib/5LOmUFDFnNo8uiWY3w0DJQx4gSU68PY9PpLHmH7OO72a+24ApOE7gZIQhNgg/geM6FCploCQSQOE82nfnOhwT42BfGRgmcuIRxSATLtyHB5nuKbSfumTufJElQxm2B1mW7jO0KeTPQSCycJ+HmzgPGH7hGGGLmTPw/mUbnITcTn+GUBDC6cHw49WUl6SyUBBKiExPURh4JXiCdeGBkNX/HSpJ4cYIP15dumuAMhhEttlPl9AeQTjCTcnxeWbPfr9EKDv/UwClIWEUsd44K0rzGzNptHfnEofxZTFAUiBnQVUbp/izNIfGklJpEEBKlOYpS0qlwWkOnRrDZ15EAUFufh0rJb2gQgEpcovl/RZpDbhvcp9C8YZaPpLzSc17WQzK7Jjv/aat7/cXV1k8kMDmD6JuGubxQOqUkSeHyrVNmTKiJHJwwWrLeoyprjvtQv23X3IP4yS4CiDV4FLS3wOnEp/rir7sZNZ1ShMu+gFE0t5O8QLZ99STgmhaXurajFh8e4MMHg9sThJWWBvYJU75T12aFFWSNhFGgcgN8pqHonC+6ztakuMDMi8Mb2d8AFw7js/tuT23P2xjAF68Q3U5+Mu5wNPVmFz7HlgNQdYAPr49DPvqGp/eAC9vANwL4NU1nq5wLoD7H2/wdNWcfV8BL941g9yfH4Zb1aNVlzXYvcC5wD0HXgLAX/sTugGAb9tLgd6zk3cGQV4CABf9AHml+Rov1PDJ0J4jUm4Ytnnn5+GDg2fd60P7W/1x3QHZqXcIPSPiKE+bPvnhUdhUO8RBi1O0R7vUKffbVOnfgsx1iYV3JDiMKCi2NVc++WE0oRM/6YGIPiVez2e5ow4XJkoMTahTqC851+p4rv7CQPtfD8c5K5PnCQD5Vtfh/kpRTad0WK1s/FSrvDfZJAHw68c8U3UsgEocxZ73Fw8HS2vC0RL/vwQecjkF8AE3GSD+dVR7kgIQuBkuNXaAECbeewTdgl8C/6z9Q3T+WoPwdGg3NQdb1TN2AJ4uCbRU3QF5C7UDds31ZImZstHAD/67rZVX0NxEtSOu6mmybE8iC1UporOwBqZmk94pPicAIMmAwvD6e08Jx+kd33Ti6yP7dsMuqGtiLjpz3IIcZrhPZOhaudS6SqYNmNwUVaS2e6XfpBiuYhVlcNdOR6Z87vqJYziVYqgB8tJhfkzKtnyiDZfcVsYMlPspd4f6FMrmq6CAdEPW0xuXonuro61NknLskixXhyg9QbqZc7W67H5hXgiXR7dLj2VfXdwNTTLVBgCnsx9OY+eWx4Qtt/8bWFNu3UHr+STPTXFEdNxFDKyJCCJaTqYDF2+eAaTNt1VlY6hnTmwY2ngBcGBuAmn8XNDdlnVv3bYgELqJfQkmFMsRGoPm6/V6vVZ7X2Pa6rMOQ7wEcL7up20BsJvvjka4Vdx4vX5vyIc7AK/4TY80bjbyl+Ko2hK0/5snAeD9Mb7WZPJKm4S2Gq+a2kOImgAkIVrsekRUmpCZ28rUXffaUHBXvU9NXK5MNqx8FjXIVtsn10hEWTvselNuQHbamvCmx812EFh2tmhVKXfxw/VWOyPL5K9syXCnXZj2i48qB4AnBVQxr08G7A9qmq4akCcA+G/fYH9SZ1v1LfGNWpwcbxRNmpZHclm9h/DpzWBKr67x8e2YTY415D+et3qe23P78zbGLk4P8gd9Hv+nBvkdjxxPmHaEQMUAAAAASUVORK5CYII=";
 const LOGO_LAME = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
-const APP_VERSION = "v9.8"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v9.9"; // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4; // longueur minimale d'un code personnel
 const CODE_MAX = 8; // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -3268,6 +3283,9 @@ function VueAdmin({
     interimaires: interimaires,
     setInterimaires: setInterimaires,
     pointages: pointages,
+    setPointages: setPointages,
+    absences: absences,
+    setAbsences: setAbsences,
     chantiers: chantiers,
     salaries: salaries
   }), onglet === "chantiers" && /*#__PURE__*/React.createElement(OngletChantiers, {
@@ -5669,6 +5687,9 @@ function OngletInterim({
   interimaires,
   setInterimaires,
   pointages,
+  setPointages,
+  absences,
+  setAbsences,
   chantiers,
   salaries
 }) {
@@ -5767,6 +5788,96 @@ function OngletInterim({
       h: ps.reduce((s, p) => s + calcHeures(p), 0)
     };
   };
+
+  /* ---- FUSION DE DEUX FICHES ----
+     Deux chefs ont créé le même intérimaire avec deux orthographes : ses
+     heures sont coupées en deux. La fusion déplace TOUTES les heures et
+     absences de la fiche « en double » vers la fiche gardée ; la fiche en
+     double est archivée (jamais supprimée : la trace reste). */
+  const [fusion, setFusion] = useState(null); // null | {garder, absorber, nom}
+  const doublons = (() => {
+    const out = [];
+    const l = interimaires.filter(i => !/\(fusionné\)$/.test(i.nom));
+    for (let a = 0; a < l.length; a++) for (let b = a + 1; b < l.length; b++) if (nomsProches(l[a].nom, l[b].nom)) out.push([l[a], l[b]]);
+    return out;
+  })();
+  const ouvrirFusion = (x, y) => {
+    // Par défaut on garde la fiche qui a le plus d'heures.
+    const [g, a] = stats(x.id).j >= stats(y.id).j ? [x, y] : [y, x];
+    // Nom proposé : celui écrit « NOM Prénom » (nom de famille en capitales), sinon celui de la fiche gardée.
+    const bienEcrit = [g, a].find(x => /^[A-ZÀ-Ý'-]{2,}( [A-ZÀ-Ý'-]{2,})* [A-ZÀ-Ý]?[a-zà-ÿ]/.test(x.nom));
+    setFusion({
+      garder: g.id,
+      absorber: a.id,
+      nom: (bienEcrit || g).nom
+    });
+    window.scrollTo({
+      top: 0
+    });
+  };
+  const infoFiche = id => {
+    const i = interimaires.find(x => x.id === id);
+    if (!i) return null;
+    const ps = pointages.filter(p => p.salarie === id).map(p => p.date).sort();
+    return {
+      i,
+      ...stats(id),
+      premier: ps[0],
+      dernier: ps[ps.length - 1],
+      ag: (AGENCES.find(a => a.id === i.agence) || {}).nom || "—",
+      chef: nomDuChef(i.chef) || "—"
+    };
+  };
+  // Jours où les deux fiches ont des heures : après fusion, la personne aurait deux lignes ce jour-là.
+  const joursCommuns = fusion && fusion.garder && fusion.absorber && fusion.garder !== fusion.absorber ? [...new Set(pointages.filter(p => p.salarie === fusion.absorber).map(p => p.date))].filter(d => pointages.some(p => p.salarie === fusion.garder && p.date === d)).sort() : [];
+  const fusionner = () => {
+    const {
+      garder,
+      absorber
+    } = fusion;
+    const nomG = String(fusion.nom || "").trim();
+    if (!garder || !absorber || garder === absorber) {
+      window.alert("Choisissez deux fiches différentes.");
+      return;
+    }
+    if (nomG.length < 2) {
+      window.alert("Indiquez le nom à garder.");
+      return;
+    }
+    const A = infoFiche(absorber),
+      G = infoFiche(garder);
+    if (!window.confirm(`Fusionner « ${A.i.nom} » dans « ${nomG} » ?\n\n` + `• ${A.j} pointage(s) et ses absences passent sur « ${nomG} »\n` + `• la fiche « ${A.i.nom} » est archivée (marquée « fusionné »)\n` + (joursCommuns.length ? `• ⚠ ${joursCommuns.length} jour(s) ont des heures sur les deux fiches : vérifiez-les ensuite dans Pointages\n` : "") + `\nCette opération se défait à la main seulement.`)) return;
+    setPointages(pointages.map(p => p.salarie === absorber ? {
+      ...p,
+      salarie: garder,
+      interim: true
+    } : p));
+    setAbsences((absences || []).map(a => a.salarie === absorber ? {
+      ...a,
+      salarie: garder
+    } : a));
+    setInterimaires(interimaires.map(i => {
+      if (i.id === garder) return {
+        ...i,
+        nom: nomG,
+        actif: true
+      };
+      if (i.id === absorber) return {
+        ...i,
+        nom: `${i.nom} (fusionné)`,
+        actif: false,
+        chef: ""
+      };
+      // Si la fiche absorbée était chef d'équipe, ses intérimaires suivent.
+      if (i.chef === absorber) return {
+        ...i,
+        chef: garder
+      };
+      return i;
+    }));
+    setFusion(null);
+    window.alert(`✓ Fusion faite : ${A.j} pointage(s) déplacé(s) vers « ${nomG} ».` + (joursCommuns.length ? `\n\n⚠ À vérifier dans Pointages : ${joursCommuns.map(d => d.split("-").reverse().join("/")).join(", ")}.` : ""));
+  };
   const [editId, setEditId] = useState(null);
   const [eNom, setENom] = useState("");
   const [ePoste, setEPoste] = useState("Manœuvre");
@@ -5821,13 +5932,187 @@ function OngletInterim({
   };
   return /*#__PURE__*/React.createElement(Section, {
     titre: `Intérimaires — ${interimaires.length}`,
-    actions: /*#__PURE__*/React.createElement(Btn, {
+    actions: /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => setFusion(fusion ? null : {
+        garder: "",
+        absorber: "",
+        nom: ""
+      })
+    }, fusion ? "✕ Fermer la fusion" : "⇄ FUSIONNER DEUX FICHES"), /*#__PURE__*/React.createElement(Btn, {
       onClick: () => {
         setOpen(!open);
         setErr("");
       }
-    }, open ? "✕ Annuler" : "+ AJOUTER UN INTÉRIMAIRE")
-  }, open && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+    }, open ? "✕ Annuler" : "+ AJOUTER UN INTÉRIMAIRE"))
+  }, fusion && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: FM,
+      fontSize: 10,
+      letterSpacing: "0.2em",
+      color: C.gris,
+      fontWeight: 700,
+      marginBottom: 6
+    }
+  }, "FUSIONNER DEUX FICHES DU MÊME INTÉRIMAIRE"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: C.gris,
+      marginBottom: 12,
+      lineHeight: 1.5
+    }
+  }, "Toutes les heures et absences de la fiche ", /*#__PURE__*/React.createElement("b", null, "en double"), " passent sur la fiche ", /*#__PURE__*/React.createElement("b", null, "gardée"), ". La fiche en double est archivée, rien n'est effacé."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement(Champ, {
+    label: "FICHE À GARDER"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: fusion.garder,
+    onChange: e => {
+      const i = interimaires.find(x => x.id === e.target.value);
+      setFusion({
+        ...fusion,
+        garder: e.target.value,
+        nom: i ? i.nom : ""
+      });
+    },
+    style: selectStyle
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "— Choisir —"), trierParNom(interimaires).map(i => /*#__PURE__*/React.createElement("option", {
+    key: i.id,
+    value: i.id
+  }, i.nom, estActif(i) ? "" : " (archivé)", " · ", stats(i.id).j, " j.")))), /*#__PURE__*/React.createElement(Champ, {
+    label: "FICHE EN DOUBLE (à absorber)"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: fusion.absorber,
+    onChange: e => setFusion({
+      ...fusion,
+      absorber: e.target.value
+    }),
+    style: selectStyle
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "— Choisir —"), trierParNom(interimaires).filter(i => i.id !== fusion.garder).map(i => /*#__PURE__*/React.createElement("option", {
+    key: i.id,
+    value: i.id
+  }, i.nom, estActif(i) ? "" : " (archivé)", " · ", stats(i.id).j, " j.")))), fusion.garder && fusion.absorber && /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    onClick: () => {
+      const g = fusion.absorber,
+        a = fusion.garder;
+      const i = interimaires.find(x => x.id === g);
+      setFusion({
+        garder: g,
+        absorber: a,
+        nom: i ? i.nom : ""
+      });
+    }
+  }, "⇅ INVERSER"), /*#__PURE__*/React.createElement(Champ, {
+    label: "NOM GARDÉ (orthographe correcte)"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: fusion.nom,
+    onChange: e => setFusion({
+      ...fusion,
+      nom: e.target.value
+    }),
+    spellCheck: false,
+    style: {
+      ...inputStyle,
+      minWidth: 220
+    }
+  }))), fusion.garder && fusion.absorber && (() => {
+    const G = infoFiche(fusion.garder),
+      A = infoFiche(fusion.absorber);
+    if (!G || !A) return null;
+    const carte = (x, titre, coul) => /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 220,
+        padding: "10px 12px",
+        border: `1.5px solid ${coul}`,
+        fontSize: 12,
+        lineHeight: 1.6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.15em",
+        color: coul
+      }
+    }, titre), /*#__PURE__*/React.createElement("b", {
+      style: {
+        fontSize: 13
+      }
+    }, x.i.nom), /*#__PURE__*/React.createElement("br", null), x.j, " pointage(s) · ", fmtH(x.h), /*#__PURE__*/React.createElement("br", null), "Agence : ", x.ag, " · Chef : ", x.chef, /*#__PURE__*/React.createElement("br", null), x.premier ? /*#__PURE__*/React.createElement(React.Fragment, null, "Du ", x.premier.split("-").reverse().join("/"), " au ", x.dernier.split("-").reverse().join("/")) : "Aucune heure");
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap",
+        marginTop: 12
+      }
+    }, carte(G, "GARDÉE", C.vert), /*#__PURE__*/React.createElement("div", {
+      style: {
+        alignSelf: "center",
+        fontSize: 20
+      }
+    }, "⬅"), carte(A, "EN DOUBLE → ARCHIVÉE", C.orange)), joursCommuns.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 10,
+        padding: "8px 12px",
+        background: "#FFF8E1",
+        border: `1.5px solid ${C.jaune}`,
+        fontSize: 12
+      }
+    }, "⚠ Heures sur les deux fiches le ", joursCommuns.map(d => d.split("-").reverse().join("/")).join(", "), " : vérifiez ces jours après la fusion (doublon possible)."), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 12
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      onClick: fusionner
+    }, "⇄ FUSIONNER")));
+  })()), doublons.length > 0 && !fusion && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 16px",
+      marginBottom: 14,
+      background: "#FFF0F0",
+      border: `1.5px solid ${C.orange}`,
+      fontSize: 12.5,
+      lineHeight: 1.7
+    }
+  }, /*#__PURE__*/React.createElement("b", null, "⚠ ", doublons.length, " doublon(s) possible(s)"), " — même personne écrite différemment ?", doublons.map(([x, y]) => /*#__PURE__*/React.createElement("div", {
+    key: x.id + y.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      marginTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "« ", /*#__PURE__*/React.createElement("b", null, x.nom), " » (", stats(x.id).j, " j.) et « ", /*#__PURE__*/React.createElement("b", null, y.nom), " » (", stats(y.id).j, " j.)"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => ouvrirFusion(x, y),
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      padding: "3px 10px",
+      background: C.encre,
+      color: C.jaune,
+      border: "none",
+      cursor: "pointer"
+    }
+  }, "Fusionner…")))), open && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 12,

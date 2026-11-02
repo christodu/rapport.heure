@@ -243,6 +243,14 @@ Tout, à toute date, sans limite :
 - **Semaine à cheval sur deux mois** : les heures sup' de la semaine
   complète sont payées sur le mois où elle se termine (le mois précédent a
   payé ses jours en heures normales). Rien n'est perdu ni compté deux fois.
+- **Fusionner deux fiches d'intérimaire** (même personne écrite de deux
+  façons par deux chefs) : onglet Intérimaires. Les doublons probables sont
+  signalés en rouge (accents, majuscules, ordre nom/prénom et petites fautes
+  ignorés) avec un bouton « Fusionner… » ; ou bouton **⇄ FUSIONNER DEUX
+  FICHES**. Choisir la fiche gardée, la fiche en double, l'orthographe
+  correcte. Toutes les heures et absences passent sur la fiche gardée ; la
+  fiche en double est archivée « (fusionné) ». Les jours où les deux fiches
+  ont des heures sont signalés pour vérification.
 - **État de paie** (onglet du même nom) : le tableau mensuel à transmettre
   pour la paie, une colonne par salarié. Calculé automatiquement (cases
   grises) : heures normales, samedis, heures à 25/50/100 %, A.T, maladie,
