@@ -58,7 +58,6 @@ language plpgsql as $$
 declare
   res   jsonb := '[]'::jsonb;   -- survit à l'annulation : ce n'est pas de la base
   jchef text; jsal text; jrh text; r jsonb; d jsonb; k integer; n integer;
-  conf text;
   -- Dates RELATIVES : avec des dates figées, ces contrôles auraient cessé
   -- de passer d'eux-mêmes au bout d'une semaine, à cause de la règle des
   -- 3 jours. Un test qui dépend du calendrier ne vaut rien.
@@ -707,17 +706,6 @@ begin
       (public.chok_api(jsonb_build_object('action','majAnnuaire','cleAnnuaire',chok.config_lire('cleAnnuaire'),
         'liste',jsonb_build_array('ZZ Robot'))))->>'nombre', '1');
 
-    r := public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222'));
-    conf := r->>'confiance';
-    res := chok._v(res,'La connexion reconnaît l''appareil', (conf is not null)::text, 'true');
-    perform public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','0009'))
-      from generate_series(1,5);
-    res := chok._v(res,'Cinq faux codes d''un inconnu bloquent les appareils inconnus',
-      ((public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222')))->>'erreur'
-        like 'Trop de codes%')::text, 'true');
-    res := chok._v(res,'mais pas le téléphone habituel du titulaire',
-      (public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222',
-        'confiance',conf)))->>'ok', 'true');
     perform public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','0009'))
       from generate_series(1,5);
     res := chok._v(res,'La direction voit le compte bloqué',
@@ -727,11 +715,6 @@ begin
     perform public.chok_api(jsonb_build_object('action','debloquer','jeton',jrh,'personneId','T-CHF2'));
     res := chok._v(res,'La direction débloque sans changer le code',
       (public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222')))->>'ok', 'true');
-    perform public.chok_api(jsonb_build_object('action','connexion','role','rh','pin','99999999'))
-      from generate_series(1,5);
-    res := chok._v(res,'Direction bloquée par un inconnu : son poste habituel entre quand même',
-      (public.chok_api(jsonb_build_object('action','connexion','role','rh','pin',chok.config_lire('pinRH'),
-        'confiance',(select a.jeton::text from chok.appareils a where a.cle='blocage_rh' limit 1))))->>'ok', 'true');
 
     -- ---------- 17. UN ACCÈS RETIRÉ L'EST TOUT DE SUITE ----------
     r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jrh,'table','salaries',

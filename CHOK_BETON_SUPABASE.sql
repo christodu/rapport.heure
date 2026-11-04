@@ -1,6 +1,6 @@
 -- ============================================================
 --  CHOK BÉTON — SERVEUR SUPABASE
---  Version s3.7 (la fonction chok.version() fait foi)
+--  Version s3.8 (la fonction chok.version() fait foi)
 --
 --  À COLLER EN UNE SEULE FOIS dans : Supabase → SQL Editor → New query
 --  puis cliquer sur « Run ». Le script est REJOUABLE sans risque :
@@ -196,16 +196,9 @@ create table if not exists chok.blocages (
 -- et chaque nouvel échec double la durée du blocage.
 alter table chok.blocages add column if not exists oubli timestamptz;
 
--- APPAREILS DE CONFIANCE. Un téléphone (ou l'ordinateur de la direction)
--- qui s'est déjà connecté avec le bon code reçoit un jeton. Ses erreurs de
--- code ont leur propre compteur : un inconnu qui tape cinq faux codes au nom
--- de quelqu'un bloque les appareils INCONNUS, jamais celui du vrai titulaire.
--- La direction ne peut donc pas être enfermée dehors depuis son poste.
-create table if not exists chok.appareils (
-  jeton  uuid primary key,
-  cle    text not null,
-  expire timestamptz not null
-);
+-- Table posée par la s3.7 puis abandonnée : un compte bloqué se débloque
+-- par la direction (Paramètres → Comptes bloqués).
+drop table if exists chok.appareils;
 
 -- Sauvegardes internes : une copie complète, en base, indépendante des
 -- sauvegardes de l'hébergeur. C'est le filet qui garantit qu'aucune
@@ -232,7 +225,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['salaries','interimaires','chantiers','pointages','absences',
-                           'config','journal','sessions','blocages','sauvegardes','appareils']
+                           'config','journal','sessions','blocages','sauvegardes']
   loop
     execute format('alter table chok.%I enable row level security', t);
   end loop;
@@ -253,7 +246,7 @@ revoke all on all functions in schema chok from public, anon, authenticated;
    arrivé — on a cherché longtemps une panne de serveur alors que la
    question était « quelle version tourne, au juste ? ». */
 create or replace function chok.version() returns text
-language sql immutable as $$ select 's3.7'::text $$;
+language sql immutable as $$ select 's3.8'::text $$;
 
 /* Conversion tolérante vers un vrai booléen.
    Reprend la règle du serveur précédent : toute valeur inattendue vaut
@@ -587,7 +580,6 @@ create or replace function chok.menage() returns void
 language sql as $$
   delete from chok.sessions where expire < now();
   delete from chok.blocages where coalesce(oubli, jusqua) < now();
-  delete from chok.appareils where expire < now();
   delete from chok.journal  where horodatage < now() - interval '400 days';
 $$;
 
@@ -1233,9 +1225,7 @@ begin
   if array_length(v_revoquer, 1) is not null then
     delete from chok.sessions where "personneId" = any(v_revoquer);
     delete from chok.blocages where cle = any(
-      array(select 'blocage_p_' || x from unnest(v_revoquer) x))
-       or exists (select 1 from unnest(v_revoquer) x
-                   where blocages.cle like 'blocage\_p\_' || x || '\_a\_%');
+      array(select 'blocage_p_' || x from unnest(v_revoquer) x));
   end if;
 
   perform chok.noter('enregistrement', v_role, v_pid, v_table,
@@ -1271,7 +1261,6 @@ declare
   v_role text; v_pid text;
   v_pin text; v_pid_demande text; v_attendu text; v_role_eff text;
   v_personne jsonb; v_cle text; v_echecs integer; v_bloque_jusqua timestamptz;
-  v_cle_base text; v_confiance uuid;
   v_nouveau uuid; v_rep jsonb; v_donnees jsonb;
   v_liste jsonb; v_tables text[]; v_t text; v_detail jsonb := '{}'::jsonb;
   v_n integer; v_sauv text; v_mail text; v_faits text[] := '{}';
@@ -1342,20 +1331,6 @@ begin
     -- ============================================================
     v_cle := case when coalesce(p->>'role','') = 'rh' then 'blocage_rh'
                   else 'blocage_p_' || v_pid_demande end;
-    v_cle_base := v_cle;
-    -- Appareil déjà reconnu pour cette personne : compteur à lui. Le blocage
-    -- provoqué par un inconnu (cinq faux codes depuis un autre téléphone) ne
-    -- le touche pas. Le jeton seul n'ouvre rien : le code reste exigé.
-    begin
-      v_confiance := nullif(p->>'confiance','')::uuid;
-    exception when others then v_confiance := null;
-    end;
-    if v_confiance is not null and exists (select 1 from chok.appareils a
-         where a.jeton = v_confiance and a.cle = v_cle_base and a.expire > now()) then
-      v_cle := v_cle_base || '_a_' || v_confiance::text;
-    else
-      v_confiance := null;
-    end if;
 
     select echecs, jusqua into v_echecs, v_bloque_jusqua from chok.blocages
      where cle = v_cle and jusqua > now();
@@ -1436,12 +1411,7 @@ begin
       return jsonb_build_object('ok', false, 'erreur', 'Code incorrect.');
     end if;
 
-    delete from chok.blocages where cle in (v_cle, v_cle_base);
-    -- Appareil de confiance : prolongé, ou créé à la première connexion réussie.
-    if v_confiance is null then v_confiance := gen_random_uuid(); end if;
-    insert into chok.appareils(jeton, cle, expire)
-      values (v_confiance, v_cle_base, now() + interval '180 days')
-      on conflict (jeton) do update set expire = excluded.expire;
+    delete from chok.blocages where cle = v_cle;
     v_nouveau := gen_random_uuid();
     -- Direction : 12 h. Elle a accès à tout, codes compris ; une session
     -- oubliée ouverte sur un ordinateur partagé ne doit pas durer une semaine.
@@ -1457,7 +1427,7 @@ begin
     return jsonb_build_object('ok', true, 'jeton', v_nouveau::text,
       'role', v_role_eff, 'personneId', v_pid,
       'nom', coalesce(v_personne->>'nom', 'Direction'),
-      'version', chok.version(), 'confiance', v_confiance::text,
+      'version', chok.version(),
       'donnees', v_donnees->'donnees', 'meta', v_donnees->'meta');
   end if;
 
@@ -1648,7 +1618,7 @@ begin
       -- Les autres sessions direction ouvertes avec l'ancien code sont
       -- coupées ; celle qui vient de le changer continue.
       delete from chok.sessions where role = 'rh' and jeton <> v_jeton::uuid;
-      delete from chok.blocages where cle like 'blocage\_rh%';
+      delete from chok.blocages where cle = 'blocage_rh';
       v_faits := v_faits || 'code direction mis à jour';
     end if;
     perform chok.noter('reglages', v_role, '-', 'config', array_to_string(v_faits,', '));
@@ -1668,19 +1638,15 @@ begin
                'personneId', q.pid, 'nom', coalesce(chok.trouver_personne(q.pid)->>'nom', q.pid),
                'jusqua', to_char(timezone('Europe/Paris', q.jusqua), 'YYYY-MM-DD"T"HH24:MI'),
                'echecs', q.echecs) order by q.jusqua desc), '[]'::jsonb)
-        from (select substring(b.cle from '^blocage_p_(.+?)(?:_a_.*)?$') pid,
-                     max(b.jusqua) jusqua, max(b.echecs) echecs
+        from (select substr(b.cle, 11) pid, b.jusqua, b.echecs
                 from chok.blocages b
-               where b.cle like 'blocage\_p\_%' and b.jusqua > now()
-               group by 1) q));
+               where b.cle like 'blocage\_p\_%' and b.jusqua > now()) q));
   end if;
   if v_action = 'debloquer' then
     if coalesce(p->>'personneId','') = '' then
       return jsonb_build_object('ok', false, 'erreur', 'Personne non précisée.');
     end if;
-    delete from chok.blocages
-     where cle = 'blocage_p_' || (p->>'personneId')
-        or cle like 'blocage\_p\_' || replace(p->>'personneId','_','\_') || '\_a\_%';
+    delete from chok.blocages where cle = 'blocage_p_' || (p->>'personneId');
     perform chok.noter('deblocage', v_role, '-', 'blocages', p->>'personneId');
     return jsonb_build_object('ok', true);
   end if;
@@ -2087,8 +2053,8 @@ select chok.sauvegarde_complete('installation') as sauvegarde_initiale;
 -- ============================================================
 with controles(n, quoi, valeur, attendu, bon) as (
   select 1, 'Version du serveur',
-         chok.version(), 's3.7',
-         chok.version() = 's3.7'
+         chok.version(), 's3.8',
+         chok.version() = 's3.8'
   union all
   select 2, 'Tables verrouillées (RLS active)',
          -- On affiche la LISTE et non un simple nombre : un écart se
@@ -2097,11 +2063,11 @@ with controles(n, quoi, valeur, attendu, bon) as (
             from pg_class c
             join pg_namespace nsp on nsp.oid = c.relnamespace
            where nsp.nspname = 'chok' and c.relkind = 'r' and c.relrowsecurity),
-         '11 : absences, appareils, blocages, chantiers, config, interimaires, journal, ' ||
+         '10 : absences, blocages, chantiers, config, interimaires, journal, ' ||
          'pointages, salaries, sauvegardes, sessions',
          (select count(*) from pg_class c
             join pg_namespace nsp on nsp.oid = c.relnamespace
-           where nsp.nspname = 'chok' and c.relkind = 'r' and c.relrowsecurity) = 11
+           where nsp.nspname = 'chok' and c.relkind = 'r' and c.relrowsecurity) = 10
   union all
   select 3, 'Ouvertures accordées sur les tables',
          (select count(*)::text from pg_policies where schemaname = 'chok'),

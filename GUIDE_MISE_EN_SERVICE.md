@@ -304,7 +304,8 @@ Tout, à toute date, sans limite :
 - **Pense-bête** (onglet Salariés, salariés seulement) : « 📝 ajouter une
   note » sous le nom. Rappelé dans les pointages et en tête de la fiche de
   chaque salarié dans le rapport mensuel. Visible par la direction seulement,
-  jamais envoyé aux téléphones des chefs ni des salariés.
+  jamais envoyé aux téléphones des chefs ni des salariés. **À l'écran
+  seulement** : il n'apparaît pas sur les rapports imprimés ou en PDF.
 - **Pointages** : ajouter (n'importe qui, n'importe quel jour), modifier
   personne, date, chantier, horaires, logement, commentaire ; valider, ou
   revenir sur une validation (↺) ; supprimer.
@@ -517,10 +518,7 @@ mieux, dans `index.source.html` avant de reconstruire.
 
 **« Trop de codes erronés »** → 5 essais libres, puis blocage de 15 min,
 30 min, 1 h, 2 h… (jusqu'à 64 h) à chaque nouvelle erreur. Le compteur est
-gardé 30 jours. **Le blocage ne touche que les appareils inconnus** : le
-téléphone sur lequel la personne s'est déjà connectée (et le poste habituel
-de la direction) continue d'entrer avec le bon code, même si un inconnu a
-tapé de faux codes à son nom. Pour débloquer quelqu'un tout de suite :
+gardé 30 jours. Pour débloquer quelqu'un tout de suite :
 Direction → ⚙ Paramètres → **Comptes bloqués** → DÉBLOQUER (son code ne
 change pas). En dernier recours, dans le SQL Editor :
 `delete from chok.blocages;` (débloque tout le monde, direction comprise).
