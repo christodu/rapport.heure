@@ -1,6 +1,6 @@
 -- ============================================================
 --  CHOK BÉTON — SERVEUR SUPABASE
---  Version s3.5 (la fonction chok.version() fait foi)
+--  Version s3.6 (la fonction chok.version() fait foi)
 --
 --  À COLLER EN UNE SEULE FOIS dans : Supabase → SQL Editor → New query
 --  puis cliquer sur « Run ». Le script est REJOUABLE sans risque :
@@ -147,6 +147,9 @@ alter table chok.interimaires add column if not exists note text default '';
 -- tapés à la main chaque mois (prime, acomptes, prêts, Navigo…), rangés par
 -- mois : {"2026-10": {"prime": "150", …}}. Réservé à la direction.
 alter table chok.salaries add column if not exists matricule text default '';
+-- Intérimaire saisi par un chef sous un nom absent de l'annuaire du Drive :
+-- la direction vérifie l'orthographe (ou fusionne) avant qu'il ne s'installe.
+alter table chok.interimaires add column if not exists "aConfirmer" boolean default false;
 alter table chok.salaries add column if not exists paie jsonb default '{}'::jsonb;
 update chok.interimaires set actif = true where actif is null;
 
@@ -235,7 +238,7 @@ revoke all on all functions in schema chok from public, anon, authenticated;
    arrivé — on a cherché longtemps une panne de serveur alors que la
    question était « quelle version tourne, au juste ? ». */
 create or replace function chok.version() returns text
-language sql immutable as $$ select 's3.5'::text $$;
+language sql immutable as $$ select 's3.6'::text $$;
 
 /* Conversion tolérante vers un vrai booléen.
    Reprend la règle du serveur précédent : toute valeur inattendue vaut
@@ -302,6 +305,46 @@ language sql immutable as $$
       'aaaaaaeeeeiiiiooooouuuuyyncAAAAAAEEEEIIIIOOOOOUUUUYNC'),
     '\s+', ' ', 'g'));
 $$;
+
+/* Clé de comparaison d'un nom de PERSONNE : accents, casse, ponctuation et
+   ORDRE des mots ignorés. « Djibril cisse » et « CISSE Djibril » ont la même. */
+create or replace function chok.cle_personne(nom text) returns text
+language sql immutable as $$
+  select coalesce(string_agg(t, ' ' order by t), '')
+    from regexp_split_to_table(regexp_replace(chok.cle_nom(nom), '[^A-Z ]', ' ', 'g'), '\s+') t
+   where t <> '';
+$$;
+
+/* ANNUAIRE DES INTÉRIMAIRES : les noms des dossiers du Drive
+   (COMMUN/INTERVENANT/INTERIMAIRE), avec la date de fin du dernier contrat.
+   C'est l'orthographe officielle ; les chefs choisissent dedans. */
+create or replace function chok.annuaire() returns jsonb
+language sql stable as $$
+  select coalesce(nullif(chok.config_lire('annuaireInterim'),'')::jsonb,
+                  '{"liste":[]}'::jsonb);
+$$;
+
+create or replace function chok.poser_annuaire(liste jsonb, source text) returns jsonb
+language plpgsql as $$
+declare v jsonb := '[]'::jsonb; e jsonb; n text; c text;
+begin
+  if jsonb_typeof(liste) <> 'array' or jsonb_array_length(liste) > 3000 then
+    return jsonb_build_object('ok', false, 'erreur', 'Liste invalide.');
+  end if;
+  for e in select * from jsonb_array_elements(liste) loop
+    n := trim(coalesce(case when jsonb_typeof(e) = 'string' then e #>> '{}' else e->>'n' end, ''));
+    c := coalesce(case when jsonb_typeof(e) = 'object' then e->>'c' end, '');
+    if length(n) between 2 and 80 then
+      v := v || jsonb_build_array(jsonb_build_object('n', n,
+             'c', case when c ~ '^\d{4}-\d{2}-\d{2}$' then c else '' end));
+    end if;
+  end loop;
+  perform chok.config_ecrire('annuaireInterim', jsonb_build_object(
+    'maj', to_char(timezone('Europe/Paris', now()), 'YYYY-MM-DD"T"HH24:MI'),
+    'source', source, 'liste', v)::text);
+  return jsonb_build_object('ok', true, 'nombre', jsonb_array_length(v));
+end $$;
+
 
 /* Une personne est « chef d'équipe » d'après son poste. */
 create or replace function chok.est_chef(poste text) returns boolean
@@ -395,7 +438,7 @@ language plpgsql stable as $$
 declare
   bools text[] := case t
     when 'salaries'     then array['interne','actif']
-    when 'interimaires' then array['accesPlateforme','actif']
+    when 'interimaires' then array['accesPlateforme','actif','aConfirmer']
     when 'chantiers'    then array['actif']
     when 'pointages'    then array['deplacement','valide','interim','valideParInterimaire']
     when 'absences'     then array['saisieParRH']
@@ -575,7 +618,8 @@ begin
         'interimaires', chok.lire('interimaires'),
         'chantiers',    chok.lire('chantiers'),
         'pointages',    v_pointages,
-        'absences',     v_absences));
+        'absences',     v_absences,
+        'annuaire',     chok.annuaire()));
   end if;
 
   -- ---- CHEF D'ÉQUIPE ----
@@ -654,7 +698,7 @@ begin
     return jsonb_build_object('ok', true, 'role', v_role, 'meta', v_meta,
       'donnees', jsonb_build_object(
         'salaries', v_salaries, 'interimaires', v_interim, 'chantiers', v_chantiers,
-        'pointages', v_pointages, 'absences', v_absences));
+        'pointages', v_pointages, 'absences', v_absences, 'annuaire', chok.annuaire()));
   end if;
 
   -- ---- SALARIÉ : strictement ses propres données ----
@@ -1101,8 +1145,10 @@ begin
         -- sans cette règle, un chef pouvait se fabriquer un second compte
         -- chef, avec le code de son choix.
         v_nouv := v_nouv || jsonb_build_array(
-          (v_o - 'code' - 'accesPlateforme' - 'chef' - 'note')
+          (v_o - 'code' - 'accesPlateforme' - 'chef' - 'note' - 'aConfirmer')
           || jsonb_build_object('chef', v_pid)
+          -- Fiche créée hors annuaire par un chef : la direction la vérifie.
+          || case when v_dej is null then '{"aConfirmer":true}'::jsonb else '{}'::jsonb end
           -- Nouvelle fiche : code « 0000 » explicite (= pas encore de code).
           -- Une clé absente deviendrait un vide, pas le défaut de la colonne.
           || case when v_dej is null then '{"code":"0000"}'::jsonb else '{}'::jsonb end
@@ -1348,6 +1394,16 @@ begin
   -- Cette clé ne figure PAS dans l'application : elle vit uniquement dans
   -- votre script Google Drive, qui est privé. Elle donne un accès en
   -- LECTURE SEULE, et rien d'autre.
+  -- Le robot Drive dépose chaque nuit la liste des dossiers intérimaires.
+  if v_action = 'majAnnuaire' and coalesce(p->>'cleExport','') <> '' then
+    if coalesce(chok.config_lire('cleExport'),'') = ''
+       or p->>'cleExport' <> chok.config_lire('cleExport') then
+      return jsonb_build_object('ok', false, 'erreur', 'Clé incorrecte.');
+    end if;
+    perform chok.noter('annuaire','robot','-','interimaires','Liste Drive reçue');
+    return chok.poser_annuaire(p->'liste', 'robot');
+  end if;
+
   if v_action = 'exporter' then
     -- Pas de blocage après échecs ici. La clé fait 64 caractères aléatoires :
     -- on ne la devine pas. Un compteur commun, en revanche, permettait à
@@ -1413,6 +1469,46 @@ begin
     return chok.enregistrer(v_role, v_pid, p);
   end if;
 
+  -- UN CHEF PREND UN INTÉRIMAIRE DANS SON ÉQUIPE, par son nom.
+  -- Fiche déjà connue (même personne, quelle que soit l'écriture) : elle lui
+  -- est rattachée — l'intérimaire passe d'une équipe à l'autre au fil des
+  -- semaines, sans qu'on recrée une fiche à chaque fois. Inconnue : créée,
+  -- et marquée « à confirmer » si le nom n'est pas dans l'annuaire du Drive.
+  if v_action = 'rattacherInterim' and v_role = 'chef' then
+    declare v_nom text := trim(coalesce(p->>'nom','')); v_cle text; v_fiche jsonb; v_id text;
+            v_officiel text;
+    begin
+      if length(v_nom) < 2 or length(v_nom) > 80 then
+        return jsonb_build_object('ok', false, 'erreur', 'Nom invalide.');
+      end if;
+      v_cle := chok.cle_personne(v_nom);
+      select e->>'n' into v_officiel from jsonb_array_elements(chok.annuaire()->'liste') e
+       where chok.cle_personne(e->>'n') = v_cle limit 1;
+      select to_jsonb(x) into v_fiche from chok.interimaires x
+       where chok.cle_personne(x.nom) = v_cle and x.nom not like '%(fusionné)'
+       order by coalesce(x.actif,true) desc,
+                (select count(*) from chok.pointages q where q.salarie = x.id) desc
+       limit 1;
+      if v_fiche is not null then
+        if chok.est_chef(v_fiche->>'poste') then
+          return jsonb_build_object('ok', false, 'erreur',
+            v_fiche->>'nom' || ' est chef d''équipe : il déclare ses heures lui-même.');
+        end if;
+        update chok.interimaires set chef = v_pid, actif = true where id = v_fiche->>'id';
+        perform chok.noter('rattachement', v_role, v_pid, 'interimaires', v_fiche->>'nom');
+      else
+        v_id := 'I-' || upper(substr(md5(random()::text || clock_timestamp()::text), 1, 10));
+        insert into chok.interimaires(id, nom, poste, agence, "accesPlateforme", code, chef, actif, "aConfirmer")
+        values (v_id, coalesce(v_officiel, v_nom), 'Manœuvre', coalesce(nullif(p->>'agence',''), ''),
+                false, '0000', v_pid, true, v_officiel is null);
+        v_fiche := (select to_jsonb(x) from chok.interimaires x where x.id = v_id);
+        perform chok.noter('creation_interim', v_role, v_pid, 'interimaires', v_fiche->>'nom');
+      end if;
+      select to_jsonb(x) - 'code' - 'note' into v_fiche from chok.interimaires x where x.id = v_fiche->>'id';
+      return jsonb_build_object('ok', true, 'fiche', v_fiche, 'existait', v_id is null);
+    end;
+  end if;
+
   -- ---------- 4. Actions réservées à la direction ----------
   if v_role <> 'rh' then
     return jsonb_build_object('ok', false, 'erreur', 'Réservé à la direction.');
@@ -1463,6 +1559,10 @@ begin
     perform chok.noter('reglages', v_role, '-', 'config', array_to_string(v_faits,', '));
     return jsonb_build_object('ok', true,
       'message', coalesce(nullif(array_to_string(v_faits,' · '),''), 'Aucun changement.'));
+  end if;
+
+  if v_action = 'majAnnuaire' then
+    return chok.poser_annuaire(p->'liste', 'direction');
   end if;
 
   if v_action = 'sauvegarder' then
@@ -1857,8 +1957,8 @@ select chok.sauvegarde_complete('installation') as sauvegarde_initiale;
 -- ============================================================
 with controles(n, quoi, valeur, attendu, bon) as (
   select 1, 'Version du serveur',
-         chok.version(), 's3.5',
-         chok.version() = 's3.5'
+         chok.version(), 's3.6',
+         chok.version() = 's3.6'
   union all
   select 2, 'Tables verrouillées (RLS active)',
          -- On affiche la LISTE et non un simple nombre : un écart se

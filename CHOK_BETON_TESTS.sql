@@ -637,6 +637,26 @@ begin
     res := chok._v(res,'Un chef ne change pas les règles de paie',
       (public.chok_api(jsonb_build_object('action','reglages','jeton',jchef,'regleConges','civile')))->>'ok', 'false');
 
+    -- ---------- 16 quinquies. ANNUAIRE ET RATTACHEMENT DES INTÉRIMAIRES ----------
+    r := public.chok_api(jsonb_build_object('action','majAnnuaire','jeton',jrh,
+      'liste', jsonb_build_array(jsonb_build_object('n','TESTOU Ali','c','2026-11-30'),'ZZTEST Bob')));
+    res := chok._v(res,'La direction dépose l''annuaire du Drive', r->>'nombre', '2');
+    r := public.chok_api(jsonb_build_object('action','majAnnuaire','jeton',jchef,'liste','[]'::jsonb));
+    res := chok._v(res,'Un chef ne dépose pas l''annuaire', r->>'ok', 'false');
+    res := chok._v(res,'Le chef reçoit l''annuaire',
+      jsonb_array_length(public.chok_api(jsonb_build_object('action','charger','jeton',jchef))->'donnees'->'annuaire'->'liste')::text, '2');
+    -- T-ITX appartient à T-CHF2 ; T-CHEF le reprend en tapant son nom autrement.
+    r := public.chok_api(jsonb_build_object('action','rattacherInterim','jeton',jchef,'nom','autre intérim TEST'));
+    res := chok._v(res,'Fiche existante retrouvée malgré l''écriture et rattachée au chef',
+      (r->'fiche'->>'id') || ' ' || (select chef from chok.interimaires where id='T-ITX'), 'T-ITX T-CHEF');
+    r := public.chok_api(jsonb_build_object('action','rattacherInterim','jeton',jchef,'nom','ali testou'));
+    res := chok._v(res,'Nouvel intérimaire de l''annuaire : créé à l''orthographe du Drive, sans « à confirmer »',
+      (r->'fiche'->>'nom') || ' ' || (r->'fiche'->>'aConfirmer'), 'TESTOU Ali false');
+    r := public.chok_api(jsonb_build_object('action','rattacherInterim','jeton',jchef,'nom','Inconnu Totalement'));
+    res := chok._v(res,'Nom hors annuaire : créé « à confirmer »', r->'fiche'->>'aConfirmer', 'true');
+    delete from chok.interimaires where chef = 'T-CHEF' and id not in ('T-ITM','T-ITX');
+    update chok.interimaires set chef = 'T-CHF2' where id = 'T-ITX';
+
     -- ---------- 17. UN ACCÈS RETIRÉ L'EST TOUT DE SUITE ----------
     r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jrh,'table','salaries',
       'upserts', jsonb_build_array(jsonb_build_object('id','T-SAL','code','3334'))));

@@ -456,6 +456,32 @@ function nomsProches(a, b) {
       && ma.length > 1 && mb.length > 1
       && ecartLettres(ma.filter(m=>!mb.includes(m)).join(""), mb.filter(m=>!ma.includes(m)).join("")) <= 2;
 }
+/* ANNUAIRE DES INTÉRIMAIRES (dossiers du Drive). {maj, source, liste:[{n, c}]}
+   n = nom du dossier (orthographe officielle), c = fin du dernier contrat. */
+const NB_RECENTS = 40;
+const motsNom = (s) => cleClient(s).toUpperCase().replace(/[^A-Z ]/g, " ").split(/\s+/).filter(Boolean);
+/** Ressemblance entre deux noms de personne, de 0 à ~1,2 (≥ 1,15 : même personne). */
+function scoreNom(a, b) {
+  const ta = motsNom(a), tb = motsNom(b); if (!ta.length || !tb.length) return 0;
+  const sim = (t, u) => 1 - ecartLettres(t, u) / Math.max(t.length, u.length) + (u.startsWith(t) && t.length >= 3 ? 0.2 : 0);
+  const s = ta.reduce((acc, t) => acc + Math.max(...tb.map(u => sim(t, u))), 0) / ta.length;
+  return s * Math.pow(Math.min(ta.length, tb.length) / Math.max(ta.length, tb.length), 0.3);
+}
+/** Liste triée : les 40 contrats les plus récents d'abord (marqués), puis le reste. */
+function annuaireTrie(annuaire) {
+  const l = ((annuaire && annuaire.liste) || []).slice()
+    .sort((x, y) => String(y.c || "").localeCompare(String(x.c || "")) || x.n.localeCompare(y.n));
+  return l.map((e, i) => ({ ...e, recent: !!e.c && i < NB_RECENTS }));
+}
+/** Recherche tolérante : chaque mot tapé doit commencer un mot du nom, ou lui ressembler. */
+function chercherAnnuaire(texte, annuaire, max) {
+  const q = motsNom(texte); if (!q.length || q.join("").length < 2) return [];
+  return annuaireTrie(annuaire).map(e => {
+    const m = motsNom(e.n);
+    const ok = q.every(t => m.some(u => u.startsWith(t) || (t.length >= 4 && ecartLettres(t, u) <= 1)));
+    return ok ? { ...e, s: scoreNom(texte, e.n) } : null;
+  }).filter(Boolean).sort((a, b) => (b.recent - a.recent) || (b.s - a.s)).slice(0, max || 8);
+}
 const clientDe = (c) => (c && c.client && c.client !== "—") ? c.client : "";
 const libelleChantier = (c, avecVille) => !c ? "—"
   : [clientDe(c), (c.nom || "") + (avecVille && c.ville && c.ville !== "—" ? ` · ${c.ville}` : "")]
@@ -716,7 +742,7 @@ const jourEnClair = (iso) =>
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME    = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
 
-const APP_VERSION = "v10.0";   // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v10.1";   // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4;    // longueur minimale d'un code personnel
 const CODE_MAX = 8;    // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -1458,6 +1484,8 @@ function App() {
 
   /** Chargement depuis le serveur (données déjà cloisonnées par rôle). */
   const [infoPeriode,setInfoPeriode] = useState(null);
+  const [annuaire,setAnnuaire] = useState(() => load("chok_annuaire", {liste:[]}));
+  const poserAnnuaire = (a) => { if (a && Array.isArray(a.liste)) { setAnnuaire(a); save("chok_annuaire", a); } };
   const chargerDepuisServeur = useCallback(async (toutCharger) => {
     if (MODE() !== "serveur" || !getJeton()) return;
     // On n'affiche JAMAIS d'écran d'attente bloquant : l'interface s'ouvre
@@ -1476,6 +1504,7 @@ function App() {
       const rep = await api("charger", { jeton: getJeton(), tout: !!toutCharger });
       const d = rep.donnees || {};
       if (rep.meta) { appliquerReglesPaie(rep.meta.reglagesPaie); setInfoPeriode(rep.meta); }
+      poserAnnuaire(d.annuaire);
 
       // Récupération : ce que l'appareil connaît et que le serveur ignore.
       try {
@@ -1683,6 +1712,7 @@ function App() {
       pose(donnees.pointages,    setPointagesRaw,    refs.pointages,    "pointages");
       pose(donnees.absences,     setAbsencesRaw,     refs.absences,     "absences");
       if (meta) { appliquerReglesPaie(meta.reglagesPaie); setInfoPeriode(meta); }
+      poserAnnuaire(donnees.annuaire);
       setSyncState(outboxCount() ? "attente" : "ok");
       viderOutbox().catch(()=>{});   // on pousse ce qui attendait, en arrière-plan
       return;
@@ -1737,8 +1767,8 @@ function App() {
         </div>
       )}
       <Header session={session} onDeconnexion={seDeconnecter} syncState={syncState} onReload={rechargerDonnees}/>
-      {session.role === "rh"     && <VueAdmin {...donnees} viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onReloadSupabase={rechargerDonnees} infoPeriode={infoPeriode}/>}
-      {session.role === "chef"   && <VueMobile session={session} {...donnees}/>}
+      {session.role === "rh"     && <VueAdmin {...donnees} viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onReloadSupabase={rechargerDonnees} infoPeriode={infoPeriode} annuaire={annuaire}/>}
+      {session.role === "chef"   && <VueMobile session={session} {...donnees} annuaire={annuaire}/>}
       {session.role === "salarie"&& <VueSalarie session={session} pointages={pointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} absences={absences}/>}
       <Footer/>
     </div>
@@ -2084,7 +2114,7 @@ function etiqueterTableaux(racine) {
   });
 }
 
-function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires,absences,setAbsences,pinRH,setPinRH,pinChef,setPinChef,onReloadSupabase,infoPeriode,viderLocalement}) {
+function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires,absences,setAbsences,pinRH,setPinRH,pinChef,setPinChef,onReloadSupabase,infoPeriode,viderLocalement,annuaire}) {
   const [onglet, setOnglet] = useState("pointages");
   const racine = useRef(null);
   // Les onglets se redessinent seuls (passage en modification, filtre…) sans
@@ -2139,12 +2169,12 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
       {onglet==="pointages"  && <OngletPointages auj={auj} absences={absences} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
       {onglet==="absences"   && <OngletAbsences absences={absences} setAbsences={setAbsences} salaries={salaries} interimaires={interimaires} pointages={pointages}/>}
       {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages} absences={absences}/>}
-      {onglet==="interim"    && <OngletInterim interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences} chantiers={chantiers} salaries={salaries}/>}
+      {onglet==="interim"    && <OngletInterim annuaire={annuaire} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences} chantiers={chantiers} salaries={salaries}/>}
       {onglet==="chantiers"  && <OngletChantiers chantiers={chantiers} setChantiers={setChantiers} pointages={pointages}/>}
       {onglet==="paie"       && <OngletPaie infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)} pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
       {onglet==="etat"       && <OngletEtatPaie infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)} pointages={pointages} absences={absences} salaries={salaries} setSalaries={setSalaries}/>}
       {onglet==="archives"   && <OngletArchives infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)} pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
-      {onglet==="parametres" && <OngletParametres infoPeriode={infoPeriode} viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onReloadSupabase={onReloadSupabase} salaries={salaries} setSalaries={setSalaries} chantiers={chantiers} setChantiers={setChantiers} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences}/>}
+      {onglet==="parametres" && <OngletParametres annuaire={annuaire} infoPeriode={infoPeriode} viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onReloadSupabase={onReloadSupabase} salaries={salaries} setSalaries={setSalaries} chantiers={chantiers} setChantiers={setChantiers} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences}/>}
     </main>
   );
 }
@@ -2874,7 +2904,7 @@ function OngletSalaries({salaries,setSalaries,pointages,absences}) {
 }
 
 // ---- Onglet Intérimaires ----
-function OngletInterim({interimaires,setInterimaires,pointages,setPointages,absences,setAbsences,chantiers,salaries}) {
+function OngletInterim({interimaires,setInterimaires,pointages,setPointages,absences,setAbsences,chantiers,salaries,annuaire}) {
   const [open,setOpen]=useState(false);
   const [nom,setNom]=useState("");
   const [poste,setPoste]=useState("Manœuvre");
@@ -2951,12 +2981,12 @@ function OngletInterim({interimaires,setInterimaires,pointages,setPointages,abse
   const [fusion,setFusion]=useState(null);   // null | {garder, absorber, nom}
   const doublons=(()=>{const out=[];const l=interimaires.filter(i=>!/\(fusionné\)$/.test(i.nom));
     for(let a=0;a<l.length;a++)for(let b=a+1;b<l.length;b++)if(nomsProches(l[a].nom,l[b].nom))out.push([l[a],l[b]]);return out;})();
-  const ouvrirFusion=(x,y)=>{
+  const ouvrirFusion=(x,y,nomForce)=>{
     // Par défaut on garde la fiche qui a le plus d'heures.
     const [g,a]=stats(x.id).j>=stats(y.id).j?[x,y]:[y,x];
     // Nom proposé : celui écrit « NOM Prénom » (nom de famille en capitales), sinon celui de la fiche gardée.
     const bienEcrit=[g,a].find(x=>/^[A-ZÀ-Ý'-]{2,}( [A-ZÀ-Ý'-]{2,})* [A-ZÀ-Ý]?[a-zà-ÿ]/.test(x.nom));
-    setFusion({garder:g.id,absorber:a.id,nom:(bienEcrit||g).nom}); window.scrollTo({top:0});
+    setFusion({garder:g.id,absorber:a.id,nom:nomForce||(bienEcrit||g).nom}); window.scrollTo({top:0});
   };
   const infoFiche=(id)=>{const i=interimaires.find(x=>x.id===id);if(!i)return null;const ps=pointages.filter(p=>p.salarie===id).map(p=>p.date).sort();
     return {i,...stats(id),premier:ps[0],dernier:ps[ps.length-1],ag:(AGENCES.find(a=>a.id===i.agence)||{}).nom||"—",chef:nomDuChef(i.chef)||"—"};};
@@ -2964,6 +2994,36 @@ function OngletInterim({interimaires,setInterimaires,pointages,setPointages,abse
   const joursCommuns=fusion&&fusion.garder&&fusion.absorber&&fusion.garder!==fusion.absorber
     ? [...new Set(pointages.filter(p=>p.salarie===fusion.absorber).map(p=>p.date))]
         .filter(d=>pointages.some(p=>p.salarie===fusion.garder&&p.date===d)).sort() : [];
+  /* ---- RAPPROCHEMENT AVEC L'ANNUAIRE DU DRIVE ----
+     Pour chaque fiche active dont le nom n'est pas celui d'un dossier du Drive :
+     les noms de dossier les plus proches. Renommer (une seule fiche pour cette
+     personne) ou fusionner (une autre fiche porte déjà ce nom). */
+  const liste=annuaireTrie(annuaire);
+  const [ignores,setIgnores]=useState(()=>{try{return JSON.parse(localStorage.getItem("chok_rappr_ignores")||"[]");}catch(e){return [];}});
+  const ignorer=(id)=>{const n=[...ignores,id];setIgnores(n);try{localStorage.setItem("chok_rappr_ignores",JSON.stringify(n));}catch(e){}};
+  const [voirRappr,setVoirRappr]=useState(false);
+  const actives=interimaires.filter(i=>estActif(i)&&!/\(fusionné\)$/.test(i.nom));
+  const officiel=(i)=>liste.find(e=>clePersonne(e.n)===clePersonne(i.nom));
+  const aRapprocher=liste.length?actives.filter(i=>!ignores.includes(i.id)).map(i=>{
+    const o=officiel(i);
+    if(o) return o.n!==i.nom?{i,props:[{...o,s:2}],ecriture:true}:null;   // même personne, écriture à aligner
+    const props=liste.map(e=>({...e,s:scoreNom(i.nom,e.n)})).filter(e=>e.s>=0.6)
+      .sort((a,b)=>b.s-a.s).slice(0,3);
+    return {i,props,ecriture:false};
+  }).filter(Boolean):[];
+  const ecritures=aRapprocher.filter(x=>x.ecriture);
+  const autreFiche=(i,nom)=>actives.find(x=>x.id!==i.id&&clePersonne(x.nom)===clePersonne(nom));
+  const renommer=(i,nom)=>setInterimaires(interimaires.map(x=>x.id===i.id?{...x,nom,aConfirmer:false}:x));
+  const alignerEcritures=()=>{
+    const sansDoublon=ecritures.filter(x=>!autreFiche(x.i,x.props[0].n));
+    if(!sansDoublon.length) return;
+    if(!window.confirm(`Réécrire ${sansDoublon.length} nom(s) exactement comme le dossier du Drive ?\n\n`
+      +sansDoublon.slice(0,12).map(x=>`« ${x.i.nom} » → ${x.props[0].n}`).join("\n")+(sansDoublon.length>12?"\n…":"")))return;
+    const m=Object.fromEntries(sansDoublon.map(x=>[x.i.id,x.props[0].n]));
+    setInterimaires(interimaires.map(x=>m[x.id]?{...x,nom:m[x.id],aConfirmer:false}:x));
+  };
+  const aConfirmer=actives.filter(i=>i.aConfirmer);
+
   const fusionner=()=>{
     const {garder,absorber}=fusion; const nomG=String(fusion.nom||"").trim();
     if(!garder||!absorber||garder===absorber){window.alert("Choisissez deux fiches différentes.");return;}
@@ -2977,7 +3037,7 @@ function OngletInterim({interimaires,setInterimaires,pointages,setPointages,abse
     setPointages(pointages.map(p=>p.salarie===absorber?{...p,salarie:garder,interim:true}:p));
     setAbsences((absences||[]).map(a=>a.salarie===absorber?{...a,salarie:garder}:a));
     setInterimaires(interimaires.map(i=>{
-      if(i.id===garder) return {...i,nom:nomG,actif:true};
+      if(i.id===garder) return {...i,nom:nomG,actif:true,aConfirmer:false};
       if(i.id===absorber) return {...i,nom:`${i.nom} (fusionné)`,actif:false,chef:""};
       // Si la fiche absorbée était chef d'équipe, ses intérimaires suivent.
       if(i.chef===absorber) return {...i,chef:garder};
@@ -3028,6 +3088,39 @@ function OngletInterim({interimaires,setInterimaires,pointages,setPointages,abse
             <div style={{marginTop:12}}><Btn onClick={fusionner}>⇄ FUSIONNER</Btn></div>
           </>;})()}
       </FormInline>}
+      {!fusion && (liste.length===0
+        ? <div style={{padding:"10px 14px",marginBottom:14,background:C.fond,border:`1.5px solid ${C.ligne}`,fontSize:12}}>
+            📂 L'annuaire des intérimaires (dossiers du Drive) n'est pas encore chargé : Paramètres → « Annuaire des intérimaires ».</div>
+        : (aRapprocher.length>0||aConfirmer.length>0) && <div style={{padding:"12px 16px",marginBottom:14,background:"#EEF4FB",border:`1.5px solid ${C.bleu}`,fontSize:12.5,lineHeight:1.6}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span>📂 <b>Rapprochement avec le Drive</b> — {aRapprocher.length} fiche(s) dont le nom diffère d'un dossier
+              {aConfirmer.length>0&&<>, dont <b>{aConfirmer.length} à confirmer</b> (ajoutées par un chef hors liste)</>}.
+              <span style={{color:C.gris}}> Annuaire : {liste.length} dossiers{annuaire&&annuaire.maj?`, mis à jour le ${String(annuaire.maj).slice(0,10).split("-").reverse().join("/")}`:""}.</span></span>
+            <Btn variant="ghost" onClick={()=>setVoirRappr(!voirRappr)}>{voirRappr?"▲ Masquer":"▼ Voir et corriger"}</Btn>
+          </div>
+          {voirRappr && <div style={{marginTop:10}}>
+            {ecritures.length>0 && <div style={{marginBottom:10}}>
+              <Btn onClick={alignerEcritures}>✓ ALIGNER {ecritures.filter(x=>!autreFiche(x.i,x.props[0].n)).length} ÉCRITURE(S) SUR LE DRIVE</Btn>
+              <span style={{fontSize:11,color:C.gris,marginLeft:8}}>même personne, seule l'écriture change (majuscules, ordre nom / prénom)</span></div>}
+            {aRapprocher.map(({i,props,ecriture})=>(
+              <div key={i.id} style={{padding:"8px 10px",marginBottom:6,background:C.papier,border:`1px solid ${C.ligne}`}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <b>{i.nom}</b><span style={{color:C.gris,fontSize:11}}>{stats(i.id).j} j.</span>
+                  {i.aConfirmer&&<span style={{fontSize:9,fontWeight:700,padding:"2px 6px",background:C.orange,color:"#fff"}}>À CONFIRMER</span>}
+                  <span style={{color:C.gris}}>→</span>
+                  {props.length===0&&<span style={{color:C.gris,fontSize:11.5}}>aucun dossier proche</span>}
+                  {props.map(e=>{const autre=autreFiche(i,e.n);return(
+                    <button key={e.n} onClick={()=>autre?ouvrirFusion(autre,i,e.n):renommer(i,e.n)}
+                      title={autre?`Une autre fiche « ${autre.nom} » existe déjà pour ce dossier : fusionner les deux`:"Renommer la fiche à l'orthographe du dossier"}
+                      style={{fontSize:11.5,fontWeight:700,padding:"4px 10px",cursor:"pointer",border:`1.5px solid ${autre?C.orange:C.vert}`,background:"transparent",color:autre?C.orange:C.vert}}>
+                      {autre?"⇄ ":"✓ "}{e.n}{e.recent?" · récent":""}{autre?` (fusionner avec « ${autre.nom} »)`:""}</button>);})}
+                  {i.aConfirmer && <button onClick={()=>setInterimaires(interimaires.map(x=>x.id===i.id?{...x,aConfirmer:false}:x))}
+                    style={{fontSize:11,padding:"4px 10px",cursor:"pointer",border:`1px solid ${C.ligne}`,background:"transparent"}}>Nom correct, confirmer</button>}
+                  {!ecriture && <button onClick={()=>ignorer(i.id)} style={{fontSize:11,padding:"4px 8px",cursor:"pointer",border:"none",background:"transparent",color:C.gris,textDecoration:"underline"}}>Ignorer</button>}
+                </div>
+              </div>))}
+          </div>}
+        </div>)}
       {doublons.length>0 && !fusion &&
         <div style={{padding:"12px 16px",marginBottom:14,background:"#FFF0F0",border:`1.5px solid ${C.orange}`,fontSize:12.5,lineHeight:1.7}}>
           <b>⚠ {doublons.length} doublon(s) possible(s)</b> — même personne écrite différemment ?
@@ -3052,7 +3145,7 @@ function OngletInterim({interimaires,setInterimaires,pointages,setPointages,abse
         :<TableWrap><thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Chef référent</Th><Th>Agence</Th><Th>Code accès</Th><Th r>Jours</Th><Th r>Heures</Th><Th></Th></tr></thead>
           <tbody>{interimaires.map(i=>{const ag=AGENCES.find(a=>a.id===i.agence);const s=stats(i.id);
             if(editId===i.id) return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`,background:"#FFFDE7"}}><Td><input value={eNom} onChange={e=>{setENom(e.target.value);setEErr("");}} onKeyDown={e=>{if(e.key==="Enter")sauverEdit(i.id);if(e.key==="Escape")annulerEdit();}} autoFocus style={{...inputStyle,minWidth:180}}/>{eErr&&<div style={{color:C.orange,fontSize:11,fontWeight:700,marginTop:4}}>{eErr}</div>}</Td><Td><select value={ePoste} onChange={e=>{setEPoste(e.target.value);setEErr("");}} style={selectStyle}>{POSTES.map(p=><option key={p}>{p}</option>)}</select></Td><Td>{estChefPoste(ePoste)?<span style={{fontSize:11,color:C.gris,fontStyle:"italic"}}>déclare lui-même</span>:<select value={eChef} onChange={e=>{setEChef(e.target.value);setEErr("");}} style={selectStyle}><option value="">— à choisir —</option>{chefsPossibles.filter(c=>c.id!==i.id).map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}</select>}</Td><Td><select value={eAgence} onChange={e=>setEAgence(e.target.value)} style={selectStyle}>{AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Td><Td><input value={eCode} onChange={e=>{setECode(e.target.value.replace(/\D/g,"").slice(0,CODE_MAX));setEErr("");}} maxLength={CODE_MAX} placeholder="4 à 8 chiffres" style={{...inputStyle,width:90,textAlign:"center",letterSpacing:"0.2em"}}/></Td><Td r>{s.j}</Td><Td r><b>{fmtH(s.h)}</b></Td><Td><div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><Btn onClick={()=>sauverEdit(i.id)}>✓ ENREGISTRER</Btn><Btn variant="ghost" onClick={annulerEdit}>ANNULER</Btn></div></Td></tr>;
-            return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`,opacity:estActif(i)?1:0.55,background:estActif(i)?undefined:"#F4F4F4"}}><Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={i.nom} bg={ag?.couleur} light/><b>{i.nom}</b>{!estActif(i)&&<span style={{fontSize:9,fontFamily:FM,fontWeight:700,padding:"2px 6px",background:C.gris,color:"#fff",letterSpacing:"0.1em"}}>MISSION TERMINÉE</span>}</div></Td><Td>{i.poste}</Td><Td>{estChefPoste(i.poste)
+            return<tr key={i.id} style={{borderBottom:`1px solid ${C.ligne}`,opacity:estActif(i)?1:0.55,background:estActif(i)?undefined:"#F4F4F4"}}><Td><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar nom={i.nom} bg={ag?.couleur} light/><b>{i.nom}</b>{i.aConfirmer&&estActif(i)&&<span style={{fontSize:9,fontFamily:FM,fontWeight:700,padding:"2px 6px",background:C.orange,color:"#fff",letterSpacing:"0.1em"}}>À CONFIRMER</span>}{!estActif(i)&&<span style={{fontSize:9,fontFamily:FM,fontWeight:700,padding:"2px 6px",background:C.gris,color:"#fff",letterSpacing:"0.1em"}}>MISSION TERMINÉE</span>}</div></Td><Td>{i.poste}</Td><Td>{estChefPoste(i.poste)
               ? <span style={{fontSize:11,color:C.gris,fontStyle:"italic"}}>déclare lui-même</span>
               : i.chef
                 ? nomDuChef(i.chef) || <span style={{fontSize:11,color:C.orange,fontWeight:700}}>chef inconnu</span>
@@ -3816,6 +3909,42 @@ function VueSalarie({session,pointages,chantiers,salaries,interimaires,absences}
 // ============================================================
 /* Deux choix qui changent les chiffres de paie : à arrêter AVEC le comptable.
    Les valeurs par défaut reproduisent le calcul d'origine. */
+/* L'orthographe officielle des intérimaires = les noms des dossiers du Drive
+   (COMMUN/INTERVENANT/INTERIMAIRE). Le robot Drive la dépose chaque nuit ;
+   on peut aussi la coller ici : une ligne par personne, « NOM Prénom » ou
+   « NOM Prénom | 2026-11-30 » (fin du dernier contrat). */
+function ImportAnnuaire({annuaire,infoPeriode,onReloadSupabase}) {
+  const [texte,setTexte]=useState(""); const [msg,setMsg]=useState("");
+  const lignes=texte.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const [n,c]=l.split("|").map(x=>(x||"").trim()); return {n,c:/^\d{4}-\d{2}-\d{2}$/.test(c||"")?c:""};}).filter(e=>e.n.length>=2);
+  const envoyer=async()=>{
+    if(!lignes.length) return;
+    if(!window.confirm(`Remplacer l'annuaire par ces ${lignes.length} nom(s) ?`)) return;
+    setMsg("Envoi…");
+    try{ const r=await api("majAnnuaire",{jeton:getJeton(),liste:lignes},{tentatives:1});
+      if(!r||!r.ok){setMsg("✕ "+((r&&r.erreur)||"Échec — le serveur est-il en version s3.6 ?"));return;}
+      setMsg(`✓ ${r.nombre} nom(s) enregistrés.`); setTexte("");
+      if(onReloadSupabase) onReloadSupabase(!!(infoPeriode&&infoPeriode.tout));
+    }catch(e){setMsg("✕ "+(e&&e.message||"Échec."));}
+  };
+  const l=(annuaire&&annuaire.liste)||[];
+  return (<div style={{maxWidth:720}}>
+    <div style={{fontSize:12.5,lineHeight:1.6,marginBottom:10}}>
+      {l.length?<>✓ <b>{l.length}</b> intérimaires dans l'annuaire{annuaire.maj?<>, mis à jour le <b>{String(annuaire.maj).slice(0,10).split("-").reverse().join("/")}</b></>:null}
+        {annuaire.source==="robot"?" (automatiquement, par le robot Drive)":annuaire.source==="direction"?" (collé à la main)":""}.
+        Les chefs choisissent dans cette liste ; les {NB_RECENTS} contrats les plus récents apparaissent en premier.</>
+       :<>Aucun annuaire pour l'instant : les chefs tapent les noms librement.</>}
+    </div>
+    <textarea value={texte} onChange={e=>{setTexte(e.target.value);setMsg("");}} rows={5} spellCheck={false}
+      placeholder={"Une ligne par intérimaire, comme le nom du dossier Drive :\nCISSE Djibril | 2026-12-03\nDIARRA DIADIE | 2026-12-03\nKONATE Salle"}
+      style={{width:"100%",boxSizing:"border-box",fontFamily:FM,fontSize:12,padding:8,border:`1.5px solid ${C.ligne}`}}/>
+    <div style={{display:"flex",gap:12,alignItems:"center",marginTop:8,flexWrap:"wrap"}}>
+      <Btn onClick={envoyer} disabled={!lignes.length}>⬆ REMPLACER L'ANNUAIRE ({lignes.length})</Btn>
+      {msg&&<span style={{fontSize:12,fontWeight:700,color:msg.startsWith("✕")?C.orange:msg.startsWith("✓")?C.vert:C.gris}}>{msg}</span>}
+    </div>
+  </div>);
+}
+
 function ReglesPaie({infoPeriode,onReloadSupabase}) {
   const [conges,setConges]=useState(REGLES_PAIE.conges);
   const [dim,setDim]=useState(REGLES_PAIE.dimanche35);
@@ -3855,7 +3984,7 @@ function ReglesPaie({infoPeriode,onReloadSupabase}) {
     </div>);
 }
 
-function OngletParametres({viderLocalement,pinRH,setPinRH,pinChef,setPinChef,onReloadSupabase,infoPeriode,salaries,setSalaries,chantiers,setChantiers,interimaires,setInterimaires,pointages,setPointages,absences,setAbsences}) {
+function OngletParametres({annuaire,viderLocalement,pinRH,setPinRH,pinChef,setPinChef,onReloadSupabase,infoPeriode,salaries,setSalaries,chantiers,setChantiers,interimaires,setInterimaires,pointages,setPointages,absences,setAbsences}) {
   const [newPinRH,setNewPinRH]=useState("");
   const [newPinChef,setNewPinChef]=useState("");
   const [msgPin,setMsgPin]=useState("");
@@ -4265,6 +4394,10 @@ function OngletParametres({viderLocalement,pinRH,setPinRH,pinChef,setPinChef,onR
       </Section>
 
       {/* Démo + reset */}
+      <Section titre="Annuaire des intérimaires (Drive)">
+        <ImportAnnuaire annuaire={annuaire} infoPeriode={infoPeriode} onReloadSupabase={onReloadSupabase}/>
+      </Section>
+
       <Section titre="Règles de paie">
         <ReglesPaie infoPeriode={infoPeriode} onReloadSupabase={onReloadSupabase}/>
       </Section>
@@ -4285,7 +4418,7 @@ function OngletParametres({viderLocalement,pinRH,setPinRH,pinChef,setPinChef,onR
 //  VUE CHEF D'ÉQUIPE — saisie en une seule page
 //  Le chef déclare SES heures et celles de SES intérimaires.
 // ============================================================
-function VueMobile({session,chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages,absences}) {
+function VueMobile({session,chantiers,setChantiers,salaries,interimaires,setInterimaires,pointages,setPointages,absences,annuaire}) {
   // UN CHEF D'ÉQUIPE PEUT ÊTRE INTÉRIMAIRE : on le cherche donc dans les
   // deux listes. En dernier recours on repart de la session — JAMAIS de
   // « salaries[0] », qui faisait de lui la première personne de la liste
@@ -4575,13 +4708,38 @@ function VueMobile({session,chantiers,setChantiers,salaries,interimaires,setInte
     setSuggestions([]); setNouveauChantier(false);
   };
 
-  const creerInterimaire = () => {
-    if(nouveauNom.trim().length<2) return;
-    const i={id:genId("I"),nom:nouveauNom.trim(),poste:"Manœuvre",agence:nouvelleAgence,
-             accesPlateforme:false,code:CODE_DEFAUT,chef:moi.id};
-    setInterimaires([...interimaires,i]);
-    setEquipe(e=>({...e,[i.id]:{debut,fin,pause,deplacement:false}}));
-    setNouveauNom(""); setAjoutOuvert(false);
+  /* AJOUTER UN INTÉRIMAIRE : on le CHERCHE dans l'annuaire du Drive (la
+     bonne orthographe). Le serveur retrouve sa fiche s'il a déjà travaillé
+     avec un autre chef, et la rattache à moi ; sinon il la crée. Un nom tapé
+     hors annuaire est créé « à confirmer » par la direction. */
+  const [horsListe,setHorsListe] = useState(false);
+  const [ajoutEnCours,setAjoutEnCours] = useState(false);
+  const [errAjoutI,setErrAjoutI] = useState("");
+  const resultatsAnnuaire = chercherAnnuaire(nouveauNom, annuaire, 8);
+  const fermerAjout = () => { setAjoutOuvert(false); setNouveauNom(""); setHorsListe(false); setErrAjoutI(""); };
+  const cocher = (id) => setEquipe(e=>({...e,[id]:{debut,fin,pause,deplacement:false}}));
+  const creerLocalement = (nom) => {   // sans réseau : fiche locale, envoyée plus tard
+    const i={id:genId("I"),nom,poste:"Manœuvre",agence:nouvelleAgence,
+             accesPlateforme:false,code:CODE_DEFAUT,chef:moi.id,aConfirmer:true};
+    setInterimaires([...interimaires,i]); cocher(i.id); fermerAjout();
+  };
+  const prendreInterimaire = async (nom) => {
+    nom = String(nom||"").replace(/\s+/g," ").trim(); if(nom.length<2) return;
+    // Déjà dans mon équipe (même personne) : on le coche, c'est tout.
+    const deja = mesInterimaires.find(i=>clePersonne(i.nom)===clePersonne(nom));
+    if (deja) { cocher(deja.id); fermerAjout(); return; }
+    if (MODE() !== "serveur") { creerLocalement(nom); return; }
+    setAjoutEnCours(true); setErrAjoutI("");
+    try {
+      const r = await api("rattacherInterim", {jeton:getJeton(), nom, agence:nouvelleAgence}, {tentatives:2});
+      if (!r || !r.ok || !r.fiche) { setErrAjoutI((r&&r.erreur)||"Ajout impossible."); return; }
+      const f = r.fiche;
+      setInterimaires([...interimaires.filter(i=>i.id!==f.id), f]);
+      cocher(f.id); fermerAjout();
+    } catch (e) {
+      // Pas de réseau sur le chantier : on garde la saisie, la direction vérifiera.
+      creerLocalement(nom);
+    } finally { setAjoutEnCours(false); }
   };
 
   const envoyer = () => {
@@ -5419,18 +5577,35 @@ function VueMobile({session,chantiers,setChantiers,salaries,interimaires,setInte
 
           {ajoutOuvert ? (
             <div style={{marginTop:8,padding:"12px",border:`1.5px dashed ${C.bleu}`}}>
-              <input value={nouveauNom} onChange={e=>setNouveauNom(e.target.value)} placeholder="Nom de l'intérimaire" style={{...champ,marginBottom:8}}/>
-              <select value={nouvelleAgence} onChange={e=>setNouvelleAgence(e.target.value)} style={{...champ,marginBottom:10}}>
-                {AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}
-              </select>
-              <div style={{display:"flex",gap:8}}>
-                <MBtn onClick={creerInterimaire} disabled={nouveauNom.trim().length<2}>AJOUTER</MBtn>
-                <MBtn variant="ghost" onClick={()=>{setAjoutOuvert(false);setNouveauNom("");}}>ANNULER</MBtn>
-              </div>
+              <input value={nouveauNom} onChange={e=>{setNouveauNom(e.target.value);setHorsListe(false);setErrAjoutI("");}} autoFocus
+                placeholder="🔍 Tapez le nom de l'intérimaire" autoCorrect="off" autoCapitalize="characters" spellCheck={false}
+                style={{...champ,marginBottom:8}}/>
+              {nouveauNom.trim().length>=2 && !horsListe && (<>
+                {resultatsAnnuaire.map(e=>(
+                  <button key={e.n} disabled={ajoutEnCours} onClick={()=>prendreInterimaire(e.n)}
+                    style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",textAlign:"left",
+                      padding:"11px 12px",marginBottom:6,background:C.fond,border:`1.5px solid ${C.ligne}`,cursor:"pointer",fontSize:14,fontWeight:700}}>
+                    <span>{e.n}</span>{e.recent&&<span style={{fontSize:9,fontFamily:FM,color:C.vert,letterSpacing:"0.08em"}}>RÉCENT</span>}
+                  </button>))}
+                {resultatsAnnuaire.length===0 && <div style={{fontSize:12,color:C.gris,marginBottom:8}}>Aucun nom de la liste ne correspond.</div>}
+                <button onClick={()=>setHorsListe(true)} style={{width:"100%",padding:"9px",marginTop:2,background:"transparent",
+                  border:"none",fontSize:11.5,color:C.gris,textDecoration:"underline",cursor:"pointer"}}>
+                  Il n'est pas dans la liste : ajouter « {nouveauNom.trim()} »</button>
+              </>)}
+              {horsListe && (<>
+                <div style={{fontSize:12,marginBottom:8,lineHeight:1.5}}>Nouvel intérimaire : <b>{nouveauNom.trim()}</b><br/>
+                  <span style={{color:C.gris}}>Écrivez NOM puis Prénom. La direction vérifiera l'orthographe.</span></div>
+                <select value={nouvelleAgence} onChange={e=>setNouvelleAgence(e.target.value)} style={{...champ,marginBottom:10}}>
+                  {AGENCES.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}
+                </select>
+                <MBtn onClick={()=>prendreInterimaire(nouveauNom)} disabled={ajoutEnCours||nouveauNom.trim().length<2}>{ajoutEnCours?"…":"AJOUTER"}</MBtn>
+              </>)}
+              {errAjoutI && <div style={{marginTop:8,fontSize:12,color:C.orange,fontWeight:700}}>{errAjoutI}</div>}
+              <div style={{marginTop:8}}><MBtn variant="ghost" onClick={fermerAjout}>ANNULER</MBtn></div>
             </div>
           ) : (
             <button onClick={()=>setAjoutOuvert(true)} style={{width:"100%",padding:"11px",background:"transparent",
-              border:`1.5px dashed ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>+ NOUVEL INTÉRIMAIRE</button>
+              border:`1.5px dashed ${C.ligne}`,fontFamily:FM,fontSize:11,color:C.gris,cursor:"pointer"}}>+ AJOUTER UN INTÉRIMAIRE</button>
           )}
         </div>
       ), "SUIVANT →", "Facultatif : passez si vous n'aviez pas d'intérimaire.")}

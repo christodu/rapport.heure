@@ -243,6 +243,19 @@ Tout, à toute date, sans limite :
 - **Semaine à cheval sur deux mois** : les heures sup' de la semaine
   complète sont payées sur le mois où elle se termine (le mois précédent a
   payé ses jours en heures normales). Rien n'est perdu ni compté deux fois.
+- **Annuaire des intérimaires (Drive)** : l'orthographe officielle = les noms
+  des dossiers COMMUN/INTERVENANT/INTERIMAIRE. Le robot Drive l'envoie chaque
+  nuit (fonction `majAnnuaire`, avec la date du dernier contrat) ; on peut
+  aussi la coller dans Paramètres → « Annuaire des intérimaires ».
+  - **Chefs** : « + AJOUTER UN INTÉRIMAIRE » → ils tapent 2-3 lettres et
+    choisissent dans la liste (les 40 contrats les plus récents en premier,
+    marqués RÉCENT). S'il a déjà une fiche chez un autre chef, elle lui est
+    rattachée (pas de doublon). Absent de la liste : le chef l'ajoute quand
+    même ; la fiche est marquée **À CONFIRMER**.
+  - **Direction** (onglet Intérimaires) : encadré « Rapprochement avec le
+    Drive » → aligner d'un coup les écritures, renommer à l'orthographe du
+    dossier (✓) ou fusionner avec la fiche qui porte déjà ce nom (⇄),
+    confirmer un nom hors liste, ou ignorer.
 - **Fusionner deux fiches d'intérimaire** (même personne écrite de deux
   façons par deux chefs) : onglet Intérimaires. Les doublons probables sont
   signalés en rouge (accents, majuscules, ordre nom/prénom et petites fautes
