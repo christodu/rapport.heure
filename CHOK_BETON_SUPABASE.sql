@@ -1,6 +1,6 @@
 -- ============================================================
 --  CHOK BÉTON — SERVEUR SUPABASE
---  Version s3.4 (la fonction chok.version() fait foi)
+--  Version s3.5 (la fonction chok.version() fait foi)
 --
 --  À COLLER EN UNE SEULE FOIS dans : Supabase → SQL Editor → New query
 --  puis cliquer sur « Run ». Le script est REJOUABLE sans risque :
@@ -235,7 +235,7 @@ revoke all on all functions in schema chok from public, anon, authenticated;
    arrivé — on a cherché longtemps une panne de serveur alors que la
    question était « quelle version tourne, au juste ? ». */
 create or replace function chok.version() returns text
-language sql immutable as $$ select 's3.4'::text $$;
+language sql immutable as $$ select 's3.5'::text $$;
 
 /* Conversion tolérante vers un vrai booléen.
    Reprend la règle du serveur précédent : toute valeur inattendue vaut
@@ -559,11 +559,16 @@ begin
   if v_role = 'rh' then
     select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) into v_pointages
       from chok.pointages x where v_depuis is null or x.date >= v_depuis;
+    -- TOUTES les absences, sans la fenêtre de 90 jours : la table est petite,
+    -- et un congé pris en mars doit compter dans le solde vu en novembre.
     select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) into v_absences
-      from chok.absences x where v_depuis is null
-        or coalesce(nullif(x."dateFin",''), x."dateDebut") >= v_depuis;
+      from chok.absences x;
     v_meta := jsonb_build_object('depuis', v_depuis, 'tout', v_tout,
-                'pointagesCharges', jsonb_array_length(v_pointages), 'pointagesTotal', v_total);
+                'pointagesCharges', jsonb_array_length(v_pointages), 'pointagesTotal', v_total,
+                -- Règles de paie choisies par la direction (avec son comptable).
+                'reglagesPaie', jsonb_build_object(
+                  'conges',    coalesce(nullif(chok.config_lire('regleConges'),''), 'civile'),
+                  'dimanche35', coalesce(nullif(chok.config_lire('dimancheDans35'),''), 'non')));
     return jsonb_build_object('ok', true, 'role', v_role, 'meta', v_meta,
       'donnees', jsonb_build_object(
         'salaries',     chok.lire('salaries'),
@@ -1427,6 +1432,21 @@ begin
       v_faits := v_faits || case when v_mail <> '' then 'adresse mail enregistrée'
                                  else 'adresse mail effacée' end;
     end if;
+    -- Règles de paie : valeurs fermées, rien d'autre n'est accepté.
+    if p ? 'regleConges' then
+      if coalesce(p->>'regleConges','') not in ('civile','btp') then
+        return jsonb_build_object('ok', false, 'erreur', 'Période de congés inconnue.');
+      end if;
+      perform chok.config_ecrire('regleConges', p->>'regleConges');
+      v_faits := v_faits || ('congés : ' || (p->>'regleConges'));
+    end if;
+    if p ? 'dimancheDans35' then
+      if coalesce(p->>'dimancheDans35','') not in ('oui','non') then
+        return jsonb_build_object('ok', false, 'erreur', 'Réglage dimanche inconnu.');
+      end if;
+      perform chok.config_ecrire('dimancheDans35', p->>'dimancheDans35');
+      v_faits := v_faits || ('dimanche dans les 35 h : ' || (p->>'dimancheDans35'));
+    end if;
     if p ? 'pinRH' then
       v_pin := trim(coalesce(p->>'pinRH',''));
       -- 6 chiffres au moins : ce code ouvre TOUT, codes des salariés compris.
@@ -1837,8 +1857,8 @@ select chok.sauvegarde_complete('installation') as sauvegarde_initiale;
 -- ============================================================
 with controles(n, quoi, valeur, attendu, bon) as (
   select 1, 'Version du serveur',
-         chok.version(), 's3.4',
-         chok.version() = 's3.4'
+         chok.version(), 's3.5',
+         chok.version() = 's3.5'
   union all
   select 2, 'Tables verrouillées (RLS active)',
          -- On affiche la LISTE et non un simple nombre : un écart se

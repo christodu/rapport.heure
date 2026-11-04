@@ -251,6 +251,14 @@ Tout, à toute date, sans limite :
   correcte. Toutes les heures et absences passent sur la fiche gardée ; la
   fiche en double est archivée « (fusionné) ». Les jours où les deux fiches
   ont des heures sont signalés pour vérification.
+- **Règles de paie** (Paramètres, à valider avec le comptable) : période des
+  congés (année civile, ou 1er avril → 31 mars comme la caisse BTP) et prise
+  en compte ou non des heures du dimanche / férié dans les 35 h. Par défaut :
+  année civile, et dimanche hors des 35 h (calcul d'origine).
+- **Historique** : au démarrage, seuls les 90 derniers jours d'heures sont
+  chargés ; un rapport ou un état de paie plus ancien charge tout
+  l'historique automatiquement. Les absences sont toujours chargées en
+  entier (soldes de congés justes).
 - **État de paie** (onglet du même nom) : le tableau mensuel à transmettre
   pour la paie, une colonne par salarié. Calculé automatiquement (cases
   grises) : heures normales, samedis, heures à 25/50/100 %, A.T, maladie,

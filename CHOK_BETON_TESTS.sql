@@ -621,6 +621,22 @@ begin
         'date',v_avhier,'debut','13:00','fin','14:00','pause',0))));
     res := chok._v(res,'La direction peut toujours saisir (régularisation)', r->>'ok', 'true');
 
+    -- ---------- 16 quater. RÈGLES DE PAIE ET ABSENCES ANCIENNES ----------
+    insert into chok.absences(id,salarie,"dateDebut","dateFin",type) values ('T-ABSV','T-SAL','2020-03-02','2020-03-06','CP');
+    d := public.chok_api(jsonb_build_object('action','charger','jeton',jrh));
+    res := chok._v(res,'La direction reçoit aussi les absences anciennes (soldes de congés justes)',
+      (position('T-ABSV' in (d->'donnees'->'absences')::text) > 0)::text, 'true');
+    res := chok._v(res,'Règles de paie par défaut',
+      (d->'meta'->'reglagesPaie'->>'conges') || '/' || (d->'meta'->'reglagesPaie'->>'dimanche35'), 'civile/non');
+    perform public.chok_api(jsonb_build_object('action','reglages','jeton',jrh,'regleConges','btp','dimancheDans35','oui'));
+    d := public.chok_api(jsonb_build_object('action','charger','jeton',jrh));
+    res := chok._v(res,'La direction change les règles de paie',
+      (d->'meta'->'reglagesPaie'->>'conges') || '/' || (d->'meta'->'reglagesPaie'->>'dimanche35'), 'btp/oui');
+    res := chok._v(res,'Valeur inconnue refusée',
+      (public.chok_api(jsonb_build_object('action','reglages','jeton',jrh,'regleConges','n''importe')))->>'ok', 'false');
+    res := chok._v(res,'Un chef ne change pas les règles de paie',
+      (public.chok_api(jsonb_build_object('action','reglages','jeton',jchef,'regleConges','civile')))->>'ok', 'false');
+
     -- ---------- 17. UN ACCÈS RETIRÉ L'EST TOUT DE SUITE ----------
     r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jrh,'table','salaries',
       'upserts', jsonb_build_array(jsonb_build_object('id','T-SAL','code','3334'))));

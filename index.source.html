@@ -534,6 +534,14 @@ function calcMajorations(ptgs){
   let h100=0, hOrd=0;
   (ptgs||[]).forEach(p=>{ const t=calcHeures(p), d=calcH100(p); h100+=d; hOrd+=Math.max(0,t-d); });
   const r=(n)=>Math.round(n*100)/100;
+  if (REGLES_PAIE.dimanche35 === "oui" && h100 > 0) {
+    // Les heures +100 % comptent dans le seuil : les heures sup' se lisent sur
+    // le TOTAL de la semaine, et sont prises sur les heures ordinaires (pas de
+    // cumul avec le +100 %).
+    const tot=hOrd+h100, sup=Math.min(hOrd, Math.max(0,tot-35));
+    const h50o=Math.min(sup, Math.max(0,tot-43)), h25o=Math.min(sup-h50o, 8);
+    return { hBase:r(hOrd-h25o-h50o), h25:r(h25o), h50:r(h50o), h100:r(h100), hOrdinaire:r(hOrd), total:r(tot), hSup:r(h25o+h50o) };
+  }
   const hBase=r(Math.min(hOrd,35));
   const h25=r(Math.max(0,Math.min(hOrd-35,8)));
   const h50=r(Math.max(0,hOrd-43));
@@ -708,7 +716,7 @@ const jourEnClair = (iso) =>
 const LOGO_COMPLET = "data:image/png;base64,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";
 const LOGO_LAME    = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEX////3ySwmMjIAAAA32Z4NAAAABHRSTlMA//8Ani+vBQAAAlhJREFUeNrtVj1v2zAQfeeQgeuJQOR06ZCiY5f8gA4MkDGDgdp7f0p/T6tBexb9iXb27g5aihoQUXagxM9j1DkwAQ8iH+/eHe/dGbisy3rli/ZSpzur5KsRQCPrAHpQAKldDSABDffjAf7mlgcQbAFNAHo2PvAuZBOgcscAFIAepIAekHyYqoghBgz+9IEFKHjDDWCpADya+J4ROgNIsjFgUKrgoPn3nQEG6KPt3sOv5jrA9YcI8HZzdXvMM5kUhgsrAETpXHAVVSdpyhOTAGwJGGIA6S4/t72KAEIVPgw9vhzFIOJE3by/3WSA64/0Mw6zyS3IJMwhcyNCZCKU+R8XyfoMvHkCQMECxbbvUiGVqf7KpFrwUhOshTX3WCNLwT2Xs9ByFGwXALZnKLRhY89ToJCHHUcBe+1NhtYWZeHA1eSqKpxKFqZsOR1tvuWHfZrl8fvsN3dBOg7sDOBd0POqcHgEcB+aSgpwjSypjxSgXdZFtZlPL6vyMJ9/7/zHL99sbDvv2YEChc5TMKWLiYIsUy08BQvgZpLOYTcd0T7wOQN4GipRKJcmuq+9pnb1IHrUJg7wt9BxppMzgE9+p5vzEPrqEaDDnKNKjcmU1Kro42KpSr8sAXTaKJ3B0w9d3njenvxzD1uu8E/+whDRvMt8rfLQgva24MQbk95zPWq9oM1E/qEFmWoT/F/5246jEDcxlkL8dmqWf9QMJCVO2+Jqb+N5Ye3LUw+GCt9jLD3TFVON0MXTH58LF+n0p3LyNkvTH0vT3yxNf+TTf4w122LsLn/gL+u1rn8mh3y8vDyS3wAAAABJRU5ErkJggg==";
 
-const APP_VERSION = "v9.9";   // affiché en bas de l'app : permet de vérifier ce qui est en ligne
+const APP_VERSION = "v10.0";   // affiché en bas de l'app : permet de vérifier ce qui est en ligne
 const CODE_MIN = 4;    // longueur minimale d'un code personnel
 const CODE_MAX = 8;    // maximum : au-delà, la saisie au doigt devient pénible
 // « 0000 » est la marque d'une fiche SANS code : le serveur la refuse.
@@ -736,13 +744,29 @@ const congesDe = (p) => (p && p.conges != null && p.conges !== "") ? Number(p.co
 // Jours décomptés d'une absence, limités à une année.
 // En mode "ouvrables" le samedi compte ; en mode "ouvres" il ne compte pas.
 // Le dimanche et les jours fériés ne sont jamais décomptés.
+/* RÈGLES DE PAIE choisies par la direction avec son comptable (Paramètres).
+   Reçues du serveur à chaque chargement ; valeurs par défaut = l'ancien calcul.
+   • conges     : "civile" (1er janvier → 31 décembre) ou "btp" (1er avril → 31 mars,
+                  période de référence de la caisse de congés du BTP) ;
+   • dimanche35 : "non" = les heures du dimanche / férié (+100 %) ne comptent pas
+                  dans le seuil des 35 h ; "oui" = elles y comptent. */
+const REGLES_PAIE = { conges: "civile", dimanche35: "non" };
+const appliquerReglesPaie = (r) => { if (!r) return;
+  if (r.conges === "btp" || r.conges === "civile") REGLES_PAIE.conges = r.conges;
+  if (r.dimanche35 === "oui" || r.dimanche35 === "non") REGLES_PAIE.dimanche35 = r.dimanche35; };
+/** Année de début de la période de congés qui contient ce jour. */
+const anneeConges = (iso) => { const d = iso || isoLocalJour(new Date()); const a = Number(d.slice(0,4));
+  return REGLES_PAIE.conges === "btp" && Number(d.slice(5,7)) < 4 ? a - 1 : a; };
+const bornesConges = (annee) => REGLES_PAIE.conges === "btp"
+  ? [`${annee}-04-01`, `${annee+1}-03-31`] : [`${annee}-01-01`, `${annee}-12-31`];
+const libelleConges = (annee) => REGLES_PAIE.conges === "btp" ? `${annee}-${annee+1}` : String(annee);
 function joursAbsenceAnnee(a, annee){
   if(!a || !a.dateDebut || !a.dateFin) return 0;
   let n=0;
   const d1=new Date(a.dateDebut+"T12:00:00Z"), d2=new Date(a.dateFin+"T12:00:00Z");
   for(let d=new Date(d1.getTime()); d<=d2; d.setUTCDate(d.getUTCDate()+1)){
     const iso=_isoUTC(d), jour=d.getUTCDay();
-    if(annee!=null && Number(iso.slice(0,4))!==Number(annee)) continue;
+    if(annee!=null){ const [b1,b2]=bornesConges(Number(annee)); if(iso<b1||iso>b2) continue; }
     if(jour===0) continue;                                   // dimanche
     if(jour===6 && CONGES_MODE!=="ouvrables") continue;       // samedi selon le mode
     if(estFerie(iso)) continue;                              // jour férié
@@ -1451,7 +1475,7 @@ function App() {
 
       const rep = await api("charger", { jeton: getJeton(), tout: !!toutCharger });
       const d = rep.donnees || {};
-      if (rep.meta) setInfoPeriode(rep.meta);
+      if (rep.meta) { appliquerReglesPaie(rep.meta.reglagesPaie); setInfoPeriode(rep.meta); }
 
       // Récupération : ce que l'appareil connaît et que le serveur ignore.
       try {
@@ -1658,7 +1682,7 @@ function App() {
       pose(donnees.chantiers,    setChantiersRaw,    refs.chantiers,    "chantiers");
       pose(donnees.pointages,    setPointagesRaw,    refs.pointages,    "pointages");
       pose(donnees.absences,     setAbsencesRaw,     refs.absences,     "absences");
-      if (meta) setInfoPeriode(meta);
+      if (meta) { appliquerReglesPaie(meta.reglagesPaie); setInfoPeriode(meta); }
       setSyncState(outboxCount() ? "attente" : "ok");
       viderOutbox().catch(()=>{});   // on pousse ce qui attendait, en arrière-plan
       return;
@@ -1692,11 +1716,6 @@ function App() {
 
   const donnees = { salaries, setSalaries, interimaires, setInterimaires, chantiers, setChantiers, pointages, setPointages, absences, setAbsences };
 
-  const chargerDemo = () => {
-    setSalaries(DEMO.salaries);
-    setInterimaires(DEMO.interimaires);
-    setChantiers(DEMO.chantiers);
-  };
 
   if (appLoading) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
@@ -1718,7 +1737,7 @@ function App() {
         </div>
       )}
       <Header session={session} onDeconnexion={seDeconnecter} syncState={syncState} onReload={rechargerDonnees}/>
-      {session.role === "rh"     && <VueAdmin {...donnees} viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onChargerDemo={chargerDemo} onReloadSupabase={rechargerDonnees} infoPeriode={infoPeriode}/>}
+      {session.role === "rh"     && <VueAdmin {...donnees} viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onReloadSupabase={rechargerDonnees} infoPeriode={infoPeriode}/>}
       {session.role === "chef"   && <VueMobile session={session} {...donnees}/>}
       {session.role === "salarie"&& <VueSalarie session={session} pointages={pointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} absences={absences}/>}
       <Footer/>
@@ -2065,7 +2084,7 @@ function etiqueterTableaux(racine) {
   });
 }
 
-function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires,absences,setAbsences,pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onReloadSupabase,infoPeriode,viderLocalement}) {
+function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSalaries,interimaires,setInterimaires,absences,setAbsences,pinRH,setPinRH,pinChef,setPinChef,onReloadSupabase,infoPeriode,viderLocalement}) {
   const [onglet, setOnglet] = useState("pointages");
   const racine = useRef(null);
   // Les onglets se redessinent seuls (passage en modification, filtre…) sans
@@ -2122,10 +2141,10 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
       {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages} absences={absences}/>}
       {onglet==="interim"    && <OngletInterim interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences} chantiers={chantiers} salaries={salaries}/>}
       {onglet==="chantiers"  && <OngletChantiers chantiers={chantiers} setChantiers={setChantiers} pointages={pointages}/>}
-      {onglet==="paie"       && <OngletPaie pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
-      {onglet==="etat"       && <OngletEtatPaie pointages={pointages} absences={absences} salaries={salaries} setSalaries={setSalaries}/>}
+      {onglet==="paie"       && <OngletPaie infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)} pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
+      {onglet==="etat"       && <OngletEtatPaie infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)} pointages={pointages} absences={absences} salaries={salaries} setSalaries={setSalaries}/>}
       {onglet==="archives"   && <OngletArchives infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)} pointages={pointages} absences={absences} salaries={salaries} interimaires={interimaires} chantiers={chantiers}/>}
-      {onglet==="parametres" && <OngletParametres viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onChargerDemo={onChargerDemo} onReloadSupabase={onReloadSupabase} salaries={salaries} setSalaries={setSalaries} chantiers={chantiers} setChantiers={setChantiers} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences}/>}
+      {onglet==="parametres" && <OngletParametres infoPeriode={infoPeriode} viderLocalement={viderLocalement} pinRH={pinRH} setPinRH={setPinRH} pinChef={pinChef} setPinChef={setPinChef} onReloadSupabase={onReloadSupabase} salaries={salaries} setSalaries={setSalaries} chantiers={chantiers} setChantiers={setChantiers} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences}/>}
     </main>
   );
 }
@@ -2614,9 +2633,9 @@ function OngletAbsences({absences,setAbsences,salaries,interimaires,pointages}) 
   return (
     <Section titre={`Absences & Congés — ${absences.length}`} actions={<Btn onClick={()=>{open?fermer():setOpen(true);}}>{open?"✕ Annuler":"+ SAISIR UNE ABSENCE"}</Btn>}>
       {/* Soldes de congés payés de l'année en cours */}
-      {salaries.length>0&&(()=>{const annee=new Date().getFullYear();const soldes=salaries.map(s=>({s,bc:bilanConges(s,absences,annee)}));const alerte=soldes.filter(x=>x.bc.restant<=5);
+      {salaries.length>0&&(()=>{const annee=anneeConges();const soldes=salaries.map(s=>({s,bc:bilanConges(s,absences,annee)}));const alerte=soldes.filter(x=>x.bc.restant<=5);
         return(<div style={{marginBottom:20}}>
-          <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris,fontWeight:700,marginBottom:10}}>SOLDES CONGÉS PAYÉS {annee} — EN {CONGES_LIBELLE.toUpperCase()} (HORS DIMANCHES ET FÉRIÉS)</div>
+          <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris,fontWeight:700,marginBottom:10}}>SOLDES CONGÉS PAYÉS {libelleConges(annee)} — EN {CONGES_LIBELLE.toUpperCase()} (HORS DIMANCHES ET FÉRIÉS)</div>
           {alerte.length>0&&<div style={{marginBottom:10,padding:"9px 14px",background:"#FFF8E1",border:`1.5px solid ${C.jaune}`,fontSize:11,fontWeight:600}}>⚠ {alerte.length} salarié(s) avec 5 jours ou moins de congés restants : {alerte.map(x=>x.s.nom).join(", ")}</div>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:8}}>
             {soldes.map(({s,bc})=>(
@@ -2672,7 +2691,7 @@ function OngletAbsences({absences,setAbsences,salaries,interimaires,pointages}) 
 
 // ---- Onglet Salariés (avec import en masse) ----
 function OngletSalaries({salaries,setSalaries,pointages,absences}) {
-  const anneeCourante = new Date().getFullYear();
+  const anneeCourante = anneeConges();
   const [open,setOpen]=useState(false);
   const [nom,setNom]=useState("");
   const [poste,setPoste]=useState(POSTES[0]);
@@ -2826,7 +2845,7 @@ function OngletSalaries({salaries,setSalaries,pointages,absences}) {
       {salaries.length===0
         ? <EmptyState>Aucun salarié. Cliquez sur "+ AJOUTER" ou "↑ IMPORT EN MASSE".</EmptyState>
         : <TableWrap>
-            <thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Code accès</Th><Th r>Congés {anneeCourante}</Th><Th r>Pointages</Th><Th></Th></tr></thead>
+            <thead><tr><Th>Nom</Th><Th>Poste</Th><Th>Code accès</Th><Th r>Congés {libelleConges(anneeCourante)}</Th><Th r>Pointages</Th><Th></Th></tr></thead>
             <tbody>{salaries.map(s=>{
               const jours=pointages.filter(p=>p.salarie===s.id).length;
               const bc=bilanConges(s,absences,anneeCourante);
@@ -3149,7 +3168,26 @@ function OngletChantiers({chantiers,setChantiers,pointages}) {
 }
 
 // ---- Onglet Paie ----
-function OngletPaie({pointages,absences,salaries,interimaires,chantiers}) {
+/* Les 90 derniers jours seulement sont chargés au démarrage. Un rapport qui
+   remonte plus loin déclenche le chargement de tout l'historique, une fois :
+   sans cela, un état de paie d'avril sortait vide sans prévenir. */
+function useHistoriqueSiBesoin(infoPeriode, onChargerTout, debut) {
+  const [charge,setCharge]=useState(false);
+  const lancer=()=>{ try { return Promise.resolve(onChargerTout()); } catch(e) { return Promise.resolve(); } };
+  const manque = !!(infoPeriode && !infoPeriode.tout && infoPeriode.depuis && debut && debut < infoPeriode.depuis);
+  useEffect(()=>{
+    if(!manque || charge || !onChargerTout) return;
+    setCharge(true);
+    lancer().catch(()=>{}).finally(()=>setCharge(false));
+  },[manque]);
+  if(!manque) return null;
+  return <div className="no-print" style={{marginBottom:14,padding:"10px 14px",background:"#FFF8E1",border:`1.5px solid ${C.jaune}`,fontSize:12.5}}>
+    ⏳ Cette période est antérieure aux 90 derniers jours : chargement de tout l'historique…
+    {!charge && onChargerTout && <button onClick={()=>{setCharge(true);lancer().catch(()=>{}).finally(()=>setCharge(false));}} style={{marginLeft:10,fontSize:11,fontWeight:700,padding:"3px 10px",background:C.encre,color:C.jaune,border:"none",cursor:"pointer"}}>Recharger</button>}
+  </div>;
+}
+
+function OngletPaie({pointages,absences,salaries,interimaires,chantiers,infoPeriode,onChargerTout}) {
   const [personneId,setPersonneId]=useState("tous");
   const [modeVue,setModeVue]=useState("mois");
   const [semOffset,setSemOffset]=useState(-1);   // -1 : la semaine écoulée, celle qu'on paie
@@ -3223,6 +3261,9 @@ function OngletPaie({pointages,absences,salaries,interimaires,chantiers}) {
     return "Tout l'historique";
   })();
   const fmtDate=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"}).toUpperCase();
+  // Semaine à cheval et régularisations : on remonte une semaine avant le début.
+  const bandeauHisto=useHistoriqueSiBesoin(infoPeriode,onChargerTout,
+    modeVue==="tout" ? "0000-00-00" : (()=>{const d=new Date((plage[0]||auj)+"T12:00:00");d.setDate(d.getDate()-7);return isoLocalJour(d);})());
   const personnesFiltrees=personneId==="tous"?tousLesPersonnes:tousLesPersonnes.filter(p=>p.id===personneId);
   // En vue MOIS, une régularisation se range sur son mois de paie : elle sort
   // du mois de sa date (déjà clos et transmis) et rejoint celui où elle a été
@@ -3296,6 +3337,7 @@ function OngletPaie({pointages,absences,salaries,interimaires,chantiers}) {
           : <Btn variant="export" onClick={()=>ouvrirApercu("personne")}>👁 APERÇU — {(tousLesPersonnes.find(x=>x.id===personneId)?.nom||"CETTE PERSONNE").toUpperCase()}</Btn>}
       </div>
     }>
+      {bandeauHisto}
       <div className="no-print" style={{marginBottom:16,padding:"10px 14px",background:C.fond,border:`1.5px solid ${C.ligne}`,fontSize:11,color:C.gris,lineHeight:1.6}}>
         {orphelins.length>0&&<div style={{marginBottom:10,padding:"10px 14px",background:"#FFF0F0",border:`2px solid ${C.orange}`,fontSize:12,lineHeight:1.6}}>
           <b style={{color:C.orange}}>⚠ {orphelins.length} personne(s) ont des heures mais plus de fiche.</b>
@@ -3308,7 +3350,7 @@ function OngletPaie({pointages,absences,salaries,interimaires,chantiers}) {
           une erreur repérée le lundi se corrige, la même repérée le 30 coûte une paie.
         </div>}
         <b style={{color:C.encre}}>Export PDF :</b> laissez « Toutes les personnes » pour éditer le rapport de <b>tout le monde</b>, ou choisissez un nom dans la liste pour éditer le rapport <b>d'un seul salarié</b>. Le bouton s'adapte automatiquement.
-        <div style={{marginTop:6}}><b style={{color:C.encre}}>Majorations :</b> base 35 h · de la 36<sup>e</sup> à la 43<sup>e</sup> h = <span style={{color:"#B7770D",fontWeight:700}}>+25 %</span> · au-delà de 43 h = <span style={{color:C.orange,fontWeight:700}}>+50 %</span> · dimanche et jours fériés = <span style={{color:"#C0392B",fontWeight:700}}>+100 %</span> (ces heures ne sont pas recomptées en heures supplémentaires).</div>
+        <div style={{marginTop:6}}><b style={{color:C.encre}}>Majorations :</b> base 35 h · de la 36<sup>e</sup> à la 43<sup>e</sup> h = <span style={{color:"#B7770D",fontWeight:700}}>+25 %</span> · au-delà de 43 h = <span style={{color:C.orange,fontWeight:700}}>+50 %</span> · dimanche et jours fériés = <span style={{color:"#C0392B",fontWeight:700}}>+100 %</span> {REGLES_PAIE.dimanche35==="oui"?"(ces heures comptent dans les 35 h ; pas de cumul avec les 25 / 50 %).":"(ces heures ne sont pas recomptées en heures supplémentaires)."}{" "}Congés comptés {REGLES_PAIE.conges==="btp"?"du 1er avril au 31 mars (caisse BTP)":"sur l'année civile"}.</div>
       </div>
       <style>{`@media print{header,footer,.no-print{display:none!important}body{background:white!important;background-image:none!important}main{padding:0!important;max-width:100%!important}.print-break{page-break-after:always}@page{margin:12mm;size:A4 portrait}body[data-print="interne"] .bloc-interim{display:none!important}body[data-print="interim"] .bloc-interne{display:none!important}.print-header{display:block!important}}.print-header{display:none}`}</style>
       {apercu && (
@@ -3391,7 +3433,7 @@ function OngletPaie({pointages,absences,salaries,interimaires,chantiers}) {
               </div>}
             {/* ---- CONGÉS ET ABSENCES ---- */}
             {(()=>{
-              const annee=Number((plage[0]||auj).slice(0,4));
+              const annee=anneeConges(plage[plage.length-1]||auj);
               const bc=p._type==="interim"?null:bilanConges(p,absences||[],annee);
               const mesAbs=(absences||[]).filter(a=>a.salarie===p.id
                 && !(a.dateFin<plage[0] || a.dateDebut>plage[plage.length-1]));
@@ -3400,7 +3442,7 @@ function OngletPaie({pointages,absences,salaries,interimaires,chantiers}) {
                 <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.ligne}`,background:"#FAFAF7"}}>
                   <div style={{display:"flex",gap:18,flexWrap:"wrap",alignItems:"center"}}>
                     {bc && <>
-                      <div><span style={{fontSize:9,color:C.gris,letterSpacing:"0.12em",fontWeight:700}}>CONGÉS {annee}</span>
+                      <div><span style={{fontSize:9,color:C.gris,letterSpacing:"0.12em",fontWeight:700}}>CONGÉS {libelleConges(annee)}</span>
                         <div style={{fontSize:12,marginTop:2}}>
                           <b style={{fontFamily:FT,fontSize:15,color:bc.restant<0?C.orange:C.vert}}>{bc.restant}</b>
                           <span style={{color:C.gris}}> restant(s) sur {bc.droit} · {bc.pris} pris</span>
@@ -3480,7 +3522,8 @@ function syntheseMois(pointages, id, mois){
   const paniers=pN.n+pR.n, paniersDep=pN.d+pR.d;
   const r2=(n)=>Math.round(n*100)/100;
   return {hBase:r2(m.hBase),h25:r2(m.h25),h50:r2(m.h50),h100:r2(m.h100),samedis,paniers,paniersDep,
-          deplacements:calcNuitees([...normal,...regul]),nbLignes:normal.length+regul.length};
+          deplacements:calcNuitees([...normal,...regul]),
+          hNuit:r2([...normal,...regul].reduce((a,x)=>a+calcHNuit(x),0)),nbLignes:normal.length+regul.length};
 }
 const ABS_DIVERSES=["SS","ABS","FOR","AUT"];
 // Lignes du tableau, dans l'ordre du modèle papier. « auto » = calculé ;
@@ -3491,6 +3534,7 @@ const LIGNES_ETAT=[
   ["H. à 25%","auto",(x)=>x.h25],
   ["H. à 50%","auto",(x)=>x.h50],
   ["H. à 100%","auto",(x)=>x.h100],
+  ["H. Nuit","auto",(x)=>x.hNuit],
   ["Dont Maj. Poste 10%","poste10"],
   ["Dont Maj. H.D. 50%","hd50"],
   ["Prime","prime"],
@@ -3511,9 +3555,11 @@ const LIGNES_ETAT=[
 ];
 const fmtNb=(n)=>!n?"":String(Math.round(n*100)/100).replace(".",",");
 
-function OngletEtatPaie({pointages,absences,salaries,setSalaries}) {
+function OngletEtatPaie({pointages,absences,salaries,setSalaries,infoPeriode,onChargerTout}) {
   const auj=isoLocalJour(new Date());
   const [mois,setMois]=useState(auj.slice(0,7));
+  const bandeauHisto=useHistoriqueSiBesoin(infoPeriode,onChargerTout,
+    (()=>{const d=new Date(mois+"-01T12:00:00");d.setDate(d.getDate()-7);return isoLocalJour(d);})());
   // Les salariés actifs, plus les archivés qui ont des heures ce mois-là.
   const cols=salaries.filter(s=>estActif(s) || (pointages||[]).some(p=>p.salarie===s.id && moisDePaie(p)===mois))
     .map(s=>{const x=syntheseMois(pointages,s.id,mois);
@@ -3552,6 +3598,7 @@ function OngletEtatPaie({pointages,absences,salaries,setSalaries}) {
         <Btn variant="export" onClick={exporter}>⬇ EXCEL</Btn>
       </div>}>
       <style>{`@media print{header,footer,.no-print,.admin-tabs,.vd-kpis,.vd-entete{display:none!important}main{padding:0!important;max-width:100%!important}@page{size:A4 landscape;margin:8mm}.etat-paie input{border:none!important}.etat-paie td,.etat-paie th{font-size:9px!important;min-width:0!important;padding:3px!important}}`}</style>
+      {bandeauHisto}
       <div className="no-print" style={{marginBottom:12,fontSize:11.5,color:C.gris,lineHeight:1.6}}>
         Cases <b style={{color:C.encre}}>grises</b> : calculées à partir des heures et des absences (régularisations comprises, sur leur mois de paie).
         Cases <b style={{color:C.encre}}>blanches</b> : à saisir — enregistré dès que vous quittez la case. Heures en décimal (7,5 = 7 h 30) ; absences et congés en jours.
@@ -3698,7 +3745,7 @@ function VueSalarie({session,pointages,chantiers,salaries,interimaires,absences}
   // que des heures. Elles restent calculées côté direction, où elles
   // servent à la paie.
   const estInterimaire=!!interimaires.find(i=>i.id===session.personneId);
-  const anneeCourante=new Date().getFullYear();
+  const anneeCourante=anneeConges();
   const bc=bilanConges(personne,mesAbs,anneeCourante);
   const mesNuitees=calcNuitees(mesPtg);
   const fmtDate=(iso)=>new Date(iso+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}).toUpperCase();
@@ -3732,7 +3779,7 @@ function VueSalarie({session,pointages,chantiers,salaries,interimaires,absences}
       {/* Congés + déplacements — informations personnelles */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:24}}>
         {!estInterimaire&&<div style={{padding:"16px 18px",background:C.papier,border:`1.5px solid ${C.encre}`}}>
-          <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",fontWeight:700,marginBottom:8}}>🌴 MES CONGÉS {anneeCourante}</div>
+          <div style={{fontSize:9,color:C.gris,letterSpacing:"0.15em",fontWeight:700,marginBottom:8}}>🌴 MES CONGÉS {libelleConges(anneeCourante)}</div>
           <div style={{display:"flex",alignItems:"baseline",gap:6}}><span style={{fontFamily:FT,fontSize:32,fontWeight:800,color:bc.restant<0?C.orange:C.vert}}>{bc.restant}</span><span style={{fontSize:12,color:C.gris}}>jour(s) restant(s)</span></div>
           <div style={{fontSize:11,color:C.gris,marginTop:6}}>{bc.pris} pris sur {bc.droit} · en {CONGES_LIBELLE}</div>
         </div>}
@@ -3767,7 +3814,48 @@ function VueSalarie({session,pointages,chantiers,salaries,interimaires,absences}
 // ============================================================
 //  ONGLET PARAMÈTRES
 // ============================================================
-function OngletParametres({viderLocalement,pinRH,setPinRH,pinChef,setPinChef,onChargerDemo,onReloadSupabase,salaries,setSalaries,chantiers,setChantiers,interimaires,setInterimaires,pointages,setPointages,absences,setAbsences}) {
+/* Deux choix qui changent les chiffres de paie : à arrêter AVEC le comptable.
+   Les valeurs par défaut reproduisent le calcul d'origine. */
+function ReglesPaie({infoPeriode,onReloadSupabase}) {
+  const [conges,setConges]=useState(REGLES_PAIE.conges);
+  const [dim,setDim]=useState(REGLES_PAIE.dimanche35);
+  const [msg,setMsg]=useState("");
+  useEffect(()=>{setConges(REGLES_PAIE.conges);setDim(REGLES_PAIE.dimanche35);},[infoPeriode]);
+  const changement = conges!==REGLES_PAIE.conges || dim!==REGLES_PAIE.dimanche35;
+  const enregistrer=async()=>{
+    setMsg("Enregistrement…");
+    try{
+      const r=await api("reglages",{jeton:getJeton(),regleConges:conges,dimancheDans35:dim},{tentatives:1});
+      if(!r||!r.ok){setMsg("✕ "+((r&&r.erreur)||"Échec — le serveur est-il bien en version s3.5 ?"));return;}
+      appliquerReglesPaie({conges,dimanche35:dim});
+      setMsg("✓ Règles enregistrées. Les rapports et l'état de paie sont recalculés.");
+      if(onReloadSupabase) onReloadSupabase(!!(infoPeriode&&infoPeriode.tout));
+    }catch(e){setMsg("✕ "+(e&&e.message||"Échec de l'enregistrement."));}
+  };
+  const opt=(val,cur,set,titre,detail)=>(
+    <label style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 10px",border:`1.5px solid ${cur===val?C.encre:C.ligne}`,background:cur===val?C.fond:"transparent",cursor:"pointer",marginBottom:6}}>
+      <input type="radio" checked={cur===val} onChange={()=>{set(val);setMsg("");}} style={{marginTop:3}}/>
+      <div><b style={{fontSize:13}}>{titre}</b><div style={{fontSize:11.5,color:C.gris,marginTop:2,lineHeight:1.5}}>{detail}</div></div>
+    </label>);
+  return (
+    <div style={{maxWidth:720}}>
+      <div style={{padding:"10px 14px",marginBottom:14,background:"#FFF8E1",border:`1.5px solid ${C.jaune}`,fontSize:12,lineHeight:1.6}}>
+        ⚠ <b>À valider avec votre comptable.</b> Ces deux choix changent les soldes de congés et les heures supplémentaires de tous les rapports, y compris passés.
+      </div>
+      <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris,fontWeight:700,margin:"4px 0 8px"}}>PÉRIODE DES CONGÉS PAYÉS</div>
+      {opt("civile",conges,setConges,"Année civile — 1er janvier → 31 décembre","Réglage actuel par défaut.")}
+      {opt("btp",conges,setConges,"Période BTP — 1er avril → 31 mars","Période de référence des caisses de congés payés du bâtiment.")}
+      <div style={{fontFamily:FM,fontSize:10,letterSpacing:"0.2em",color:C.gris,fontWeight:700,margin:"14px 0 8px"}}>HEURES DU DIMANCHE ET DES JOURS FÉRIÉS</div>
+      {opt("non",dim,setDim,"Ne comptent pas dans les 35 h","Payées à +100 %, mais exclues du calcul des heures sup'. Réglage actuel par défaut.")}
+      {opt("oui",dim,setDim,"Comptent dans les 35 h","Payées à +100 % et prises en compte pour atteindre les 35 h et 43 h ; les heures sup' qui en découlent portent sur les heures ordinaires (pas de cumul).")}
+      <div style={{display:"flex",gap:12,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
+        <Btn onClick={enregistrer} disabled={!changement}>✓ ENREGISTRER LES RÈGLES</Btn>
+        {msg && <span style={{fontSize:12,fontWeight:700,color:msg.startsWith("✕")?C.orange:msg.startsWith("✓")?C.vert:C.gris}}>{msg}</span>}
+      </div>
+    </div>);
+}
+
+function OngletParametres({viderLocalement,pinRH,setPinRH,pinChef,setPinChef,onReloadSupabase,infoPeriode,salaries,setSalaries,chantiers,setChantiers,interimaires,setInterimaires,pointages,setPointages,absences,setAbsences}) {
   const [newPinRH,setNewPinRH]=useState("");
   const [newPinChef,setNewPinChef]=useState("");
   const [msgPin,setMsgPin]=useState("");
@@ -4177,13 +4265,15 @@ function OngletParametres({viderLocalement,pinRH,setPinRH,pinChef,setPinChef,onC
       </Section>
 
       {/* Démo + reset */}
+      <Section titre="Règles de paie">
+        <ReglesPaie infoPeriode={infoPeriode} onReloadSupabase={onReloadSupabase}/>
+      </Section>
+
       <Section titre="Données">
         <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-          <Btn variant="ghost" onClick={onChargerDemo}>↓ CHARGER LES DONNÉES DÉMO (chantiers + intérimaires)</Btn>
           <Btn variant="danger" onClick={reinitialiserTout}>✕ RÉINITIALISER POINTAGES & CHANTIERS</Btn>
         </div>
         <div style={{marginTop:12,fontSize:12,color:C.gris,lineHeight:1.7}}>
-          • Charger démo : ajoute des chantiers et intérimaires d'exemple (les 33 salariés réels sont déjà présents).<br/>
           • Réinitialiser : efface pointages, absences, chantiers et intérimaires. Les salariés sont conservés.
         </div>
       </Section>
