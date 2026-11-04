@@ -1,6 +1,6 @@
 -- ============================================================
 --  CHOK BÉTON — SERVEUR SUPABASE
---  Version s3.6 (la fonction chok.version() fait foi)
+--  Version s3.7 (la fonction chok.version() fait foi)
 --
 --  À COLLER EN UNE SEULE FOIS dans : Supabase → SQL Editor → New query
 --  puis cliquer sur « Run ». Le script est REJOUABLE sans risque :
@@ -151,6 +151,10 @@ alter table chok.salaries add column if not exists matricule text default '';
 -- la direction vérifie l'orthographe (ou fusionne) avant qu'il ne s'installe.
 alter table chok.interimaires add column if not exists "aConfirmer" boolean default false;
 alter table chok.salaries add column if not exists paie jsonb default '{}'::jsonb;
+-- Date à laquelle l'intérimaire est passé dans l'équipe de son chef actuel.
+-- Le nouveau chef ne voit ses heures et absences qu'à partir de ce jour :
+-- l'historique chez un autre chef ne le regarde pas.
+alter table chok.interimaires add column if not exists "rattacheLe" text default '';
 update chok.interimaires set actif = true where actif is null;
 
 create table if not exists chok.config (
@@ -192,6 +196,17 @@ create table if not exists chok.blocages (
 -- et chaque nouvel échec double la durée du blocage.
 alter table chok.blocages add column if not exists oubli timestamptz;
 
+-- APPAREILS DE CONFIANCE. Un téléphone (ou l'ordinateur de la direction)
+-- qui s'est déjà connecté avec le bon code reçoit un jeton. Ses erreurs de
+-- code ont leur propre compteur : un inconnu qui tape cinq faux codes au nom
+-- de quelqu'un bloque les appareils INCONNUS, jamais celui du vrai titulaire.
+-- La direction ne peut donc pas être enfermée dehors depuis son poste.
+create table if not exists chok.appareils (
+  jeton  uuid primary key,
+  cle    text not null,
+  expire timestamptz not null
+);
+
 -- Sauvegardes internes : une copie complète, en base, indépendante des
 -- sauvegardes de l'hébergeur. C'est le filet qui garantit qu'aucune
 -- remise à zéro ni fausse manœuvre ne peut faire disparaître un mois.
@@ -217,7 +232,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['salaries','interimaires','chantiers','pointages','absences',
-                           'config','journal','sessions','blocages','sauvegardes']
+                           'config','journal','sessions','blocages','sauvegardes','appareils']
   loop
     execute format('alter table chok.%I enable row level security', t);
   end loop;
@@ -238,7 +253,7 @@ revoke all on all functions in schema chok from public, anon, authenticated;
    arrivé — on a cherché longtemps une panne de serveur alors que la
    question était « quelle version tourne, au juste ? ». */
 create or replace function chok.version() returns text
-language sql immutable as $$ select 's3.6'::text $$;
+language sql immutable as $$ select 's3.7'::text $$;
 
 /* Conversion tolérante vers un vrai booléen.
    Reprend la règle du serveur précédent : toute valeur inattendue vaut
@@ -258,7 +273,7 @@ end $$;
 
 /* Comparaison de codes : STRICTE.
    L'ancien serveur tolérait la perte du zéro initial, parce que Google
-   Sheets transformait « 010126 » en 10126. Ce défaut n'existe plus ici :
+   Sheets transformait « 012345 » en 12345. Ce défaut n'existe plus ici :
    les codes sont du texte et restent intacts.
    Cette tolérance est devenue dangereuse depuis que les codes peuvent
    faire 4 à 8 chiffres : comparés comme des nombres, « 00001234 » et
@@ -345,6 +360,28 @@ begin
   return jsonb_build_object('ok', true, 'nombre', jsonb_array_length(v));
 end $$;
 
+
+/* Règles de paie choisies par la direction (avec son comptable). Envoyées à
+   TOUS : le salarié et le chef calculent leurs soldes avec les mêmes règles. */
+create or replace function chok.reglages_paie() returns jsonb
+language sql stable as $$
+  select jsonb_build_object(
+    'conges',     coalesce(nullif(chok.config_lire('regleConges'),''), 'civile'),
+    'dimanche35', coalesce(nullif(chok.config_lire('dimancheDans35'),''), 'non'));
+$$;
+
+/* Changement de chef d'un intérimaire : on note le jour. */
+create or replace function chok.trace_rattachement() returns trigger
+language plpgsql as $$
+begin
+  if coalesce(new.chef,'') <> '' and coalesce(new.chef,'') is distinct from coalesce(old.chef,'') then
+    new."rattacheLe" := to_char(timezone('Europe/Paris', now())::date, 'YYYY-MM-DD');
+  end if;
+  return new;
+end $$;
+drop trigger if exists chok_trace_rattachement on chok.interimaires;
+create trigger chok_trace_rattachement before update of chef on chok.interimaires
+  for each row execute function chok.trace_rattachement();
 
 /* Une personne est « chef d'équipe » d'après son poste. */
 create or replace function chok.est_chef(poste text) returns boolean
@@ -550,6 +587,7 @@ create or replace function chok.menage() returns void
 language sql as $$
   delete from chok.sessions where expire < now();
   delete from chok.blocages where coalesce(oubli, jusqua) < now();
+  delete from chok.appareils where expire < now();
   delete from chok.journal  where horodatage < now() - interval '400 days';
 $$;
 
@@ -608,10 +646,7 @@ begin
       from chok.absences x;
     v_meta := jsonb_build_object('depuis', v_depuis, 'tout', v_tout,
                 'pointagesCharges', jsonb_array_length(v_pointages), 'pointagesTotal', v_total,
-                -- Règles de paie choisies par la direction (avec son comptable).
-                'reglagesPaie', jsonb_build_object(
-                  'conges',    coalesce(nullif(chok.config_lire('regleConges'),''), 'civile'),
-                  'dimanche35', coalesce(nullif(chok.config_lire('dimancheDans35'),''), 'non')));
+                'reglagesPaie', chok.reglages_paie());
     return jsonb_build_object('ok', true, 'role', v_role, 'meta', v_meta,
       'donnees', jsonb_build_object(
         'salaries',     chok.lire('salaries'),
@@ -650,7 +685,9 @@ begin
                   and coalesce(x."modifiePar",'') in ('', v_pid, 'RH') )
              or exists (select 1 from chok.interimaires i
                          where i.id = x.salarie
-                           and chok.chef_peut_declarer(v_pid, i.id)) );
+                           and chok.chef_peut_declarer(v_pid, i.id)
+                           -- Pas l'historique d'avant son arrivée dans l'équipe.
+                           and x.date >= coalesce(i."rattacheLe",'')) );
 
     -- Les chantiers qu'il voit : les communs, les siens, ET CEUX OÙ IL A
     -- DES HEURES.
@@ -677,9 +714,11 @@ begin
     -- jours où la direction a posé une absence.
     select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) into v_absences
       from chok.absences x
-     where (x.salarie = v_pid or exists (select 1 from chok.interimaires i
-                                          where i.id = x.salarie and chok.chef_peut_declarer(v_pid, i.id)))
-        and (v_depuis is null or coalesce(nullif(x."dateFin",''), x."dateDebut") >= v_depuis);
+     where x.salarie = v_pid      -- les siennes : toutes, pour son solde de congés
+        or (exists (select 1 from chok.interimaires i
+                     where i.id = x.salarie and chok.chef_peut_declarer(v_pid, i.id)
+                       and coalesce(nullif(x."dateFin",''), x."dateDebut") >= coalesce(i."rattacheLe",''))
+            and (v_depuis is null or coalesce(nullif(x."dateFin",''), x."dateDebut") >= v_depuis));
 
     -- Liste des collègues : nom et poste seulement, pour composer l'équipe.
     -- Aucun code, aucune heure, aucun solde de congés.
@@ -694,7 +733,8 @@ begin
      where coalesce(x.actif, true) or x.id = v_pid;
 
     v_meta := jsonb_build_object('depuis', v_depuis, 'tout', v_tout,
-                'pointagesCharges', jsonb_array_length(v_pointages), 'pointagesTotal', v_total);
+                'pointagesCharges', jsonb_array_length(v_pointages), 'pointagesTotal', v_total,
+                'reglagesPaie', chok.reglages_paie());
     return jsonb_build_object('ok', true, 'role', v_role, 'meta', v_meta,
       'donnees', jsonb_build_object(
         'salaries', v_salaries, 'interimaires', v_interim, 'chantiers', v_chantiers,
@@ -709,12 +749,14 @@ begin
   select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) into v_pointages
     from chok.pointages x where x.salarie = v_pid
       and (v_depuis is null or x.date >= v_depuis);
+  -- TOUTES ses absences : un congé pris en mars compte dans le solde vu en
+  -- novembre. Limitées à 90 jours, elles affichaient un solde trop haut.
   select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) into v_absences
-    from chok.absences x where x.salarie = v_pid
-      and (v_depuis is null or coalesce(nullif(x."dateFin",''), x."dateDebut") >= v_depuis);
+    from chok.absences x where x.salarie = v_pid;
 
   v_meta := jsonb_build_object('depuis', v_depuis, 'tout', v_tout,
-              'pointagesCharges', jsonb_array_length(v_pointages), 'pointagesTotal', v_total);
+              'pointagesCharges', jsonb_array_length(v_pointages), 'pointagesTotal', v_total,
+              'reglagesPaie', chok.reglages_paie());
   return jsonb_build_object('ok', true, 'role', v_role, 'meta', v_meta,
     'donnees', jsonb_build_object(
       'salaries',     case when v_est_interim or v_moi is null then '[]'::jsonb
@@ -888,7 +930,12 @@ begin
         for v_o in select * from jsonb_array_elements(v_upserts) loop
           -- On ne bloque que les CRÉATIONS : corriger une ligne ancienne
           -- déjà en base reste possible tant qu'elle n'est pas validée.
-          if not exists (select 1 from chok.pointages where id = v_o->>'id') then
+          -- Une ligne CRÉÉE, ou une ligne existante DÉPLACÉE à une autre date :
+          -- sans ce second cas, il suffisait de créer une ligne aujourd'hui puis
+          -- de changer sa date pour écrire n'importe quel jour passé.
+          if not exists (select 1 from chok.pointages where id = v_o->>'id')
+             or (v_o ? 'date' and v_o->>'date' is distinct from
+                   (select x.date from chok.pointages x where x.id = v_o->>'id')) then
             if coalesce(v_o->>'date','') < v_limite then
               perform chok.noter('refus_date', v_role, v_pid, v_table,
                                  'Saisie trop ancienne : ' || coalesce(v_o->>'date','?'));
@@ -1145,7 +1192,10 @@ begin
         -- sans cette règle, un chef pouvait se fabriquer un second compte
         -- chef, avec le code de son choix.
         v_nouv := v_nouv || jsonb_build_array(
-          (v_o - 'code' - 'accesPlateforme' - 'chef' - 'note' - 'aConfirmer')
+          (v_o - 'code' - 'accesPlateforme' - 'chef' - 'note' - 'aConfirmer' - 'rattacheLe')
+          -- Le NOM d'une fiche existante ne se change qu'à la direction : un
+          -- chef qui renomme une fiche fait passer ses heures à quelqu'un d'autre.
+          - case when v_dej is not null then 'nom' else '' end
           || jsonb_build_object('chef', v_pid)
           -- Fiche créée hors annuaire par un chef : la direction la vérifie.
           || case when v_dej is null then '{"aConfirmer":true}'::jsonb else '{}'::jsonb end
@@ -1183,7 +1233,9 @@ begin
   if array_length(v_revoquer, 1) is not null then
     delete from chok.sessions where "personneId" = any(v_revoquer);
     delete from chok.blocages where cle = any(
-      array(select 'blocage_p_' || x from unnest(v_revoquer) x));
+      array(select 'blocage_p_' || x from unnest(v_revoquer) x))
+       or exists (select 1 from unnest(v_revoquer) x
+                   where blocages.cle like 'blocage\_p\_' || x || '\_a\_%');
   end if;
 
   perform chok.noter('enregistrement', v_role, v_pid, v_table,
@@ -1219,6 +1271,7 @@ declare
   v_role text; v_pid text;
   v_pin text; v_pid_demande text; v_attendu text; v_role_eff text;
   v_personne jsonb; v_cle text; v_echecs integer; v_bloque_jusqua timestamptz;
+  v_cle_base text; v_confiance uuid;
   v_nouveau uuid; v_rep jsonb; v_donnees jsonb;
   v_liste jsonb; v_tables text[]; v_t text; v_detail jsonb := '{}'::jsonb;
   v_n integer; v_sauv text; v_mail text; v_faits text[] := '{}';
@@ -1289,6 +1342,20 @@ begin
     -- ============================================================
     v_cle := case when coalesce(p->>'role','') = 'rh' then 'blocage_rh'
                   else 'blocage_p_' || v_pid_demande end;
+    v_cle_base := v_cle;
+    -- Appareil déjà reconnu pour cette personne : compteur à lui. Le blocage
+    -- provoqué par un inconnu (cinq faux codes depuis un autre téléphone) ne
+    -- le touche pas. Le jeton seul n'ouvre rien : le code reste exigé.
+    begin
+      v_confiance := nullif(p->>'confiance','')::uuid;
+    exception when others then v_confiance := null;
+    end;
+    if v_confiance is not null and exists (select 1 from chok.appareils a
+         where a.jeton = v_confiance and a.cle = v_cle_base and a.expire > now()) then
+      v_cle := v_cle_base || '_a_' || v_confiance::text;
+    else
+      v_confiance := null;
+    end if;
 
     select echecs, jusqua into v_echecs, v_bloque_jusqua from chok.blocages
      where cle = v_cle and jusqua > now();
@@ -1369,7 +1436,12 @@ begin
       return jsonb_build_object('ok', false, 'erreur', 'Code incorrect.');
     end if;
 
-    delete from chok.blocages where cle = v_cle;
+    delete from chok.blocages where cle in (v_cle, v_cle_base);
+    -- Appareil de confiance : prolongé, ou créé à la première connexion réussie.
+    if v_confiance is null then v_confiance := gen_random_uuid(); end if;
+    insert into chok.appareils(jeton, cle, expire)
+      values (v_confiance, v_cle_base, now() + interval '180 days')
+      on conflict (jeton) do update set expire = excluded.expire;
     v_nouveau := gen_random_uuid();
     -- Direction : 12 h. Elle a accès à tout, codes compris ; une session
     -- oubliée ouverte sur un ordinateur partagé ne doit pas durer une semaine.
@@ -1385,7 +1457,7 @@ begin
     return jsonb_build_object('ok', true, 'jeton', v_nouveau::text,
       'role', v_role_eff, 'personneId', v_pid,
       'nom', coalesce(v_personne->>'nom', 'Direction'),
-      'version', chok.version(),
+      'version', chok.version(), 'confiance', v_confiance::text,
       'donnees', v_donnees->'donnees', 'meta', v_donnees->'meta');
   end if;
 
@@ -1395,9 +1467,10 @@ begin
   -- votre script Google Drive, qui est privé. Elle donne un accès en
   -- LECTURE SEULE, et rien d'autre.
   -- Le robot Drive dépose chaque nuit la liste des dossiers intérimaires.
-  if v_action = 'majAnnuaire' and coalesce(p->>'cleExport','') <> '' then
-    if coalesce(chok.config_lire('cleExport'),'') = ''
-       or p->>'cleExport' <> chok.config_lire('cleExport') then
+  -- Clé DÉDIÉE (« cleAnnuaire ») : la clé d'export reste en lecture seule.
+  if v_action = 'majAnnuaire' and coalesce(p->>'cleAnnuaire','') <> '' then
+    if coalesce(chok.config_lire('cleAnnuaire'),'') = ''
+       or p->>'cleAnnuaire' <> chok.config_lire('cleAnnuaire') then
       return jsonb_build_object('ok', false, 'erreur', 'Clé incorrecte.');
     end if;
     perform chok.noter('annuaire','robot','-','interimaires','Liste Drive reçue');
@@ -1494,7 +1567,25 @@ begin
           return jsonb_build_object('ok', false, 'erreur',
             v_fiche->>'nom' || ' est chef d''équipe : il déclare ses heures lui-même.');
         end if;
-        update chok.interimaires set chef = v_pid, actif = true where id = v_fiche->>'id';
+        -- Archivé par la direction : c'est elle qui le réactive.
+        if not coalesce((v_fiche->>'actif')::boolean, true) then
+          return jsonb_build_object('ok', false, 'codeErreur', 'ARCHIVE',
+            'erreur', v_fiche->>'nom' || ' a été archivé par la direction. ' ||
+                      'Demandez-lui de le réactiver dans votre équipe.');
+        end if;
+        -- Dans l'équipe d'un autre chef, et pointé ces 30 derniers jours :
+        -- il n'en change pas sur un simple nom tapé. La direction le déplace.
+        v_officiel := nullif(v_fiche->>'chef','');
+        if v_officiel is not null and v_officiel <> v_pid
+           and coalesce((chok.trouver_personne(v_officiel)->>'actif')::boolean, false)
+           and exists (select 1 from chok.pointages q where q.salarie = v_fiche->>'id'
+                         and q.date >= chok.iso_il_y_a(30)) then
+          return jsonb_build_object('ok', false, 'codeErreur', 'AUTRE_CHEF',
+            'erreur', v_fiche->>'nom' || ' travaille actuellement avec ' ||
+                      coalesce(chok.trouver_personne(v_officiel)->>'nom', 'un autre chef') ||
+                      '. Demandez à la direction de vous le rattacher.');
+        end if;
+        update chok.interimaires set chef = v_pid where id = v_fiche->>'id';
         perform chok.noter('rattachement', v_role, v_pid, 'interimaires', v_fiche->>'nom');
       else
         v_id := 'I-' || upper(substr(md5(random()::text || clock_timestamp()::text), 1, 10));
@@ -1505,7 +1596,11 @@ begin
         perform chok.noter('creation_interim', v_role, v_pid, 'interimaires', v_fiche->>'nom');
       end if;
       select to_jsonb(x) - 'code' - 'note' into v_fiche from chok.interimaires x where x.id = v_fiche->>'id';
-      return jsonb_build_object('ok', true, 'fiche', v_fiche, 'existait', v_id is null);
+      return jsonb_build_object('ok', true, 'fiche', v_fiche, 'existait', v_id is null,
+        -- Heures déjà visibles par ce chef (depuis son rattachement).
+        'pointages', (select coalesce(jsonb_agg(to_jsonb(q)),'[]'::jsonb) from chok.pointages q
+                       where q.salarie = v_fiche->>'id' and q.date >= coalesce(v_fiche->>'rattacheLe','')
+                         and q.date >= chok.iso_il_y_a(90)));
     end;
   end if;
 
@@ -1553,7 +1648,7 @@ begin
       -- Les autres sessions direction ouvertes avec l'ancien code sont
       -- coupées ; celle qui vient de le changer continue.
       delete from chok.sessions where role = 'rh' and jeton <> v_jeton::uuid;
-      delete from chok.blocages where cle = 'blocage_rh';
+      delete from chok.blocages where cle like 'blocage\_rh%';
       v_faits := v_faits || 'code direction mis à jour';
     end if;
     perform chok.noter('reglages', v_role, '-', 'config', array_to_string(v_faits,', '));
@@ -1563,6 +1658,31 @@ begin
 
   if v_action = 'majAnnuaire' then
     return chok.poser_annuaire(p->'liste', 'direction');
+  end if;
+
+  -- COMPTES BLOQUÉS après des codes erronés : la direction les voit et les
+  -- débloque d'un clic, sans changer le code de personne.
+  if v_action = 'blocages' then
+    return jsonb_build_object('ok', true, 'blocages', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'personneId', q.pid, 'nom', coalesce(chok.trouver_personne(q.pid)->>'nom', q.pid),
+               'jusqua', to_char(timezone('Europe/Paris', q.jusqua), 'YYYY-MM-DD"T"HH24:MI'),
+               'echecs', q.echecs) order by q.jusqua desc), '[]'::jsonb)
+        from (select substring(b.cle from '^blocage_p_(.+?)(?:_a_.*)?$') pid,
+                     max(b.jusqua) jusqua, max(b.echecs) echecs
+                from chok.blocages b
+               where b.cle like 'blocage\_p\_%' and b.jusqua > now()
+               group by 1) q));
+  end if;
+  if v_action = 'debloquer' then
+    if coalesce(p->>'personneId','') = '' then
+      return jsonb_build_object('ok', false, 'erreur', 'Personne non précisée.');
+    end if;
+    delete from chok.blocages
+     where cle = 'blocage_p_' || (p->>'personneId')
+        or cle like 'blocage\_p\_' || replace(p->>'personneId','_','\_') || '\_a\_%';
+    perform chok.noter('deblocage', v_role, '-', 'blocages', p->>'personneId');
+    return jsonb_build_object('ok', true);
   end if;
 
   if v_action = 'sauvegarder' then
@@ -1748,6 +1868,13 @@ update chok.salaries set poste = 'Chef d''équipe'
      null
  );
 
+-- Clé du robot pour la liste des intérimaires (écriture de l'annuaire
+-- seulement). Pour la relire : select chok.config_lire('cleAnnuaire');
+insert into chok.config(cle, valeur)
+values ('cleAnnuaire', replace(gen_random_uuid()::text,'-','') ||
+                       replace(gen_random_uuid()::text,'-',''))
+  on conflict (cle) do nothing;
+
 -- Clé du robot de sauvegarde : engendrée une seule fois, puis conservée.
 -- Pour la relire : select chok.config_lire('cleExport');
 insert into chok.config(cle, valeur)
@@ -1755,9 +1882,12 @@ values ('cleExport', replace(gen_random_uuid()::text,'-','') ||
                      replace(gen_random_uuid()::text,'-',''))
   on conflict (cle) do nothing;
 
--- Code direction : 010126, choix de la direction. Conservé s'il existe
--- déjà ; se change dans l'application (Direction → Paramètres).
-insert into chok.config(cle, valeur) values ('pinRH', '010126')
+-- Code direction : sur une base neuve, 8 chiffres tirés au hasard, à lire
+-- avec : select chok.config_lire('pinRH');  Le code existant est CONSERVÉ ;
+-- il se change dans l'application (Direction → Paramètres). Aucun code
+-- n'est écrit en clair dans ce fichier ni dans l'application publique.
+insert into chok.config(cle, valeur)
+values ('pinRH', lpad((floor(random() * 100000000))::bigint::text, 8, '0'))
   on conflict (cle) do nothing;
 insert into chok.config(cle, valeur) values ('emailRH', '')
   on conflict (cle) do nothing;
@@ -1957,8 +2087,8 @@ select chok.sauvegarde_complete('installation') as sauvegarde_initiale;
 -- ============================================================
 with controles(n, quoi, valeur, attendu, bon) as (
   select 1, 'Version du serveur',
-         chok.version(), 's3.6',
-         chok.version() = 's3.6'
+         chok.version(), 's3.7',
+         chok.version() = 's3.7'
   union all
   select 2, 'Tables verrouillées (RLS active)',
          -- On affiche la LISTE et non un simple nombre : un écart se
@@ -1967,11 +2097,11 @@ with controles(n, quoi, valeur, attendu, bon) as (
             from pg_class c
             join pg_namespace nsp on nsp.oid = c.relnamespace
            where nsp.nspname = 'chok' and c.relkind = 'r' and c.relrowsecurity),
-         '10 : absences, blocages, chantiers, config, interimaires, journal, ' ||
+         '11 : absences, appareils, blocages, chantiers, config, interimaires, journal, ' ||
          'pointages, salaries, sauvegardes, sessions',
          (select count(*) from pg_class c
             join pg_namespace nsp on nsp.oid = c.relnamespace
-           where nsp.nspname = 'chok' and c.relkind = 'r' and c.relrowsecurity) = 10
+           where nsp.nspname = 'chok' and c.relkind = 'r' and c.relrowsecurity) = 11
   union all
   select 3, 'Ouvertures accordées sur les tables',
          (select count(*)::text from pg_policies where schemaname = 'chok'),

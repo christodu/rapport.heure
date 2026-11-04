@@ -67,8 +67,16 @@ déposer les fichiers chez l'hébergeur.
 
 ## Étape 5 — Première connexion
 
-Ouvrir l'application → **🏢 ACCÈS DIRECTION** → code **010126**.
-Il se change dans ⚙ Paramètres (6 à 8 chiffres).
+Sur une base neuve, le code direction est tiré au hasard (8 chiffres). Le lire
+dans le SQL Editor :
+
+```sql
+select chok.config_lire('pinRH');
+```
+
+Ouvrir l'application → **🏢 ACCÈS DIRECTION** → ce code. Il se change dans
+⚙ Paramètres (6 à 8 chiffres). **Aucun code n'est écrit dans l'application ni
+dans ce dossier publié** : la page est publique, tout le monde peut la lire.
 
 ## Étape 6 — Les chefs d'équipe
 
@@ -133,7 +141,11 @@ select chok.config_lire('cleExport');
 2. Aller sur **script.google.com** → Nouveau projet, le nommer
    « CHOK BÉTON — Sauvegarde Drive »
 3. Effacer le contenu, coller **`CHOK_BETON_DRIVE.gs`** en entier
-4. Y recopier la clé relevée à l'étape 1 (ligne `CLE_EXPORT`)
+4. Y recopier la clé relevée à l'étape 1 (ligne `CLE_EXPORT`), puis la clé
+   de la liste des intérimaires (ligne `CLE_ANNUAIRE`) :
+   `select chok.config_lire('cleAnnuaire');`
+   La première ne fait que **lire** ; la seconde ne peut écrire **que** la
+   liste des noms du Drive.
 5. Menu **Exécuter** → fonction **`installer`** → Exécuter
    (Google demande une autorisation la première fois : accepter)
 
@@ -247,6 +259,15 @@ Tout, à toute date, sans limite :
   des dossiers COMMUN/INTERVENANT/INTERIMAIRE. Le robot Drive l'envoie chaque
   nuit (fonction `majAnnuaire`, avec la date du dernier contrat) ; on peut
   aussi la coller dans Paramètres → « Annuaire des intérimaires ».
+  Seuls les intérimaires ayant un contrat sur le mois en cours ou les deux
+  mois précédents y figurent (réglage `MOIS_ANNUAIRE = 3` du robot), pour
+  garder une liste courte.
+  - **Un intérimaire pointé ces 30 derniers jours chez un autre chef** ne
+    change pas d'équipe sur un nom tapé : le chef voit « travaille
+    actuellement avec X, demandez à la direction ». Une fiche **archivée**
+    n'est réactivée que par la direction. Quand un intérimaire change
+    d'équipe, son nouveau chef ne voit ses heures et absences **qu'à partir
+    de ce jour**. Seule la direction renomme une fiche.
   - **Chefs** : « + AJOUTER UN INTÉRIMAIRE » → ils tapent 2-3 lettres et
     choisissent dans la liste (les 40 contrats les plus récents en premier,
     marqués RÉCENT). S'il a déjà une fiche chez un autre chef, elle lui est
@@ -496,9 +517,13 @@ mieux, dans `index.source.html` avant de reconstruire.
 
 **« Trop de codes erronés »** → 5 essais libres, puis blocage de 15 min,
 30 min, 1 h, 2 h… (jusqu'à 64 h) à chaque nouvelle erreur. Le compteur est
-gardé 30 jours. Pour débloquer quelqu'un tout de suite : Direction →
-Salariés → Modifier → lui donner un nouveau code, ce qui le débloque
-aussitôt. Ou, dans le SQL Editor : `delete from chok.blocages;`
+gardé 30 jours. **Le blocage ne touche que les appareils inconnus** : le
+téléphone sur lequel la personne s'est déjà connectée (et le poste habituel
+de la direction) continue d'entrer avec le bon code, même si un inconnu a
+tapé de faux codes à son nom. Pour débloquer quelqu'un tout de suite :
+Direction → ⚙ Paramètres → **Comptes bloqués** → DÉBLOQUER (son code ne
+change pas). En dernier recours, dans le SQL Editor :
+`delete from chok.blocages;` (débloque tout le monde, direction comprise).
 
 **« Aucun code personnel ne vous a encore été attribué »** → la fiche porte
 le code `0000`, qui n'ouvre plus rien. Donnez-lui un code.

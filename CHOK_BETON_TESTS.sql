@@ -58,6 +58,7 @@ language plpgsql as $$
 declare
   res   jsonb := '[]'::jsonb;   -- survit à l'annulation : ce n'est pas de la base
   jchef text; jsal text; jrh text; r jsonb; d jsonb; k integer; n integer;
+  conf text;
   -- Dates RELATIVES : avec des dates figées, ces contrôles auraient cessé
   -- de passer d'eux-mêmes au bout d'une semaine, à cause de la règle des
   -- 3 jours. Un test qui dépend du calendrier ne vaut rien.
@@ -656,6 +657,81 @@ begin
     res := chok._v(res,'Nom hors annuaire : créé « à confirmer »', r->'fiche'->>'aConfirmer', 'true');
     delete from chok.interimaires where chef = 'T-CHEF' and id not in ('T-ITM','T-ITX');
     update chok.interimaires set chef = 'T-CHF2' where id = 'T-ITX';
+
+    -- ---------- 16 sexies. AUDIT DU 04/11 : ÉQUIPES, DATES, BLOCAGES ----------
+    insert into chok.pointages(id,salarie,chantier,date,debut,fin,pause,"creePar") values
+      ('T-PRX','T-ITX','T-CH2',v_avhier,'08:00','12:00',0,'T-CHF2'),
+      ('T-PRV','T-ITX','T-CH2','2020-01-06','08:00','12:00',0,'T-CHF2');
+    r := public.chok_api(jsonb_build_object('action','rattacherInterim','jeton',jchef,'nom','autre intérim TEST'));
+    res := chok._v(res,'Un chef ne prend pas l''intérimaire en activité d''un autre chef',
+      coalesce(r->>'codeErreur','') || ' ' || (select chef from chok.interimaires where id='T-ITX'), 'AUTRE_CHEF T-CHF2');
+    delete from chok.pointages where id = 'T-PRX';
+    r := public.chok_api(jsonb_build_object('action','rattacherInterim','jeton',jchef,'nom','autre intérim TEST'));
+    res := chok._v(res,'Sans heures depuis 30 jours, il change d''équipe',
+      (select chef from chok.interimaires where id='T-ITX'), 'T-CHEF');
+    d := public.chok_api(jsonb_build_object('action','charger','jeton',jchef,'tout',true))->'donnees';
+    res := chok._v(res,'Le nouveau chef ne voit pas l''historique d''avant son arrivée',
+      (position('T-PRV' in (d->'pointages')::text) > 0)::text, 'false');
+    r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jchef,'table','interimaires',
+      'upserts', jsonb_build_array(jsonb_build_object('id','T-ITX','nom','QUELQU UN Dautre'))));
+    res := chok._v(res,'Un chef ne renomme pas une fiche existante',
+      (select nom from chok.interimaires where id='T-ITX'), 'TEST Intérim autre');
+    update chok.interimaires set actif = false, chef = 'T-CHF2' where id = 'T-ITX';
+    r := public.chok_api(jsonb_build_object('action','rattacherInterim','jeton',jchef,'nom','TEST Intérim autre'));
+    res := chok._v(res,'Fiche archivée par la direction : un chef ne la réactive pas',
+      coalesce(r->>'codeErreur','') || ' ' || (select actif::text from chok.interimaires where id='T-ITX'), 'ARCHIVE false');
+    update chok.interimaires set actif = true where id = 'T-ITX';
+    delete from chok.pointages where id = 'T-PRV';
+
+    r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jchef,'table','pointages',
+      'upserts', jsonb_build_array(jsonb_build_object('id','T-PDM','salarie','T-CHEF','chantier','T-CH1',
+        'date',v_hier,'debut','04:00','fin','05:00','pause',0))));
+    res := chok._v(res,'Ligne récente créée par le chef', coalesce(r->>'ok','') || coalesce(r->>'erreur',''), 'true');
+    r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jchef,'table','pointages',
+      'upserts', jsonb_build_array(jsonb_build_object('id','T-PDM','date','2020-01-07'))));
+    res := chok._v(res,'Déplacer une ligne vers une date close est refusé', r->>'codeErreur', 'TROP_ANCIEN');
+    delete from chok.pointages where id = 'T-PDM';
+
+    d := public.chok_api(jsonb_build_object('action','charger','jeton',jsal));
+    res := chok._v(res,'Le salarié reçoit toutes ses absences (solde de congés juste)',
+      (position('T-ABSV' in (d->'donnees'->'absences')::text) > 0)::text, 'true');
+    res := chok._v(res,'Le salarié reçoit les règles de paie de la direction',
+      d->'meta'->'reglagesPaie'->>'conges', 'btp');
+    res := chok._v(res,'Le chef reçoit les règles de paie de la direction',
+      public.chok_api(jsonb_build_object('action','charger','jeton',jchef))->'meta'->'reglagesPaie'->>'conges', 'btp');
+
+    res := chok._v(res,'La clé d''export (lecture seule) n''écrit pas l''annuaire',
+      (public.chok_api(jsonb_build_object('action','majAnnuaire','cleExport',chok.config_lire('cleExport'),
+        'liste','[]'::jsonb)))->>'ok', 'false');
+    res := chok._v(res,'La clé dédiée du robot dépose l''annuaire',
+      (public.chok_api(jsonb_build_object('action','majAnnuaire','cleAnnuaire',chok.config_lire('cleAnnuaire'),
+        'liste',jsonb_build_array('ZZ Robot'))))->>'nombre', '1');
+
+    r := public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222'));
+    conf := r->>'confiance';
+    res := chok._v(res,'La connexion reconnaît l''appareil', (conf is not null)::text, 'true');
+    perform public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','0009'))
+      from generate_series(1,5);
+    res := chok._v(res,'Cinq faux codes d''un inconnu bloquent les appareils inconnus',
+      ((public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222')))->>'erreur'
+        like 'Trop de codes%')::text, 'true');
+    res := chok._v(res,'mais pas le téléphone habituel du titulaire',
+      (public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222',
+        'confiance',conf)))->>'ok', 'true');
+    perform public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','0009'))
+      from generate_series(1,5);
+    res := chok._v(res,'La direction voit le compte bloqué',
+      (position('T-CHF2' in (public.chok_api(jsonb_build_object('action','blocages','jeton',jrh)))::text) > 0)::text, 'true');
+    res := chok._v(res,'Un chef ne débloque personne',
+      (public.chok_api(jsonb_build_object('action','debloquer','jeton',jchef,'personneId','T-CHF2')))->>'ok', 'false');
+    perform public.chok_api(jsonb_build_object('action','debloquer','jeton',jrh,'personneId','T-CHF2'));
+    res := chok._v(res,'La direction débloque sans changer le code',
+      (public.chok_api(jsonb_build_object('action','connexion','personneId','T-CHF2','pin','2222')))->>'ok', 'true');
+    perform public.chok_api(jsonb_build_object('action','connexion','role','rh','pin','99999999'))
+      from generate_series(1,5);
+    res := chok._v(res,'Direction bloquée par un inconnu : son poste habituel entre quand même',
+      (public.chok_api(jsonb_build_object('action','connexion','role','rh','pin',chok.config_lire('pinRH'),
+        'confiance',(select a.jeton::text from chok.appareils a where a.cle='blocage_rh' limit 1))))->>'ok', 'true');
 
     -- ---------- 17. UN ACCÈS RETIRÉ L'EST TOUT DE SUITE ----------
     r := public.chok_api(jsonb_build_object('action','enregistrer','jeton',jrh,'table','salaries',
