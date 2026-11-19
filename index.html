@@ -7695,6 +7695,15 @@ function OngletPaie({
       }
     });
     const nbJAbs = Object.keys(absJ).length;
+    // Jours fériés de la période sans absence saisie : affichés d'office, même sans
+    // pointage. Une absence posée ce jour-là (RH ou direction) remplace l'affichage.
+    plage.forEach(iso => {
+      if (new Date(iso + "T12:00:00Z").getUTCDay() !== 0 && estFerie(iso) && !absJ[iso]) absJ[iso] = {
+        type: "FER",
+        commentaire: nomFerie(iso),
+        auto: true
+      };
+    });
     const txtPaniers = r => [r.n ? `🥪 ${r.n} panier(s)` : "", r.d ? `🧳 ${r.d} panier(s) dépl.` : ""].filter(Boolean).join(" · ") || "🥪 0 panier";
     const badgePanier = r => r.n || r.d ? /*#__PURE__*/React.createElement("div", {
       style: {
@@ -7997,7 +8006,7 @@ function OngletPaie({
               key: `abs-${date}`,
               style: {
                 borderBottom: `1px solid ${C.ligne}`,
-                background: "#FFF0F0"
+                background: absJ[date].type === "FER" ? "#FFF8E1" : "#FFF0F0"
               }
             }, /*#__PURE__*/React.createElement("td", {
               style: {
@@ -8017,9 +8026,9 @@ function OngletPaie({
                 padding: "10px 16px",
                 fontSize: 12,
                 fontWeight: 700,
-                color: C.orange
+                color: absJ[date].type === "FER" ? "#B7770D" : C.orange
               }
-            }, libelleAbsence(absJ[date]), " — absent", absJ[date].commentaire ? ` · ${absJ[date].commentaire}` : "")));
+            }, libelleAbsence(absJ[date]), absJ[date].type === "FER" ? "" : " — absent", absJ[date].commentaire ? ` · ${absJ[date].commentaire}` : "")));
             return;
           }
           const isWE = [0, 6].includes(new Date(date + "T00:00:00").getDay());
