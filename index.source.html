@@ -618,6 +618,23 @@ function compterPaniers(lignes, toutes){
   const parJour={}; (lignes||[]).forEach(l=>{(parJour[l.date]=parJour[l.date]||[]).push(l);});
   return Object.values(parJour).reduce((a,lj)=>{const r=panierJour(lj,toutes||lignes);return {n:a.n+r.n,d:a.d+r.d};},{n:0,d:0});
 }
+/** Jours de FORMATION (absence « FOR ») qui donnent 1 panier normal, comme un
+    jour travaillé : du lundi au vendredi, hors fériés, et seulement si le jour
+    n'a pas déjà des heures (il a alors son panier du jour). « garder » limite
+    aux jours de la période affichée. */
+function joursFormationPanier(absences, personneId, lignes, garder){
+  const jours=new Set();
+  (absences||[]).filter(a=>a.salarie===personneId && a.type==="FOR" && a.dateDebut).forEach(a=>{
+    const fin=new Date((a.dateFin||a.dateDebut)+"T12:00:00Z");
+    for(let d=new Date(a.dateDebut+"T12:00:00Z"); d<=fin; d.setUTCDate(d.getUTCDate()+1)){
+      const iso=_isoUTC(d), j=d.getUTCDay();
+      if(j===0 || j===6 || estFerie(iso) || !garder(iso)) continue;
+      if((lignes||[]).some(l=>l.date===iso && calcHeures(l)>0)) continue;
+      jours.add(iso);
+    }
+  });
+  return jours.size;
+}
 /* SEMAINE À CHEVAL SUR DEUX MOIS (ex. lundi 28/09 → dimanche 04/10).
    Le mois précédent a payé ses jours à lui, sans connaître la fin de la
    semaine. Le mois suivant paie ce que SES jours ajoutent à la semaine
@@ -3502,7 +3519,8 @@ function OngletPaie({pointages,absences,salaries,interimaires,chantiers,infoPeri
             !toutesP.some(x=>x.date===d&&!estReportee(x)));
           const pRegul=joursRegulPanier.reduce((a,d)=>{const r=pjour(regul.filter(x=>x.date===d));return {n:a.n+r.n,d:a.d+r.d};},{n:0,d:0});
           const pTot=compterPaniers(ptgPersonne,toutesP);
-          const nbPaniers=avecPanier?pTot.n+pRegul.n:0, nbPaniersDep=avecPanier?pTot.d+pRegul.d:0;
+          const pFormation=joursFormationPanier(absences,p.id,toutesP,(iso)=>plage.includes(iso));
+          const nbPaniers=avecPanier?pTot.n+pRegul.n+pFormation:0, nbPaniersDep=avecPanier?pTot.d+pRegul.d:0;
           // Jours d'absence de la période (hors dimanches), montrés à leur place dans le tableau.
           const absJ={};
           (absences||[]).filter(a=>a.salarie===p.id&&a.dateDebut).forEach(a=>{
@@ -3596,7 +3614,7 @@ function joursAbsenceMois(absences, personneId, codes, mois){
   return n;
 }
 /** Heures, samedis, paniers et déplacements d'un salarié sur un mois de paie. */
-function syntheseMois(pointages, id, mois){
+function syntheseMois(pointages, id, mois, absences){
   const siennes=(pointages||[]).filter(p=>p.salarie===id);
   const normal=siennes.filter(p=>moisDeDate(p)===mois && !estReportee(p));
   const regul=siennes.filter(p=>estReportee(p) && moisDePaie(p)===mois);
@@ -3616,7 +3634,8 @@ function syntheseMois(pointages, id, mois){
     .filter(d=>new Date(d+"T12:00:00").getDay()===6).length;
   const pN=compterPaniers(normal,siennes);
   const pR=joursNeufs.reduce((a,d)=>{const r=panierJour(regul.filter(x=>x.date===d),siennes);return {n:a.n+r.n,d:a.d+r.d};},{n:0,d:0});
-  const paniers=pN.n+pR.n, paniersDep=pN.d+pR.d;
+  const pF=joursFormationPanier(absences,id,siennes,(iso)=>iso.slice(0,7)===mois);
+  const paniers=pN.n+pR.n+pF, paniersDep=pN.d+pR.d;
   const r2=(n)=>Math.round(n*100)/100;
   return {hBase:r2(m.hBase),h25:r2(m.h25),h50:r2(m.h50),h100:r2(m.h100),samedis,paniers,paniersDep,
           deplacements:calcNuitees([...normal,...regul]),
@@ -3659,7 +3678,7 @@ function OngletEtatPaie({pointages,absences,salaries,setSalaries,infoPeriode,onC
     (()=>{const d=new Date(mois+"-01T12:00:00");d.setDate(d.getDate()-7);return isoLocalJour(d);})());
   // Les salariés actifs, plus les archivés qui ont des heures ce mois-là.
   const cols=salaries.filter(s=>estActif(s) || (pointages||[]).some(p=>p.salarie===s.id && moisDePaie(p)===mois))
-    .map(s=>{const x=syntheseMois(pointages,s.id,mois);
+    .map(s=>{const x=syntheseMois(pointages,s.id,mois,absences);
       return {s,x:{...x,
         conges:joursAbsenceMois(absences,s.id,["CP"],mois),
         at:joursAbsenceMois(absences,s.id,["ACC"],mois),
