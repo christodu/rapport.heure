@@ -2466,6 +2466,12 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
   // la colle dans une autre case : bouton 📋 / COLLER, ou Ctrl+C / Ctrl+V (⌘ sur Mac)
   // dans la case. Collé = enregistré validé, au nom de la direction.
   const [pressePapier, setPressePapier] = usePersist("chok_grille_copie", null);
+  useEffect(() => {
+    if (!pressePapier || edit) return;
+    const echap = (e) => { if (e.key === "Escape") { setPressePapier(null); setMsg("Copier-coller arrêté."); } };
+    document.addEventListener("keydown", echap);
+    return () => document.removeEventListener("keydown", echap);
+  }, [!!pressePapier, !!edit]);
   const resumeCopie = (pp) => pp ? pp.lignes.map(x => `${libelleChantier(chantiers.find(c => c.id === x.chantier))} ${x.debut}–${x.fin}`).join(" + ") : "";
   const copierCase = (pid, iso) => {
     const l = lignes(pid, iso).filter(x => x.chantier);
@@ -2517,14 +2523,35 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
     setEdit(null);
   };
   const clientsConnus = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const ouvrirCorrection = (chId) => {
+  const ouvrirCorrection = (chId, ligne) => {
     const c = chantiers.find(x => x.id === chId); if (!c) return;
-    majEdit({ vue: "nom", ch: { id: c.id, client: clientDe(c), nom: c.nom || "", ville: c.ville === "—" ? "" : (c.ville || "") } });
+    majEdit({ vue: "nom", ch: { id: c.id, ligne, client: clientDe(c), nom: c.nom || "", ville: c.ville === "—" ? "" : (c.ville || "") } });
+  };
+  const verifierCorrection = (c) => {
+    if ((c.client || "").trim().length < 2) { window.alert("Le client est obligatoire."); return false; }
+    if ((c.nom || "").trim().length < 2) { window.alert("Adresse / nom du chantier trop court."); return false; }
+    return true;
+  };
+  // SEULEMENT CETTE CASE (25/11/2026) : la case passe sur un chantier « client +
+  // adresse » (repris s'il existe déjà, créé sinon) ; les autres jours ne bougent pas.
+  const corrigerCetteCase = () => {
+    const c = edit && edit.ch; if (!c || !verifierCorrection(c)) return;
+    const cl = c.client.trim(), nm = c.nom.trim(), vl = c.ville.trim();
+    const egal = (a, b) => _cleNom(a || "") === _cleNom(b || "");
+    let cible = chantiers.find(x => x.actif !== false && egal(clientDe(x), cl) && egal(x.nom, nm) && egal(x.ville === "—" ? "" : x.ville, vl));
+    if (!cible) {
+      const ancien = chantiers.find(x => x.id === c.id) || {};
+      cible = { id: genId("C"), nom: nm, ville: vl || "—", client: cl, couleur: ancien.couleur || COULEURS_CHANTIER[chantiers.length % COULEURS_CHANTIER.length], actif: true };
+      setChantiers(prev => [...prev, cible]);
+    }
+    const ligne = c.ligne, x = lignes(edit.pid, edit.iso).find(y => y.id === ligne);
+    if (x) setPointages(prev => prev.map(p => p.id === x.id && p.date === x.date && p.salarie === x.salarie
+      ? {...p, chantier: cible.id, modifiePar: "RH", modifieLe: new Date().toISOString()} : p));
+    setEdit(e => e && ({...e, vue: "case", ch: null, f: ligne && e.f[ligne] ? {...e.f, [ligne]: {...e.f[ligne], chantier: cible.id}} : e.f}));
+    setMsg(`${jourEnClair(edit.iso)} seulement : chantier ${cl} — ${nm}${vl ? ", " + vl : ""}. Les autres jours ne changent pas.`);
   };
   const enregistrerCorrection = () => {
-    const c = edit && edit.ch; if (!c) return;
-    if ((c.client || "").trim().length < 2) { window.alert("Le client est obligatoire."); return; }
-    if ((c.nom || "").trim().length < 2) { window.alert("Adresse / nom du chantier trop court."); return; }
+    const c = edit && edit.ch; if (!c || !verifierCorrection(c)) return;
     setChantiers(prev => prev.map(x => x.id === c.id ? {...x, client: c.client.trim(), nom: c.nom.trim(), ville: c.ville.trim() || "—"} : x));
     setMsg(`Chantier corrigé : ${c.client.trim()} — ${c.nom.trim()}${c.ville.trim() ? ", " + c.ville.trim() : ""} (toutes ses heures suivent).`);
     majEdit({ vue: "case", ch: null });
@@ -2584,7 +2611,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
       {pressePapier && <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"8px 12px",background:"#E8F0F7",border:`1px solid ${C.bleu}`,fontSize:13,marginBottom:10}}>
         <span>📋 <b>Copié</b> ({pressePapier.de}) : {resumeCopie(pressePapier)}</span>
         <span style={{color:C.gris,fontSize:12}}>→ « COLLER » dans une case (ou Ctrl+V dans la case)</span>
-        <button onClick={()=>setPressePapier(null)} style={{marginLeft:"auto",border:"none",background:"transparent",cursor:"pointer",color:C.bleu,textDecoration:"underline",fontSize:12}}>✕ ne plus coller</button>
+        <button onClick={()=>setPressePapier(null)} style={{marginLeft:"auto",border:"none",background:"transparent",cursor:"pointer",color:C.bleu,textDecoration:"underline",fontSize:12}}>✕ ne plus coller (Échap)</button>
       </div>}
       <div className="grille-heures" style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",fontFamily:FM,fontSize:12,fontVariantNumeric:"tabular-nums",width:"100%"}}>
@@ -2702,7 +2729,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
               {f.chantier && !chantiersTries.some(c=>c.id===f.chantier) && <option value={f.chantier}>{libelleChantier(chantiers.find(c=>c.id===f.chantier), true)}</option>}
               <option value="__nouveau">+ Nouveau chantier…</option>
             </select>
-            {f.chantier && <button onClick={()=>ouvrirCorrection(f.chantier)} style={{border:"none",background:"transparent",color:C.bleu,cursor:"pointer",fontSize:12,padding:"4px 0",textDecoration:"underline"}}>✎ Corriger le nom du client ou l'adresse de ce chantier</button>}
+            {f.chantier && <button onClick={()=>ouvrirCorrection(f.chantier, id)} style={{border:"none",background:"transparent",color:C.bleu,cursor:"pointer",fontSize:12,padding:"4px 0",textDecoration:"underline"}}>✎ Corriger le nom du client ou l'adresse de ce chantier</button>}
             <div style={{display:"flex",gap:8,marginTop:6}}>
               <div><label style={lab}>DÉBUT</label><input type="time" value={f.debut} onChange={e=>majF(x.id,{debut:e.target.value})} style={{...inp,width:104}}/></div>
               <div><label style={lab}>FIN</label><input type="time" value={f.fin} onChange={e=>majF(x.id,{fin:e.target.value})} style={{...inp,width:104}}/></div>
@@ -2719,7 +2746,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
           </div>
         </>}
         {edit.vue === "nom" && edit.ch && <>
-          <div style={{fontSize:12,color:C.gris,marginBottom:10}}>La correction vaut pour <b>les {(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length} pointage(s)</b> de ce chantier, passés et à venir.</div>
+          <div style={{fontSize:12,color:C.gris,marginBottom:10}}>Ce chantier est utilisé par <b>{(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length} pointage(s)</b>. Choisissez en bas : corriger <b>seulement cette case</b>, ou <b>toutes</b> ses heures.</div>
           <label style={lab}>CLIENT *</label>
           <input list="grille-clients" value={edit.ch.client} onChange={e=>majEdit({ch:{...edit.ch,client:e.target.value}})} spellCheck={false} style={{...inp,width:"100%",marginBottom:8}}/>
           {clientsProches(edit.ch.client, clientsConnus).filter(c=>c!==edit.ch.client.trim()).length>0 &&
@@ -2729,8 +2756,11 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
           <label style={lab}>VILLE</label>
           <input value={edit.ch.ville} onChange={e=>majEdit({ch:{...edit.ch,ville:e.target.value}})} spellCheck={false} style={{...inp,width:"100%"}}/>
           <div style={{display:"flex",gap:8,marginTop:12}}>
-            <Btn onClick={enregistrerCorrection}>✓ CORRIGER LE CHANTIER</Btn>
-            <Btn variant="ghost" onClick={()=>majEdit({vue:"case",ch:null})}>RETOUR</Btn>
+            <Btn onClick={corrigerCetteCase}>✓ SEULEMENT CETTE CASE</Btn>
+            {(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length>1 && <Btn variant="ghost" onClick={()=>{ const n=(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length; if (window.confirm(`Corriger ce chantier pour ses ${n} pointages (tous les jours, toutes les personnes) ?`)) enregistrerCorrection(); }}>TOUTES SES HEURES ({(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length})</Btn>}
+            {(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length<=1 && <Btn variant="ghost" onClick={enregistrerCorrection}>CORRIGER LE CHANTIER</Btn>}
+          </div>
+          <div style={{marginTop:8}}><button onClick={()=>majEdit({vue:"case",ch:null})} style={{border:"none",background:"transparent",color:C.bleu,cursor:"pointer",fontSize:12,textDecoration:"underline",padding:0}}>← retour</button>
           </div>
         </>}
         {edit.vue === "nouveau" && <>
