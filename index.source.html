@@ -2215,7 +2215,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
         ))}
       </div>
       {onglet==="pointages"  && <OngletPointages auj={auj} absences={absences} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
-      {onglet==="grille"     && <OngletGrille auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} absences={absences} infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)}/>}
+      {onglet==="grille"     && <OngletGrille auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} absences={absences} infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)}/>}
       {onglet==="absences"   && <OngletAbsences absences={absences} setAbsences={setAbsences} salaries={salaries} interimaires={interimaires} pointages={pointages}/>}
       {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages} absences={absences}/>}
       {onglet==="interim"    && <OngletInterim annuaire={annuaire} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences} chantiers={chantiers} salaries={salaries}/>}
@@ -2269,7 +2269,7 @@ function lireSaisieGrille(txt) {
   return null;
 }
 
-function OngletGrille({auj,pointagesTous,setPointages,chantiers,salaries,interimaires,absences,infoPeriode,onChargerTout}) {
+function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,salaries,interimaires,absences,infoPeriode,onChargerTout}) {
   const [mode,setMode]   = usePersist("chok_grille_mode","semaine");
   const [qui,setQui]     = usePersist("chok_grille_qui","tous");
   const [ref,setRef]     = useState(auj);
@@ -2277,6 +2277,9 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,salaries,interim
   const [saisies,setSaisies] = useState({});      // case en cours de frappe → texte
   const [detail,setDetail]   = useState(null);    // {pid, iso}
   const [msg,setMsg]         = useState("");
+  const [edit,setEdit]       = useState(null);    // fenêtre d'édition d'une case (voir plus bas)
+  const minuterieClic        = React.useRef(null);
+  const refEdit              = React.useRef(null);
 
   // ── Période affichée ──
   const jours = React.useMemo(() => {
@@ -2422,6 +2425,84 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,salaries,interim
     }
   };
 
+  // ── ÉDITION DIRECTE DANS LE TABLEAU (25/11/2026) ──
+  // Un clic sur le client / l'adresse d'une case ouvre, sur place, une petite
+  // fenêtre : chantier, début, fin, pause ; correction du nom du client ou de
+  // l'adresse (vaut pour tout le chantier) ; nouveau chantier.
+  // Le clic attend un instant : un double-clic reste la validation de la case.
+  const ouvrirEdition = (pid, iso, el) => {
+    const l = lignes(pid, iso);
+    if (!l.length) return;
+    const r = el.getBoundingClientRect(), H = window.innerHeight, W = window.innerWidth;
+    const pos = { left: Math.max(8, Math.min(r.left, W - 372)) };
+    if (r.bottom + 420 > H && r.top > H / 2) pos.bottom = H - r.top + 4; else pos.top = r.bottom + 4;
+    setDetail(null);
+    setEdit({ pid, iso, pos, vue: "case",
+      f: Object.fromEntries(l.map(x => [x.id, { chantier: x.chantier || "", debut: x.debut || "", fin: x.fin || "", pause: Number(x.pause) || 0 }])),
+      ch: null, nv: { client: "", nom: "", ville: "", pour: null } });
+  };
+  const clicCase = (ev, pid, iso) => {
+    ev.stopPropagation();
+    if (ev.detail > 1) { clearTimeout(minuterieClic.current); return; }
+    const el = ev.currentTarget.closest("td");
+    clearTimeout(minuterieClic.current);
+    minuterieClic.current = setTimeout(() => ouvrirEdition(pid, iso, el), 260);
+  };
+  useEffect(() => {
+    if (!edit) return;
+    const dehors = (e) => { if (refEdit.current && !refEdit.current.contains(e.target)) setEdit(null); };
+    const touche = (e) => { if (e.key === "Escape") setEdit(null); };
+    const defile = (e) => { if (!refEdit.current || !refEdit.current.contains(e.target)) setEdit(null); };
+    document.addEventListener("mousedown", dehors); document.addEventListener("keydown", touche);
+    window.addEventListener("scroll", defile, true);
+    return () => { document.removeEventListener("mousedown", dehors); document.removeEventListener("keydown", touche); window.removeEventListener("scroll", defile, true); };
+  }, [!!edit]);
+  const majEdit = (champs) => setEdit(e => e && ({...e, ...champs}));
+  const majF = (id, champs) => setEdit(e => e && ({...e, f: {...e.f, [id]: {...e.f[id], ...champs}}}));
+  const enregistrerEdition = () => {
+    if (!edit) return;
+    const nom = (personnes.find(p => p.id === edit.pid) || {}).nom || edit.pid;
+    const ls = lignes(edit.pid, edit.iso), maj = {};
+    for (const x of ls) {
+      const f = edit.f[x.id]; if (!f) continue;
+      if (!f.chantier) { window.alert("Choisissez le chantier."); return; }
+      if (!/^\d{1,2}:\d{2}$/.test(f.debut) || !/^\d{1,2}:\d{2}$/.test(f.fin)) { window.alert("Début et fin : heures au format 07:30."); return; }
+      const h = (_min(f.fin) - _min(f.debut) - (Number(f.pause) || 0)) / 60;
+      if (h <= 0) { window.alert(`La fin (${f.fin}) doit être après le début (${f.debut}), pause comprise.`); return; }
+      if (h > 10 && !window.confirm(`${fmtH(h)} pour ${nom} le ${jourEnClair(edit.iso)} : plus que le maximum légal de 10 h. Enregistrer quand même ?`)) return;
+      if (f.chantier !== x.chantier || f.debut !== x.debut || f.fin !== x.fin || (Number(f.pause) || 0) !== (Number(x.pause) || 0))
+        maj[x.id] = { chantier: f.chantier, debut: f.debut, fin: f.fin, pause: Math.max(0, Number(f.pause) || 0) };
+    }
+    if (Object.keys(maj).length) {
+      setPointages(prev => prev.map(p => maj[p.id] ? {...p, ...maj[p.id], modifiePar: "RH", modifieLe: new Date().toISOString()} : p));
+      setMsg(`${nom}, ${jourEnClair(edit.iso)} : pointage modifié.`);
+    }
+    setEdit(null);
+  };
+  const clientsConnus = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const ouvrirCorrection = (chId) => {
+    const c = chantiers.find(x => x.id === chId); if (!c) return;
+    majEdit({ vue: "nom", ch: { id: c.id, client: clientDe(c), nom: c.nom || "", ville: c.ville === "—" ? "" : (c.ville || "") } });
+  };
+  const enregistrerCorrection = () => {
+    const c = edit && edit.ch; if (!c) return;
+    if ((c.client || "").trim().length < 2) { window.alert("Le client est obligatoire."); return; }
+    if ((c.nom || "").trim().length < 2) { window.alert("Adresse / nom du chantier trop court."); return; }
+    setChantiers(prev => prev.map(x => x.id === c.id ? {...x, client: c.client.trim(), nom: c.nom.trim(), ville: c.ville.trim() || "—"} : x));
+    setMsg(`Chantier corrigé : ${c.client.trim()} — ${c.nom.trim()}${c.ville.trim() ? ", " + c.ville.trim() : ""} (toutes ses heures suivent).`);
+    majEdit({ vue: "case", ch: null });
+  };
+  const creerChantier = () => {
+    const n = edit && edit.nv; if (!n) return;
+    if ((n.client || "").trim().length < 2) { window.alert("Le client est obligatoire."); return; }
+    if ((n.nom || "").trim().length < 2) { window.alert("Adresse / nom du chantier trop court."); return; }
+    const c = { id: genId("C"), nom: n.nom.trim(), ville: n.ville.trim() || "—", client: n.client.trim(),
+      couleur: COULEURS_CHANTIER[chantiers.length % COULEURS_CHANTIER.length], actif: true };
+    setChantiers(prev => [...prev, c]);
+    setEdit(e => e && ({...e, vue: "case", f: {...e.f, [n.pour]: {...e.f[n.pour], chantier: c.id}}, nv: { client: "", nom: "", ville: "", pour: null }}));
+    setMsg(`Nouveau chantier créé : ${c.client} — ${c.nom}. Pensez à enregistrer la case.`);
+  };
+
   // ── Détail d'une case ──
   const majLigne = (id, champs) => setPointages(prev => prev.map(p => p.id === id ? {...p, ...champs, modifiePar: "RH", modifieLe: new Date().toISOString()} : p));
   const supprLigne = (p) => { if (window.confirm(`Supprimer la ligne ${p.debut}–${p.fin} (${fmtH(calcHeures(p))}) ?`)) setPointages(prev => prev.filter(x => x.id !== p.id)); };
@@ -2460,7 +2541,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,salaries,interim
         {onChargerTout && <a href="#" onClick={e=>{e.preventDefault();onChargerTout();}}>Charger tout l'historique</a>}</div>}
       <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.6}}>
         Tapez dans une case : <b>8</b> ou <b>7h30</b> (heures travaillées, début 07:30 et pause 1 h ajoutée) ou <b>7:30-16:30</b>. Vider une case supprime ses heures.
-        Cliquez sur <b>⋯</b> pour le chantier, la pause ou le logement. <b>Double-cliquez sur une case pour la valider</b> (elle passe au vert ; double-cliquez à nouveau pour annuler).
+        <b>Cliquez sur le client / l'adresse</b> d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; <b>⋯</b> ouvre le détail complet (logement, lignes). <b>Double-cliquez sur une case pour la valider</b> (elle passe au vert ; double-cliquez à nouveau pour annuler).
         Le bouton <b>✓</b> d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée <b>validée</b>, au nom de la direction.
       </div>
       <div className="grille-heures" style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflowX:"auto"}}>
@@ -2491,12 +2572,12 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,salaries,interim
                   : abs ? libelleAbsence(abs) : (nomFerie(iso) || jourEnClair(iso));
                 const coulCh = ch && ch.couleur ? ch.couleur : null;
                 const autres = l.length > 1 ? l.slice(1).map(x => chantiers.find(c => c.id === x.chantier)).filter(Boolean) : [];
-                return <td key={iso} title={titreCase} onDoubleClick={ev => basculerValidation(p.id, iso, ev)}
+                return <td key={iso} title={titreCase} onDoubleClick={ev => { clearTimeout(minuterieClic.current); basculerValidation(p.id, iso, ev); }}
                   style={{background:COUL[e],borderRight:`1px solid ${C.ligne}`,padding:0,position:"relative",height:mois?32:52,verticalAlign:"top",
                     borderLeft:coulCh?`${mois?3:5}px solid ${coulCh}`:undefined,
                     boxShadow:ouvert?`inset 0 0 0 2px ${C.encre}`:e==="manquant"&&!mois?"inset 0 0 0 1.5px #E55934":"none"}}>
                   {abs && !l.length ? <div style={{fontSize:mois?9:10,fontWeight:700,textAlign:"center",color:"#1F6F66",cursor:"default"}}>{mois ? (abs.type||"ABS") : libelleAbsence(abs)}</div> : <>
-                    {!mois && ch && <div style={{padding:"4px 16px 0 6px",pointerEvents:"none",lineHeight:1.2,textAlign:"left",fontFamily:FT}}>
+                    {!mois && ch && <div onClick={ev => clicCase(ev, p.id, iso)} title="Cliquer pour modifier : chantier, client, adresse, horaires" style={{padding:"4px 16px 0 6px",cursor:"pointer",lineHeight:1.2,textAlign:"left",fontFamily:FT}}>
                       {clientDe(ch) && <div style={{fontSize:11.5,fontWeight:800,color:C.encre,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{clientDe(ch)}</div>}
                       <div style={{fontSize:11,fontWeight:600,color:"#3A372F",marginTop:1,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{ch.nom||"—"}{ch.ville&&ch.ville!=="—"?`, ${ch.ville}`:""}</div>
                       {autres.length>0 && <div style={{fontSize:9.5,fontWeight:700,color:C.orange,whiteSpace:"nowrap"}}>+ {autres.length} autre{autres.length>1?"s":""} chantier{autres.length>1?"s":""}</div>}
@@ -2537,6 +2618,76 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,salaries,interim
       </div>
       {msg && <div style={{marginTop:10,padding:"9px 12px",background:C.papier,border:`1px solid ${C.ligne}`,fontSize:13}} role="status">{msg}</div>}
     </Section>
+
+    {edit && (() => {
+      const ls = lignes(edit.pid, edit.iso);
+      const pers = personnes.find(p => p.id === edit.pid) || {nom: edit.pid};
+      const parClient = {};
+      chantiersTries.forEach(c => { const k = clientDe(c) || "Sans client"; (parClient[k] = parClient[k] || []).push(c); });
+      const lab = {fontSize:10,letterSpacing:"0.08em",color:C.gris,fontWeight:700,display:"block",marginBottom:3};
+      const inp = {...inputStyle,padding:"6px 8px",fontSize:13};
+      return <div ref={refEdit} role="dialog" aria-label="Modifier la case"
+        style={{position:"fixed",zIndex:50,width:356,maxHeight:"70vh",overflowY:"auto",background:C.papier,border:`1.5px solid ${C.encre}`,boxShadow:"0 8px 28px rgba(0,0,0,.22)",padding:14,...edit.pos}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
+          <div><div style={{fontFamily:FT,fontWeight:800,fontSize:14}}>{pers.nom}</div><div style={{fontSize:12,color:C.gris}}>{jourEnClair(edit.iso)}</div></div>
+          <button onClick={()=>setEdit(null)} title="Fermer (Échap)" style={{border:"none",background:"transparent",cursor:"pointer",fontSize:16}}>✕</button>
+        </div>
+        {edit.vue === "case" && <>
+          {ls.map((x, i) => { const f = edit.f[x.id] || {}; return <div key={x.id} style={{borderTop:i?`1px solid ${C.ligne}`:"none",paddingTop:i?10:0,marginTop:i?10:0}}>
+            <label style={lab}>CHANTIER{ls.length>1?` ${i+1}`:""}</label>
+            <select value={f.chantier||""} onChange={e=>{ if (e.target.value==="__nouveau") majEdit({vue:"nouveau",nv:{client:"",nom:"",ville:"",pour:x.id}}); else majF(x.id,{chantier:e.target.value}); }} style={{...selectStyle,width:"100%",fontSize:13}}>
+              <option value="">— choisir —</option>
+              {Object.keys(parClient).sort((a,b)=>a.localeCompare(b)).map(k => <optgroup key={k} label={k}>
+                {parClient[k].map(c => <option key={c.id} value={c.id}>{c.nom}{c.ville&&c.ville!=="—"?`, ${c.ville}`:""}</option>)}</optgroup>)}
+              {f.chantier && !chantiersTries.some(c=>c.id===f.chantier) && <option value={f.chantier}>{libelleChantier(chantiers.find(c=>c.id===f.chantier), true)}</option>}
+              <option value="__nouveau">+ Nouveau chantier…</option>
+            </select>
+            {f.chantier && <button onClick={()=>ouvrirCorrection(f.chantier)} style={{border:"none",background:"transparent",color:C.bleu,cursor:"pointer",fontSize:12,padding:"4px 0",textDecoration:"underline"}}>✎ Corriger le nom du client ou l'adresse de ce chantier</button>}
+            <div style={{display:"flex",gap:8,marginTop:6}}>
+              <div><label style={lab}>DÉBUT</label><input type="time" value={f.debut} onChange={e=>majF(x.id,{debut:e.target.value})} style={{...inp,width:104}}/></div>
+              <div><label style={lab}>FIN</label><input type="time" value={f.fin} onChange={e=>majF(x.id,{fin:e.target.value})} style={{...inp,width:104}}/></div>
+              <div><label style={lab}>PAUSE (MIN)</label><input type="number" min="0" step="15" value={f.pause} onChange={e=>majF(x.id,{pause:e.target.value})} style={{...inp,width:80}}/></div>
+            </div>
+            {f.debut && f.fin && <div style={{fontSize:12,color:C.gris,marginTop:4}}>Soit <b style={{color:C.encre}}>{fmtH(Math.max(0,(_min(f.fin)-_min(f.debut)-(Number(f.pause)||0))/60))}</b>{x.valide?" · validé":" · à valider"}</div>}
+          </div>; })}
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <Btn onClick={enregistrerEdition}>✓ ENREGISTRER</Btn>
+            <Btn variant="ghost" onClick={()=>setEdit(null)}>ANNULER</Btn>
+          </div>
+        </>}
+        {edit.vue === "nom" && edit.ch && <>
+          <div style={{fontSize:12,color:C.gris,marginBottom:10}}>La correction vaut pour <b>les {(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length} pointage(s)</b> de ce chantier, passés et à venir.</div>
+          <label style={lab}>CLIENT *</label>
+          <input list="grille-clients" value={edit.ch.client} onChange={e=>majEdit({ch:{...edit.ch,client:e.target.value}})} spellCheck={false} style={{...inp,width:"100%",marginBottom:8}}/>
+          {clientsProches(edit.ch.client, clientsConnus).filter(c=>c!==edit.ch.client.trim()).length>0 &&
+            <div style={{fontSize:11.5,color:"#B7770D",fontWeight:700,marginTop:-4,marginBottom:8}}>Client proche déjà connu : {clientsProches(edit.ch.client, clientsConnus).filter(c=>c!==edit.ch.client.trim()).join(", ")}</div>}
+          <label style={lab}>ADRESSE / NOM DU CHANTIER *</label>
+          <input value={edit.ch.nom} onChange={e=>majEdit({ch:{...edit.ch,nom:e.target.value}})} spellCheck={false} style={{...inp,width:"100%",marginBottom:8}}/>
+          <label style={lab}>VILLE</label>
+          <input value={edit.ch.ville} onChange={e=>majEdit({ch:{...edit.ch,ville:e.target.value}})} spellCheck={false} style={{...inp,width:"100%"}}/>
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <Btn onClick={enregistrerCorrection}>✓ CORRIGER LE CHANTIER</Btn>
+            <Btn variant="ghost" onClick={()=>majEdit({vue:"case",ch:null})}>RETOUR</Btn>
+          </div>
+        </>}
+        {edit.vue === "nouveau" && <>
+          <div style={{fontSize:12,color:C.gris,marginBottom:10}}>Nouveau chantier, choisi ensuite pour cette case.</div>
+          <label style={lab}>CLIENT *</label>
+          <input list="grille-clients" value={edit.nv.client} onChange={e=>majEdit({nv:{...edit.nv,client:e.target.value}})} spellCheck={false} style={{...inp,width:"100%",marginBottom:8}}/>
+          {clientsProches(edit.nv.client, clientsConnus).filter(c=>c!==edit.nv.client.trim()).length>0 &&
+            <div style={{fontSize:11.5,color:"#B7770D",fontWeight:700,marginTop:-4,marginBottom:8}}>Client proche déjà connu : {clientsProches(edit.nv.client, clientsConnus).filter(c=>c!==edit.nv.client.trim()).join(", ")}</div>}
+          <label style={lab}>ADRESSE / NOM DU CHANTIER *</label>
+          <input value={edit.nv.nom} onChange={e=>majEdit({nv:{...edit.nv,nom:e.target.value}})} spellCheck={false} style={{...inp,width:"100%",marginBottom:8}}/>
+          <label style={lab}>VILLE</label>
+          <input value={edit.nv.ville} onChange={e=>majEdit({nv:{...edit.nv,ville:e.target.value}})} spellCheck={false} style={{...inp,width:"100%"}}/>
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <Btn onClick={creerChantier}>+ CRÉER</Btn>
+            <Btn variant="ghost" onClick={()=>majEdit({vue:"case"})}>RETOUR</Btn>
+          </div>
+        </>}
+        <datalist id="grille-clients">{clientsConnus.map(c=><option key={c} value={c}/>)}</datalist>
+      </div>;
+    })()}
 
     {detail && <FormInline>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:10,flexWrap:"wrap"}}>
