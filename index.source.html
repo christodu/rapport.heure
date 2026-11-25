@@ -1506,15 +1506,19 @@ function App() {
   const [infoPeriode,setInfoPeriode] = useState(null);
   const [annuaire,setAnnuaire] = useState(() => load("chok_annuaire", {liste:[]}));
   const poserAnnuaire = (a) => { if (a && Array.isArray(a.liste)) { setAnnuaire(a); save("chok_annuaire", a); } };
-  const chargerDepuisServeur = useCallback(async (toutCharger) => {
+  const chargerDepuisServeur = useCallback(async (toutCharger, auto) => {
     if (MODE() !== "serveur" || !getJeton()) return;
+    // Mise à jour automatique (direction) : discrète, et jamais au risque
+    // d'écraser une saisie locale (voir plus bas).
+    const avantAuto = auto ? refs.pointages.current : null;
     // On n'affiche JAMAIS d'écran d'attente bloquant : l'interface s'ouvre
     // tout de suite et se remplit dès que les données arrivent. L'indicateur
     // de synchronisation en haut signale le chargement en cours.
-    setSyncState("syncing");
+    if (!auto) setSyncState("syncing");
     try {
       // On envoie d'abord ce qui attend, pour ne pas écraser des saisies locales.
       await viderOutbox();
+      if (auto && outboxCount()) return;   // envoi incomplet : on retentera plus tard
       // Par défaut on ne charge que les 90 derniers jours : l'historique
       // complet se demande explicitement (bouton dans l'onglet Archives).
       // Saisies éventuellement piégées sur l'appareil (enregistrées alors que
@@ -1541,6 +1545,9 @@ function App() {
           save("chok_recuperation_faite", true);
         }
       } catch (e) { /* la récupération ne doit jamais bloquer l'ouverture */ }
+      // Une saisie faite pendant le chargement automatique : on n'applique pas
+      // (le prochain passage la reprendra, une fois envoyée).
+      if (auto && (refs.pointages.current !== avantAuto || outboxCount())) return;
       const TRIABLES = ["salaries","interimaires","chantiers"];
       const pose = (arr, setter, cle) => {
         const v = TRIABLES.includes(cle) ? trierParNom(arr) : (arr || []);
@@ -1553,7 +1560,7 @@ function App() {
       pose(d.absences,     setAbsencesRaw,     "absences");
       setSyncState(outboxCount() ? "attente" : "ok");
     } catch(e) {
-      setSyncState("err");
+      if (!auto) setSyncState("err");
       if (e && e.expire) { setJeton(null); setSession(null); }   // on garde le nom : retour direct à l'écran du code
     }
     finally { setAppLoading(false); }
@@ -1562,6 +1569,8 @@ function App() {
   const rechargerDonnees = useCallback((tout) => {
     return chargerDepuisServeur(tout === true);
   }, [chargerDepuisServeur]);
+  const infoPeriodeRef = useRef(infoPeriode);
+  useEffect(() => { infoPeriodeRef.current = infoPeriode; }, [infoPeriode]);
 
   // Au démarrage : on attend la connexion. Aucune donnée n'est affichée
   // avant que le serveur ait dit ce que cette personne a le droit de voir.
@@ -1692,6 +1701,24 @@ function App() {
 
   // Session restaurée au démarrage : un rafraîchissement ne déconnecte pas.
   const [session, setSession] = useState(() => (getJeton() ? getSessionSauvee() : null));
+  // MISE À JOUR AUTOMATIQUE — direction uniquement (25/11/2026) : les heures
+  // envoyées par les chefs apparaissent seules, toutes les minutes et au retour
+  // sur la page. On saute un passage si l'on est en train de taper dans une case
+  // ou si une saisie n'est pas encore partie. La période chargée est conservée.
+  const roleSession = session && session.role;
+  useEffect(() => {
+    if (roleSession !== "rh") return;
+    const passer = () => {
+      if (document.visibilityState !== "visible") return;
+      const a = document.activeElement;
+      if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+      chargerDepuisServeur(!!(infoPeriodeRef.current && infoPeriodeRef.current.tout), true);
+    };
+    const t = setInterval(passer, 60000);
+    const surRetour = () => { if (document.visibilityState === "visible") passer(); };
+    document.addEventListener("visibilitychange", surRetour);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", surRetour); };
+  }, [roleSession, chargerDepuisServeur]);
 
   /**
    * Connexion réussie. On repart TOUJOURS des données de cette personne,
@@ -2163,7 +2190,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
   const valider = (id) => setPointages(pointages.map(p=>p.id===id?{...p,valide:true}:p));
   const validerTout = () => setPointages(pointages.map(p=>p.date===auj?{...p,valide:true}:p));
   const supprPointage = (id) => setPointages(pointages.filter(p=>p.id!==id));
-  const tabs = [["pointages","Pointages"],["absences","Absences"],["salaries","Salariés"],["interim","Intérimaires"],["chantiers","Chantiers"],["paie","Rapport"],["etat","État de paie"],["archives","Archives 📁"],["parametres","⚙ Paramètres"]];
+  const tabs = [["pointages","Pointages"],["grille","Grille semaine / mois"],["absences","Absences"],["salaries","Salariés"],["interim","Intérimaires"],["chantiers","Chantiers"],["paie","Rapport"],["etat","État de paie"],["archives","Archives 📁"],["parametres","⚙ Paramètres"]];
   return (
     <main ref={racine} className="vue-direction" style={{padding:"28px 32px",maxWidth:1500,margin:"0 auto"}}>
       <div className="vd-entete" style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",paddingBottom:20,borderBottom:`1px solid ${C.ligne}`,marginBottom:24}}>
@@ -2188,6 +2215,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
         ))}
       </div>
       {onglet==="pointages"  && <OngletPointages auj={auj} absences={absences} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
+      {onglet==="grille"     && <OngletGrille auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} salaries={salaries} interimaires={interimaires} absences={absences} infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)}/>}
       {onglet==="absences"   && <OngletAbsences absences={absences} setAbsences={setAbsences} salaries={salaries} interimaires={interimaires} pointages={pointages}/>}
       {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages} absences={absences}/>}
       {onglet==="interim"    && <OngletInterim annuaire={annuaire} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences} chantiers={chantiers} salaries={salaries}/>}
@@ -2199,6 +2227,347 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
     </main>
   );
 }
+
+// ---- Onglet Grille (25/11/2026) ----
+/**
+ * LA SEMAINE (OU LE MOIS) D'UN COUP D'ŒIL
+ *
+ * L'onglet Pointages montre UNE journée : pour voir la semaine d'un salarié,
+ * il fallait ouvrir sept écrans. Ici, une ligne par personne, une colonne
+ * par jour, et l'on tape les heures directement dans la case :
+ *   « 8 » ou « 7h30 » → heures de travail (début 07:30, pause 1 h ajoutée) ;
+ *   « 7:30-16:30 »    → horaires exacts (pause 1 h si la journée dépasse 6 h) ;
+ *   case vidée        → lignes du jour supprimées (après confirmation).
+ * Un clic sur le nom du jour ou sur « ⋯ » ouvre le détail : chantier,
+ * horaires, pause, logement, validation — une ligne par chantier.
+ *
+ * Toute saisie faite ici est celle de la DIRECTION : enregistrée validée,
+ * marquée « Saisie direction (grille) », comme une régularisation.
+ */
+const _cleNom = (n) => String(n||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+const GRILLE_TYPE = { debut: "07:30", fin: "16:30", pause: 60 };
+const _isoPlus = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const _lundiDe = (iso) => { const d = new Date(iso + "T12:00:00Z"); return _isoPlus(iso, -(((d.getUTCDay() || 7)) - 1)); };
+const _jourSem = (iso) => (new Date(iso + "T12:00:00Z").getUTCDay() || 7);   // 1 = lundi … 7 = dimanche
+const _hm = (min) => { min = ((Math.round(min) % 1440) + 1440) % 1440; return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`; };
+const _min = (hm) => { const [h, m] = String(hm || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+const _fmtCase = (h) => { const m = Math.round(h * 60); return m % 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}` : `${m / 60}`; };
+/** Ce qui est tapé dans une case → {heures} | {debut,fin} | {vide} | null (illisible) */
+function lireSaisieGrille(txt) {
+  const s = String(txt || "").trim().toLowerCase().replace(/\s+/g, "").replace(",", ".");
+  if (!s) return { vide: true };
+  let m = s.match(/^(\d{1,2})(?:[h:](\d{2})?)?[-àa→](\d{1,2})(?:[h:](\d{2})?)?$/);
+  if (m) {
+    const d = (+m[1]) * 60 + (+m[2] || 0), f = (+m[3]) * 60 + (+m[4] || 0);
+    if (+m[1] > 23 || +m[3] > 24 || (+m[2] || 0) > 59 || (+m[4] || 0) > 59 || f <= d) return null;
+    return { debut: _hm(d), fin: _hm(f) };
+  }
+  m = s.match(/^(\d{1,2})(?:h(\d{2})?)?$/) || s.match(/^(\d{1,2})h?(\d{2})$/);
+  if (m) { const h = +m[1] + (+m[2] || 0) / 60; return h > 0 && h <= 14 && (+m[2] || 0) < 60 ? { heures: h } : null; }
+  m = s.match(/^(\d{1,2}\.\d{1,2})$/);
+  if (m) { const h = Math.round(parseFloat(m[1]) * 4) / 4; return h > 0 && h <= 14 ? { heures: h } : null; }
+  return null;
+}
+
+function OngletGrille({auj,pointagesTous,setPointages,chantiers,salaries,interimaires,absences,infoPeriode,onChargerTout}) {
+  const [mode,setMode]   = usePersist("chok_grille_mode","semaine");
+  const [qui,setQui]     = usePersist("chok_grille_qui","tous");
+  const [ref,setRef]     = useState(auj);
+  const [cherche,setCherche] = useState("");
+  const [saisies,setSaisies] = useState({});      // case en cours de frappe → texte
+  const [detail,setDetail]   = useState(null);    // {pid, iso}
+  const [msg,setMsg]         = useState("");
+
+  // ── Période affichée ──
+  const jours = React.useMemo(() => {
+    if (mode === "mois") {
+      const debut = ref.slice(0, 8) + "01", l = [];
+      for (let d = debut; d.slice(0, 7) === ref.slice(0, 7); d = _isoPlus(d, 1)) l.push(d);
+      return l;
+    }
+    const lundi = _lundiDe(ref); return Array.from({length:7}, (_, i) => _isoPlus(lundi, i));
+  }, [mode, ref]);
+  const premier = jours[0], dernier = jours[jours.length - 1];
+  const decaler = (n) => {
+    if (mode === "mois") { const d = new Date(ref.slice(0, 7) + "-15T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() + n); setRef(d.toISOString().slice(0, 10)); }
+    else setRef(_isoPlus(ref, 7 * n));
+    setDetail(null); setMsg("");
+  };
+  const titre = mode === "mois"
+    ? new Date(ref + "T12:00:00").toLocaleDateString("fr-FR", { month: "long", year: "numeric" })
+    : `Semaine ${infoSemaine(premier).semaine} · du ${new Date(premier+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} au ${new Date(dernier+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}`;
+  const horsPeriode = !!(infoPeriode && !infoPeriode.tout && infoPeriode.depuis && premier < infoPeriode.depuis);
+
+  // ── Lignes : personnes actives + celles qui ont des heures sur la période ──
+  const parCase = React.useMemo(() => {
+    const m = {};
+    (pointagesTous || []).forEach(p => { if (p && p.date >= premier && p.date <= dernier) (m[p.salarie + "|" + p.date] = m[p.salarie + "|" + p.date] || []).push(p); });
+    return m;
+  }, [pointagesTous, premier, dernier]);
+  const presents = new Set(Object.keys(parCase).map(k => k.split("|")[0]));
+  const estInterim = (id) => interimaires.some(i => i.id === id);
+  const personnes = [
+    ...(qui !== "interim" ? salaries : []).filter(p => estActif(p) || presents.has(p.id)).map(p => ({...p, _t:"S"})),
+    ...(qui !== "salaries" ? interimaires : []).filter(p => estActif(p) || presents.has(p.id)).map(p => ({...p, _t:"I"})),
+  ].filter(p => !cherche.trim() || _cleNom(p.nom).includes(_cleNom(cherche)))
+   .sort((a, b) => comparerNoms(a.nom, b.nom));
+
+  const lignes = (pid, iso) => parCase[pid + "|" + iso] || [];
+  const heures = (pid, iso) => lignes(pid, iso).reduce((s, p) => s + calcHeures(p), 0);
+  const etat = (pid, iso) => {
+    const l = lignes(pid, iso);
+    if (l.length) return l.every(p => p.valide) ? "valide" : "attente";
+    const abs = absenceLe(absences, pid, iso); if (abs) return "absence";
+    if (estFerie(iso)) return "ferie";
+    if (iso > auj) return "futur";
+    if (_jourSem(iso) >= 6) return "weekend";
+    return iso < auj ? "manquant" : "vide";
+  };
+  // Chantier proposé : celui de la dernière journée connue de la personne
+  const chantierDefaut = (pid, iso) => {
+    const l = (pointagesTous || []).filter(p => p.salarie === pid && p.chantier && p.date <= iso)
+      .sort((a, b) => a.date < b.date ? 1 : -1);
+    return l[0] ? l[0].chantier : "";
+  };
+  const moisPaieDe = (iso) => iso.slice(0, 7) < auj.slice(0, 7) ? auj.slice(0, 7) : "";
+  const nouvelleLigne = (pid, iso, debut, fin, pause, chantier, extra) => ({
+    id: genId("P"), salarie: pid, chantier, date: iso, debut, fin, pause, deplacement: false,
+    commentaire: "Saisie direction (grille)", moisPaie: moisPaieDe(iso), interim: estInterim(pid),
+    valide: true, chefNom: "Direction", ...(extra || {}) });
+
+  // ── Saisie directe dans une case ──
+  const appliquerCase = (pid, iso, txt) => {
+    const cle = pid + "|" + iso;
+    setSaisies(s => { const n = {...s}; delete n[cle]; return n; });
+    const l = lignes(pid, iso);
+    const avant = l.length ? _fmtCase(heures(pid, iso)) : "";
+    if (String(txt).trim() === avant) return;
+    const lu = lireSaisieGrille(txt);
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    if (!lu) { setMsg(`« ${txt} » n'est pas compris. Tapez par exemple 8, 7h30 ou 7:30-16:30.`); return; }
+    if (lu.vide) {
+      if (!l.length) return;
+      if (!window.confirm(`Supprimer ${l.length > 1 ? `les ${l.length} lignes` : "la ligne"} de ${nom} du ${jourEnClair(iso)} (${fmtH(heures(pid, iso))}) ?`)) return;
+      const ids = new Set(l.map(p => p.id));
+      setPointages(prev => prev.filter(p => !ids.has(p.id)));
+      setMsg(`Heures du ${jourEnClair(iso)} supprimées pour ${nom}.`);
+      return;
+    }
+    if (iso > auj) { setMsg(`${jourEnClair(iso)} n'est pas encore passé : les heures se saisissent une fois la journée faite.`); return; }
+    if (l.length > 1) { setDetail({pid, iso}); setMsg("Plusieurs chantiers ce jour-là : corrigez la bonne ligne dans le détail ci-dessous."); return; }
+    let debut, fin, pause;
+    if (lu.heures != null) {
+      debut = l[0] ? l[0].debut : GRILLE_TYPE.debut;
+      pause = l[0] ? (Number(l[0].pause) || 0) : (lu.heures > 6 ? GRILLE_TYPE.pause : 0);
+      if (_min(debut) + lu.heures * 60 + pause > 24 * 60) { setMsg("Cette journée dépasserait minuit : ouvrez le détail pour saisir les horaires exacts."); return; }
+      fin = _hm(_min(debut) + lu.heures * 60 + pause);
+    } else {
+      debut = lu.debut; fin = lu.fin;
+      pause = l[0] ? (Number(l[0].pause) || 0) : ((_min(fin) - _min(debut)) > 360 ? GRILLE_TYPE.pause : 0);
+    }
+    const h = Math.max(0, (_min(fin) - _min(debut) - pause) / 60);
+    if (h > 10 && !window.confirm(`${fmtH(h)} pour ${nom} le ${jourEnClair(iso)} : c'est plus que le maximum légal de 10 h par jour. Enregistrer quand même ?`)) return;
+    if (l[0]) {
+      const id = l[0].id;
+      setPointages(prev => prev.map(p => p.id === id ? {...p, debut, fin, pause, modifiePar: "RH", modifieLe: new Date().toISOString()} : p));
+      setMsg(`${nom}, ${jourEnClair(iso)} : ${debut}–${fin}, soit ${fmtH(h)}.`);
+      return;
+    }
+    const ch = chantierDefaut(pid, iso);
+    const ligne = nouvelleLigne(pid, iso, debut, fin, pause, ch);
+    setPointages(prev => [...prev, ligne]);
+    if (!ch) { setDetail({pid, iso}); setMsg(`${nom}, ${jourEnClair(iso)} : heures enregistrées. Choisissez le chantier dans le détail ci-dessous.`); }
+    else setMsg(`${nom}, ${jourEnClair(iso)} : ${debut}–${fin} sur ${libelleChantier(chantiers.find(c => c.id === ch))}.`);
+  };
+
+  // ── Remplissages d'une ligne ──
+  const joursARemplir = (pid) => jours.filter(iso => _jourSem(iso) <= 5 && iso <= auj && !lignes(pid, iso).length
+    && !absenceLe(absences, pid, iso) && !estFerie(iso));
+  const semaineType = (p) => {
+    const l = joursARemplir(p.id), ch = chantierDefaut(p.id, dernier);
+    if (!l.length) { setMsg(`${p.nom} : aucun jour vide à remplir (lundi → vendredi, jusqu'à aujourd'hui).`); return; }
+    if (!ch) { setMsg(`${p.nom} n'a encore aucun chantier : saisissez d'abord une journée, le chantier sera repris.`); return; }
+    if (!window.confirm(`${p.nom} : remplir ${l.length} jour(s) vide(s) en horaires types ${GRILLE_TYPE.debut}–${GRILLE_TYPE.fin} (pause 1 h) sur ${libelleChantier(chantiers.find(c => c.id === ch))} ?\n\n${l.map(jourEnClair).join("\n")}`)) return;
+    setPointages(prev => [...prev, ...l.map(iso => nouvelleLigne(p.id, iso, GRILLE_TYPE.debut, GRILLE_TYPE.fin, GRILLE_TYPE.pause, ch))]);
+    setMsg(`${p.nom} : ${l.length} jour(s) remplis en horaires types.`);
+  };
+  const copierPrecedente = (p) => {
+    const l = joursARemplir(p.id), ajouts = [];
+    l.forEach(iso => (pointagesTous || []).filter(x => x.salarie === p.id && x.date === _isoPlus(iso, -7)).forEach(x =>
+      ajouts.push(nouvelleLigne(p.id, iso, x.debut, x.fin, Number(x.pause) || 0, x.chantier, { deplacement: !!x.deplacement }))));
+    if (!ajouts.length) { setMsg(`${p.nom} : rien à copier (semaine précédente vide pour les jours encore libres).`); return; }
+    const nbJ = new Set(ajouts.map(a => a.date)).size;
+    if (!window.confirm(`${p.nom} : recopier la semaine précédente sur ${nbJ} jour(s) vide(s) (mêmes chantiers et horaires) ?`)) return;
+    setPointages(prev => [...prev, ...ajouts]);
+    setMsg(`${p.nom} : semaine précédente recopiée sur ${nbJ} jour(s).`);
+  };
+  const aValiderDe = (pid) => jours.flatMap(iso => lignes(pid, iso)).filter(p => !p.valide);
+  const validerIds = (liste) => { const ids = new Set(liste.map(p => p.id)); setPointages(prev => prev.map(p => ids.has(p.id) ? {...p, valide: true} : p)); };
+  const tousAValider = personnes.flatMap(p => aValiderDe(p.id));
+  // Double-clic sur une case : valide la journée (case verte) ; sur une case
+  // déjà verte, la repasse « à valider » (en cas d'erreur).
+  const basculerValidation = (pid, iso, ev) => {
+    const l = lignes(pid, iso);
+    try { window.getSelection().removeAllRanges(); } catch (_) {}
+    if (ev && ev.target && ev.target.blur && saisies[pid + "|" + iso] == null) ev.target.blur();
+    if (!l.length) return;
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    const ids = new Set(l.map(p => p.id));
+    if (l.some(p => !p.valide)) {
+      setPointages(prev => prev.map(p => ids.has(p.id) ? {...p, valide: true} : p));
+      setMsg(`${nom}, ${jourEnClair(iso)} : validé ✓ (double-cliquez à nouveau pour annuler).`);
+    } else {
+      setPointages(prev => prev.map(p => ids.has(p.id) ? {...p, valide: false} : p));
+      setMsg(`${nom}, ${jourEnClair(iso)} : repassé « à valider ».`);
+    }
+  };
+
+  // ── Détail d'une case ──
+  const majLigne = (id, champs) => setPointages(prev => prev.map(p => p.id === id ? {...p, ...champs, modifiePar: "RH", modifieLe: new Date().toISOString()} : p));
+  const supprLigne = (p) => { if (window.confirm(`Supprimer la ligne ${p.debut}–${p.fin} (${fmtH(calcHeures(p))}) ?`)) setPointages(prev => prev.filter(x => x.id !== p.id)); };
+  const chantiersTries = [...chantiers].filter(c => c.actif !== false).sort((a, b) => comparerNoms(libelleChantier(a), libelleChantier(b)));
+
+  // ── Styles ──
+  const COUL = { valide:"#DDF0E4", attente:"#FDF1C7", manquant:"#FBE0D8", absence:"#DCEFEC", ferie:"#FFF3C4", weekend:"#ECE8DF", futur:"#F7F5F0", vide:C.papier };
+  const mois = mode === "mois";
+  const wCase = mois ? 38 : 138;
+  const thS = {padding:"6px 4px",fontSize:10,letterSpacing:"0.08em",color:C.gris,fontWeight:600,borderBottom:`1px solid ${C.ligne}`,borderRight:`1px solid ${C.ligne}`,background:C.fond,textAlign:"center",whiteSpace:"nowrap",cursor:"default"};
+  const nomS = {position:"sticky",left:0,zIndex:1,background:C.papier,borderRight:`1.5px solid ${C.encre}`,padding:"6px 10px",textAlign:"left",whiteSpace:"nowrap",minWidth:170};
+  const totJour = jours.map(iso => personnes.reduce((s, p) => s + heures(p.id, iso), 0));
+  const totalGeneral = totJour.reduce((a, b) => a + b, 0);
+  const lignesDetail = detail ? lignes(detail.pid, detail.iso) : [];
+  const persDetail = detail ? personnes.find(p => p.id === detail.pid) || {nom: detail.pid} : null;
+
+  return (
+  <div style={{display:"flex",flexDirection:"column",gap:16}}>
+    <Section titre="Grille des heures" actions={
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        {[["semaine","Semaine"],["mois","Mois"]].map(([k,l]) => <Btn key={k} variant={mode===k?undefined:"ghost"} onClick={()=>{setMode(k);setDetail(null);}}>{l.toUpperCase()}</Btn>)}
+        <select value={qui} onChange={e=>setQui(e.target.value)} style={{...selectStyle,width:"auto"}} title="Qui afficher">
+          <option value="tous">Salariés et intérimaires</option><option value="salaries">Salariés seulement</option><option value="interim">Intérimaires seulement</option>
+        </select>
+        <input value={cherche} onChange={e=>setCherche(e.target.value)} placeholder="Chercher un nom…" style={{...inputStyle,width:170}}/>
+        {tousAValider.length>0 && <Btn onClick={()=>{ if(window.confirm(`Valider les ${tousAValider.length} ligne(s) en attente de la période affichée ?`)) validerIds(tousAValider); }}>✓ TOUT VALIDER ({tousAValider.length})</Btn>}
+      </div>}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+        <Btn variant="ghost" onClick={()=>decaler(-1)}>◀</Btn>
+        <div style={{fontFamily:FT,fontSize:18,fontWeight:700,minWidth:260,textAlign:"center",textTransform:mois?"capitalize":"none"}}>{titre}</div>
+        <Btn variant="ghost" onClick={()=>decaler(1)}>▶</Btn>
+        <Btn variant="ghost" onClick={()=>{setRef(auj);setDetail(null);}}>AUJOURD'HUI</Btn>
+      </div>
+      {horsPeriode && <div style={{padding:"10px 14px",background:"#FDF1C7",border:`1px solid ${C.jaune}`,fontSize:13,marginBottom:12}}>
+        Seules les heures depuis le {new Date(infoPeriode.depuis+"T12:00:00").toLocaleDateString("fr-FR")} sont chargées : cette période peut être incomplète.{" "}
+        {onChargerTout && <a href="#" onClick={e=>{e.preventDefault();onChargerTout();}}>Charger tout l'historique</a>}</div>}
+      <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.6}}>
+        Tapez dans une case : <b>8</b> ou <b>7h30</b> (heures travaillées, début 07:30 et pause 1 h ajoutée) ou <b>7:30-16:30</b>. Vider une case supprime ses heures.
+        Cliquez sur <b>⋯</b> pour le chantier, la pause ou le logement. <b>Double-cliquez sur une case pour la valider</b> (elle passe au vert ; double-cliquez à nouveau pour annuler).
+        Le bouton <b>✓</b> d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée <b>validée</b>, au nom de la direction.
+      </div>
+      <div className="grille-heures" style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",fontFamily:FM,fontSize:12,fontVariantNumeric:"tabular-nums",width:"100%"}}>
+          <thead><tr>
+            <th style={{...thS,...nomS,background:C.fond}}>PERSONNE</th>
+            {jours.map(iso => <th key={iso} style={{...thS,minWidth:wCase,background:iso===auj?C.jaune:(_jourSem(iso)>=6||estFerie(iso)?"#ECE8DF":C.fond),color:iso===auj?C.encre:C.gris}} title={nomFerie(iso)||jourEnClair(iso)}>
+              {mois ? "LMMJVSD"[_jourSem(iso)-1] : ["LUN","MAR","MER","JEU","VEN","SAM","DIM"][_jourSem(iso)-1]}
+              <div style={{fontWeight:500,letterSpacing:0}}>{mois ? +iso.slice(8) : iso.slice(8)+"/"+iso.slice(5,7)}</div></th>)}
+            <th style={{...thS,minWidth:76}}>TOTAL</th>
+            {!mois && <th style={{...thS,minWidth:120}}>RAPIDE</th>}
+          </tr></thead>
+          <tbody>
+          {personnes.map(p => {
+            const tot = jours.reduce((s, iso) => s + heures(p.id, iso), 0);
+            const sup = mois ? 0 : Math.max(0, tot - 35);
+            const enAttente = aValiderDe(p.id);
+            return <tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
+              <td style={nomS}><div style={{fontFamily:FT,fontWeight:700,fontSize:13}}>{p.nom}</div>
+                <div style={{fontSize:10,color:C.gris}}>{p._t==="I"?"Intérimaire":"Salarié"}{!estActif(p)?" · archivé":""}</div></td>
+              {jours.map(iso => {
+                const e = etat(p.id, iso), l = lignes(p.id, iso), cle = p.id + "|" + iso;
+                const abs = e === "absence" ? absenceLe(absences, p.id, iso) : null;
+                const ch = l[0] ? chantiers.find(c => c.id === l[0].chantier) : null;
+                const val = saisies[cle] != null ? saisies[cle] : (l.length ? _fmtCase(heures(p.id, iso)) : "");
+                const ouvert = detail && detail.pid === p.id && detail.iso === iso;
+                const titreCase = l.length ? l.map(x => `${x.debut}–${x.fin} · ${libelleChantier(chantiers.find(c => c.id === x.chantier))}${x.valide?"":" (à valider)"}`).join("\n")
+                  : abs ? libelleAbsence(abs) : (nomFerie(iso) || jourEnClair(iso));
+                const coulCh = ch && ch.couleur ? ch.couleur : null;
+                const autres = l.length > 1 ? l.slice(1).map(x => chantiers.find(c => c.id === x.chantier)).filter(Boolean) : [];
+                return <td key={iso} title={titreCase} onDoubleClick={ev => basculerValidation(p.id, iso, ev)}
+                  style={{background:COUL[e],borderRight:`1px solid ${C.ligne}`,padding:0,position:"relative",height:mois?32:52,verticalAlign:"top",
+                    borderLeft:coulCh?`${mois?3:5}px solid ${coulCh}`:undefined,
+                    boxShadow:ouvert?`inset 0 0 0 2px ${C.encre}`:e==="manquant"&&!mois?"inset 0 0 0 1.5px #E55934":"none"}}>
+                  {abs && !l.length ? <div style={{fontSize:mois?9:10,fontWeight:700,textAlign:"center",color:"#1F6F66",cursor:"default"}}>{mois ? (abs.type||"ABS") : libelleAbsence(abs)}</div> : <>
+                    {!mois && ch && <div style={{padding:"4px 16px 0 6px",pointerEvents:"none",lineHeight:1.2,textAlign:"left",fontFamily:FT}}>
+                      {clientDe(ch) && <div style={{fontSize:11.5,fontWeight:800,color:C.encre,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{clientDe(ch)}</div>}
+                      <div style={{fontSize:11,fontWeight:600,color:"#3A372F",marginTop:1,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{ch.nom||"—"}{ch.ville&&ch.ville!=="—"?`, ${ch.ville}`:""}</div>
+                      {autres.length>0 && <div style={{fontSize:9.5,fontWeight:700,color:C.orange,whiteSpace:"nowrap"}}>+ {autres.length} autre{autres.length>1?"s":""} chantier{autres.length>1?"s":""}</div>}
+                    </div>}
+                    <input value={val} aria-label={`${p.nom} ${jourEnClair(iso)}`} inputMode="decimal" readOnly={e==="futur"} title={e==="futur"?"Jour à venir":undefined}
+                      onChange={ev => { const v = ev.target.value; setSaisies(s => ({...s, [cle]: v})); }}
+                      onBlur={ev => { if (saisies[cle] != null) appliquerCase(p.id, iso, ev.target.value); }}
+                      onKeyDown={ev => { if (ev.key === "Enter") ev.target.blur(); if (ev.key === "Escape") { setSaisies(s => { const n = {...s}; delete n[cle]; return n; }); } }}
+                      style={{width:"100%",height:mois?"100%":(ch?30:52),border:"none",background:"transparent",textAlign:"center",fontFamily:FM,fontWeight:700,fontSize:mois?11:15,color:C.encre,padding:mois?0:"0 2px",minHeight:mois?0:(ch?30:52),outline:"none",boxSizing:"border-box",display:"block"}}/>
+                    {!mois && <button onClick={()=>setDetail(ouvert?null:{pid:p.id,iso})} title="Détail : chantier, horaires, pause, logement"
+                      style={{position:"absolute",top:1,right:1,border:"none",background:"transparent",cursor:"pointer",fontSize:12,color:C.gris,padding:"0 3px",lineHeight:1}}>⋯</button>}
+                    {l.length>0 && l.every(x=>x.valide) && !mois && <span style={{position:"absolute",bottom:2,right:4,fontSize:12,color:C.vert,fontWeight:800,pointerEvents:"none"}}>✓</span>}
+                  </>}
+                </td>;
+              })}
+              <td style={{textAlign:"center",fontWeight:700,borderRight:`1px solid ${C.ligne}`,padding:"0 6px"}}>{fmtH(tot)}
+                {sup>0 && <div style={{fontSize:10,color:C.orange,fontWeight:600}}>+{fmtH(sup)} sup.</div>}</td>
+              {!mois && <td style={{padding:"4px 6px"}}><div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"center"}}>
+                <button onClick={()=>semaineType(p)} title="Remplir les jours vides (lun → ven) en horaires types 07:30–16:30, pause 1 h, sur son dernier chantier" style={btnMini}>TYPE</button>
+                <button onClick={()=>copierPrecedente(p)} title="Recopier la semaine précédente sur les jours vides" style={btnMini}>S-1</button>
+                {enAttente.length>0 && <button onClick={()=>validerIds(enAttente)} title={`Valider toute sa semaine (${enAttente.length} jour(s)/ligne(s) en attente)`} style={{...btnMini,background:C.vert,color:"#fff",borderColor:C.vert}}>✓ SEMAINE ({enAttente.length})</button>}
+              </div></td>}
+            </tr>;
+          })}
+          {!personnes.length && <tr><td colSpan={jours.length+3} style={{padding:24,textAlign:"center",color:C.gris}}>Personne à afficher.</td></tr>}
+          </tbody>
+          <tfoot><tr style={{background:C.fond,fontWeight:700}}>
+            <td style={{...nomS,background:C.fond,fontSize:11}}>TOTAL DU JOUR</td>
+            {totJour.map((t,i) => <td key={i} style={{textAlign:"center",fontSize:mois?9:11,borderRight:`1px solid ${C.ligne}`,padding:"8px 2px"}}>{t?(mois?_fmtCase(t):fmtH(t)):"–"}</td>)}
+            <td style={{textAlign:"center",padding:"0 6px"}}>{fmtH(totalGeneral)}</td>{!mois && <td/>}
+          </tr></tfoot>
+        </table>
+      </div>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.gris,marginTop:10}}>
+        {[["valide","Validé"],["attente","À valider"],["manquant","Jour ouvré passé sans heures"],["absence","Absence / congé"],["ferie","Férié"],["weekend","Samedi / dimanche"]].map(([k,l]) =>
+          <span key={k} style={{display:"inline-flex",alignItems:"center",gap:5}}><i style={{width:12,height:12,display:"inline-block",background:COUL[k],border:k==="manquant"?"1.5px solid #E55934":`1px solid ${C.ligne}`}}/>{l}</span>)}
+        {!mois && <span>Au-delà de 35 h dans la semaine : heures sup. en orange.</span>}
+      </div>
+      {msg && <div style={{marginTop:10,padding:"9px 12px",background:C.papier,border:`1px solid ${C.ligne}`,fontSize:13}} role="status">{msg}</div>}
+    </Section>
+
+    {detail && <FormInline>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:10,flexWrap:"wrap"}}>
+        <div style={{fontFamily:FT,fontWeight:700,fontSize:16}}>{persDetail.nom} — {jourEnClair(detail.iso)}</div>
+        <Btn variant="ghost" onClick={()=>setDetail(null)}>✕ FERMER</Btn>
+      </div>
+      {!lignesDetail.length && <div style={{fontSize:13,color:C.gris,marginBottom:10}}>Aucune heure ce jour-là.</div>}
+      {lignesDetail.map(p => { const cD = chantiers.find(c => c.id === p.chantier); return <div key={p.id} style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end",padding:"10px 0",borderTop:`1px solid ${C.ligne}`}}>
+        {cD && <div style={{flexBasis:"100%",borderLeft:`5px solid ${cD.couleur||C.encre}`,paddingLeft:10}}>
+          <div style={{fontFamily:FT,fontWeight:800,fontSize:15}}>{clientDe(cD)||"Client non renseigné"}</div>
+          <div style={{fontSize:13,fontWeight:600,color:"#3A372F"}}>{cD.nom||"—"}{cD.ville&&cD.ville!=="—"?`, ${cD.ville}`:""}</div></div>}
+        <Champ label="CHANTIER *"><select value={p.chantier||""} onChange={e=>majLigne(p.id,{chantier:e.target.value})} style={{...selectStyle,minWidth:240,borderColor:p.chantier?undefined:C.orange}}>
+          <option value="">— choisir —</option>{chantiersTries.map(c=><option key={c.id} value={c.id}>{libelleChantier(c)}</option>)}
+          {p.chantier && !chantiersTries.some(c=>c.id===p.chantier) && <option value={p.chantier}>{libelleChantier(chantiers.find(c=>c.id===p.chantier))}</option>}</select></Champ>
+        <Champ label="DÉBUT"><input type="time" defaultValue={p.debut} onBlur={e=>e.target.value&&e.target.value!==p.debut&&majLigne(p.id,{debut:e.target.value})} style={{...inputStyle,width:110}}/></Champ>
+        <Champ label="FIN"><input type="time" defaultValue={p.fin} onBlur={e=>e.target.value&&e.target.value!==p.fin&&majLigne(p.id,{fin:e.target.value})} style={{...inputStyle,width:110}}/></Champ>
+        <Champ label="PAUSE (MIN)"><input type="number" min="0" step="15" defaultValue={p.pause||0} onBlur={e=>Number(e.target.value)!==Number(p.pause||0)&&majLigne(p.id,{pause:Math.max(0,Number(e.target.value)||0)})} style={{...inputStyle,width:90}}/></Champ>
+        <label style={{display:"flex",gap:6,alignItems:"center",fontSize:12,paddingBottom:10}}><input type="checkbox" checked={!!p.deplacement} onChange={e=>majLigne(p.id,{deplacement:e.target.checked})}/> Logé (déplacement)</label>
+        <div style={{fontFamily:FM,fontWeight:700,paddingBottom:10,minWidth:60}}>{fmtH(calcHeures(p))}</div>
+        <div style={{display:"flex",gap:6,paddingBottom:6}}>
+          {p.valide ? <Btn variant="ghost" onClick={()=>majLigne(p.id,{valide:false})}>DÉVALIDER</Btn> : <Btn onClick={()=>majLigne(p.id,{valide:true})}>✓ VALIDER</Btn>}
+          <Btn variant="danger" onClick={()=>supprLigne(p)}>SUPPRIMER</Btn>
+        </div>
+        <div style={{flexBasis:"100%",fontSize:11,color:C.gris}}>{p.chefNom?`Saisi par ${p.chefNom}`:""}{p.commentaire?` · ${p.commentaire}`:""}</div>
+      </div>; })}
+      <div style={{marginTop:8}}><Btn variant="ghost" onClick={()=>{const ch=chantierDefaut(detail.pid,detail.iso);setPointages(prev=>[...prev,nouvelleLigne(detail.pid,detail.iso,GRILLE_TYPE.debut,GRILLE_TYPE.fin,GRILLE_TYPE.pause,ch)]);}}>+ AJOUTER UNE LIGNE (AUTRE CHANTIER)</Btn></div>
+    </FormInline>}
+  </div>);
+}
+const btnMini = {fontFamily:FM,fontSize:9.5,fontWeight:700,letterSpacing:"0.04em",padding:"4px 6px",border:`1px solid ${C.encre}`,background:"transparent",cursor:"pointer",color:C.encre};
+
 
 // ---- Onglet Pointages ----
 
