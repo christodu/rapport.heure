@@ -2461,6 +2461,36 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
     return () => { document.removeEventListener("mousedown", dehors); document.removeEventListener("keydown", touche); window.removeEventListener("scroll", defile, true); };
   }, [!!edit]);
   const majEdit = (champs) => setEdit(e => e && ({...e, ...champs}));
+  // ── COPIER / COLLER UNE CASE (25/11/2026) ──
+  // On copie la journée d'une case (chantier(s), horaires, pause, logement) et on
+  // la colle dans une autre case : bouton 📋 / COLLER, ou Ctrl+C / Ctrl+V (⌘ sur Mac)
+  // dans la case. Collé = enregistré validé, au nom de la direction.
+  const [pressePapier, setPressePapier] = usePersist("chok_grille_copie", null);
+  const resumeCopie = (pp) => pp ? pp.lignes.map(x => `${libelleChantier(chantiers.find(c => c.id === x.chantier))} ${x.debut}–${x.fin}`).join(" + ") : "";
+  const copierCase = (pid, iso) => {
+    const l = lignes(pid, iso).filter(x => x.chantier);
+    if (!l.length) { setMsg("Rien à copier : cette case n'a pas d'heures."); return false; }
+    const pp = { de: `${(personnes.find(p => p.id === pid) || {}).nom || pid}, ${jourEnClair(iso)}`,
+      lignes: l.map(x => ({ chantier: x.chantier, debut: x.debut, fin: x.fin, pause: Number(x.pause) || 0, deplacement: !!x.deplacement })) };
+    setPressePapier(pp);
+    setMsg(`📋 Copié : ${resumeCopie(pp)}. Cliquez sur « COLLER » dans une autre case (ou Ctrl+V dans la case).`);
+    return true;
+  };
+  const collerCase = (pid, iso) => {
+    const pp = pressePapier; if (!pp || !pp.lignes || !pp.lignes.length) return false;
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    if (iso > auj) { setMsg(`${jourEnClair(iso)} n'est pas encore passé : les heures se saisissent une fois la journée faite.`); return true; }
+    const abs = absenceLe(absences, pid, iso);
+    if (abs && !window.confirm(`${nom} est noté(e) « ${libelleAbsence(abs)} » le ${jourEnClair(iso)}. Coller quand même des heures ?`)) return true;
+    const l = lignes(pid, iso);
+    if (l.length && !window.confirm(`${nom} a déjà ${fmtH(heures(pid, iso))} le ${jourEnClair(iso)}.\n\nRemplacer par : ${resumeCopie(pp)} ?`)) return true;
+    const ids = new Set(l.map(x => x.id));
+    const ajouts = pp.lignes.map(x => nouvelleLigne(pid, iso, x.debut, x.fin, x.pause, x.chantier,
+      { deplacement: !!x.deplacement, commentaire: "Collé par la direction (grille) depuis " + pp.de }));
+    setPointages(prev => [...prev.filter(x => !ids.has(x.id)), ...ajouts]);
+    setMsg(`${nom}, ${jourEnClair(iso)} : ${resumeCopie(pp)} collé (validé).`);
+    return true;
+  };
   const majF = (id, champs) => setEdit(e => e && ({...e, f: {...e.f, [id]: {...e.f[id], ...champs}}}));
   const enregistrerEdition = () => {
     if (!edit) return;
@@ -2548,9 +2578,14 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
         {onChargerTout && <a href="#" onClick={e=>{e.preventDefault();onChargerTout();}}>Charger tout l'historique</a>}</div>}
       <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.6}}>
         Case sans heures (oubli du chef) : <b>+ AJOUTER</b> pour choisir le chantier et les horaires, ou tapez directement dans la case : <b>8</b> ou <b>7h30</b> (heures travaillées, début 07:30 et pause 1 h ajoutée) ou <b>7:30-16:30</b>. Vider une case supprime ses heures.
-        <b>Cliquez sur le client / l'adresse</b> d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; <b>⋯</b> ouvre le détail complet (logement, lignes). <b>Double-cliquez sur une case pour la valider</b> (elle passe au vert ; double-cliquez à nouveau pour annuler).
+        <b>Cliquez sur le client / l'adresse</b> d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; <b>⋯</b> ouvre le détail complet (logement, lignes). <b>📋</b> copie une journée, <b>COLLER</b> la recopie dans une autre case (ou Ctrl+C / Ctrl+V dans la case). <b>Double-cliquez sur une case pour la valider</b> (elle passe au vert ; double-cliquez à nouveau pour annuler).
         Le bouton <b>✓</b> d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée <b>validée</b>, au nom de la direction.
       </div>
+      {pressePapier && <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"8px 12px",background:"#E8F0F7",border:`1px solid ${C.bleu}`,fontSize:13,marginBottom:10}}>
+        <span>📋 <b>Copié</b> ({pressePapier.de}) : {resumeCopie(pressePapier)}</span>
+        <span style={{color:C.gris,fontSize:12}}>→ « COLLER » dans une case (ou Ctrl+V dans la case)</span>
+        <button onClick={()=>setPressePapier(null)} style={{marginLeft:"auto",border:"none",background:"transparent",cursor:"pointer",color:C.bleu,textDecoration:"underline",fontSize:12}}>✕ ne plus coller</button>
+      </div>}
       <div className="grille-heures" style={{background:C.papier,border:`1.5px solid ${C.encre}`,overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",fontFamily:FM,fontSize:12,fontVariantNumeric:"tabular-nums",width:"100%"}}>
           <thead><tr>
@@ -2595,11 +2630,22 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
                     <input value={val} aria-label={`${p.nom} ${jourEnClair(iso)}`} inputMode="decimal" readOnly={e==="futur"} title={e==="futur"?"Jour à venir":undefined}
                       onChange={ev => { const v = ev.target.value; setSaisies(s => ({...s, [cle]: v})); }}
                       onBlur={ev => { if (saisies[cle] != null) appliquerCase(p.id, iso, ev.target.value); }}
-                      onKeyDown={ev => { if (ev.key === "Enter") ev.target.blur(); if (ev.key === "Escape") { setSaisies(s => { const n = {...s}; delete n[cle]; return n; }); } }}
+                      onKeyDown={ev => { if (ev.key === "Enter") ev.target.blur(); if (ev.key === "Escape") { setSaisies(s => { const n = {...s}; delete n[cle]; return n; }); }
+                        const t = ev.target, toutOuRien = t.selectionStart === t.selectionEnd || (t.selectionStart === 0 && t.selectionEnd === String(t.value).length);
+                        if ((ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey && saisies[cle] == null && toutOuRien) {
+                          if (ev.key.toLowerCase() === "c" && l.length) { copierCase(p.id, iso); }
+                          else if (ev.key.toLowerCase() === "v" && pressePapier) { ev.preventDefault(); collerCase(p.id, iso); }
+                        } }}
                       style={{width:"100%",height:mois?"100%":(ch||(!l.length&&e!=="futur")?30:52),border:"none",background:"transparent",textAlign:"center",fontFamily:FM,fontWeight:700,fontSize:mois?11:15,color:C.encre,padding:mois?0:"0 2px",minHeight:mois?0:(ch||(!l.length&&e!=="futur")?30:52),outline:"none",boxSizing:"border-box",display:"block"}}/>
                     {!mois && <button onClick={()=>setDetail(ouvert?null:{pid:p.id,iso})} title="Détail : chantier, horaires, pause, logement"
                       style={{position:"absolute",top:1,right:1,border:"none",background:"transparent",cursor:"pointer",fontSize:12,color:C.gris,padding:"0 3px",lineHeight:1}}>⋯</button>}
                     {l.length>0 && l.every(x=>x.valide) && !mois && <span style={{position:"absolute",bottom:2,right:4,fontSize:12,color:C.vert,fontWeight:800,pointerEvents:"none"}}>✓</span>}
+                    {!mois && (l.length>0 || (pressePapier && e !== "futur")) && <div style={{display:"flex",gap:4,alignItems:"center",height:16,padding:"0 18px 2px 3px"}}>
+                      {l.length>0 && <button onClick={ev=>{ev.stopPropagation();copierCase(p.id,iso);}} title="Copier cette journée (chantier et horaires) pour la coller ailleurs"
+                        style={{border:"none",background:"transparent",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1,opacity:.75}}>📋</button>}
+                      {pressePapier && e !== "futur" && <button onClick={ev=>{ev.stopPropagation();collerCase(p.id,iso);}} title={`Coller : ${resumeCopie(pressePapier)}`}
+                        style={{border:`1px solid ${C.bleu}`,background:"#E8F0F7",color:C.bleu,cursor:"pointer",fontFamily:FM,fontSize:8.5,fontWeight:800,padding:"1px 4px",lineHeight:1.2}}>COLLER</button>}
+                    </div>}
                   </>}
                 </td>;
               })}
@@ -2669,6 +2715,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
           <div style={{display:"flex",gap:8,marginTop:12}}>
             <Btn onClick={enregistrerEdition}>✓ ENREGISTRER</Btn>
             <Btn variant="ghost" onClick={()=>setEdit(null)}>ANNULER</Btn>
+            {ls.length>0 && <Btn variant="ghost" onClick={()=>{ if (copierCase(edit.pid, edit.iso)) setEdit(null); }}>📋 COPIER</Btn>}
           </div>
         </>}
         {edit.vue === "nom" && edit.ch && <>
