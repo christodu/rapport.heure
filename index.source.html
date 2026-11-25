@@ -2430,15 +2430,18 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
   // fenêtre : chantier, début, fin, pause ; correction du nom du client ou de
   // l'adresse (vaut pour tout le chantier) ; nouveau chantier.
   // Le clic attend un instant : un double-clic reste la validation de la case.
+  // Ligne à créer dans la fenêtre (oubli de pointage du chef, ou chantier en plus).
+  const ligneVierge = (pid, iso) => ({ chantier: chantierDefaut(pid, iso), debut: GRILLE_TYPE.debut, fin: GRILLE_TYPE.fin, pause: GRILLE_TYPE.pause, nouveau: true });
   const ouvrirEdition = (pid, iso, el) => {
     const l = lignes(pid, iso);
-    if (!l.length) return;
+    if (iso > auj && !l.length) { setMsg(`${jourEnClair(iso)} n'est pas encore passé : les heures se saisissent une fois la journée faite.`); return; }
     const r = el.getBoundingClientRect(), H = window.innerHeight, W = window.innerWidth;
     const pos = { left: Math.max(8, Math.min(r.left, W - 372)) };
     if (r.bottom + 420 > H && r.top > H / 2) pos.bottom = H - r.top + 4; else pos.top = r.bottom + 4;
     setDetail(null);
     setEdit({ pid, iso, pos, vue: "case",
-      f: Object.fromEntries(l.map(x => [x.id, { chantier: x.chantier || "", debut: x.debut || "", fin: x.fin || "", pause: Number(x.pause) || 0 }])),
+      f: l.length ? Object.fromEntries(l.map(x => [x.id, { chantier: x.chantier || "", debut: x.debut || "", fin: x.fin || "", pause: Number(x.pause) || 0 }]))
+                  : { "__n1": ligneVierge(pid, iso) },
       ch: null, nv: { client: "", nom: "", ville: "", pour: null } });
   };
   const clicCase = (ev, pid, iso) => {
@@ -2462,20 +2465,24 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
   const enregistrerEdition = () => {
     if (!edit) return;
     const nom = (personnes.find(p => p.id === edit.pid) || {}).nom || edit.pid;
-    const ls = lignes(edit.pid, edit.iso), maj = {};
-    for (const x of ls) {
-      const f = edit.f[x.id]; if (!f) continue;
+    const ls = lignes(edit.pid, edit.iso), maj = {}, ajouts = [];
+    for (const [id, f] of Object.entries(edit.f)) {
+      const x = ls.find(y => y.id === id);
+      if (!x && !f.nouveau) continue;
       if (!f.chantier) { window.alert("Choisissez le chantier."); return; }
       if (!/^\d{1,2}:\d{2}$/.test(f.debut) || !/^\d{1,2}:\d{2}$/.test(f.fin)) { window.alert("Début et fin : heures au format 07:30."); return; }
       const h = (_min(f.fin) - _min(f.debut) - (Number(f.pause) || 0)) / 60;
       if (h <= 0) { window.alert(`La fin (${f.fin}) doit être après le début (${f.debut}), pause comprise.`); return; }
       if (h > 10 && !window.confirm(`${fmtH(h)} pour ${nom} le ${jourEnClair(edit.iso)} : plus que le maximum légal de 10 h. Enregistrer quand même ?`)) return;
+      if (!x) { ajouts.push(nouvelleLigne(edit.pid, edit.iso, f.debut, f.fin, Math.max(0, Number(f.pause) || 0), f.chantier,
+                  { commentaire: ls.length ? "Ajout direction (grille)" : "Oubli de pointage — ajouté par la direction (grille)" }));
+                continue; }
       if (f.chantier !== x.chantier || f.debut !== x.debut || f.fin !== x.fin || (Number(f.pause) || 0) !== (Number(x.pause) || 0))
         maj[x.id] = { chantier: f.chantier, debut: f.debut, fin: f.fin, pause: Math.max(0, Number(f.pause) || 0) };
     }
-    if (Object.keys(maj).length) {
-      setPointages(prev => prev.map(p => maj[p.id] ? {...p, ...maj[p.id], modifiePar: "RH", modifieLe: new Date().toISOString()} : p));
-      setMsg(`${nom}, ${jourEnClair(edit.iso)} : pointage modifié.`);
+    if (Object.keys(maj).length || ajouts.length) {
+      setPointages(prev => [...prev.map(p => maj[p.id] ? {...p, ...maj[p.id], modifiePar: "RH", modifieLe: new Date().toISOString()} : p), ...ajouts]);
+      setMsg(`${nom}, ${jourEnClair(edit.iso)} : ${ajouts.length && !ls.length ? "heures ajoutées (validées)" : ajouts.length ? "pointage modifié, ligne ajoutée" : "pointage modifié"}.`);
     }
     setEdit(null);
   };
@@ -2540,7 +2547,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
         Seules les heures depuis le {new Date(infoPeriode.depuis+"T12:00:00").toLocaleDateString("fr-FR")} sont chargées : cette période peut être incomplète.{" "}
         {onChargerTout && <a href="#" onClick={e=>{e.preventDefault();onChargerTout();}}>Charger tout l'historique</a>}</div>}
       <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.6}}>
-        Tapez dans une case : <b>8</b> ou <b>7h30</b> (heures travaillées, début 07:30 et pause 1 h ajoutée) ou <b>7:30-16:30</b>. Vider une case supprime ses heures.
+        Case sans heures (oubli du chef) : <b>+ AJOUTER</b> pour choisir le chantier et les horaires, ou tapez directement dans la case : <b>8</b> ou <b>7h30</b> (heures travaillées, début 07:30 et pause 1 h ajoutée) ou <b>7:30-16:30</b>. Vider une case supprime ses heures.
         <b>Cliquez sur le client / l'adresse</b> d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; <b>⋯</b> ouvre le détail complet (logement, lignes). <b>Double-cliquez sur une case pour la valider</b> (elle passe au vert ; double-cliquez à nouveau pour annuler).
         Le bouton <b>✓</b> d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée <b>validée</b>, au nom de la direction.
       </div>
@@ -2582,11 +2589,14 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
                       <div style={{fontSize:11,fontWeight:600,color:"#3A372F",marginTop:1,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{ch.nom||"—"}{ch.ville&&ch.ville!=="—"?`, ${ch.ville}`:""}</div>
                       {autres.length>0 && <div style={{fontSize:9.5,fontWeight:700,color:C.orange,whiteSpace:"nowrap"}}>+ {autres.length} autre{autres.length>1?"s":""} chantier{autres.length>1?"s":""}</div>}
                     </div>}
+                    {!mois && !l.length && e !== "futur" && <button onClick={ev => { ev.stopPropagation(); ouvrirEdition(p.id, iso, ev.currentTarget.closest("td")); }}
+                      title="Ajouter des heures (oubli de pointage) : chantier et horaires"
+                      style={{display:"block",margin:"4px 16px 0 6px",border:`1px dashed ${e==="manquant"?"#E55934":C.gris}`,background:"rgba(255,255,255,.6)",color:e==="manquant"?"#B03A1E":C.gris,fontFamily:FM,fontSize:10,fontWeight:700,letterSpacing:"0.04em",padding:"3px 6px",cursor:"pointer"}}>+ AJOUTER</button>}
                     <input value={val} aria-label={`${p.nom} ${jourEnClair(iso)}`} inputMode="decimal" readOnly={e==="futur"} title={e==="futur"?"Jour à venir":undefined}
                       onChange={ev => { const v = ev.target.value; setSaisies(s => ({...s, [cle]: v})); }}
                       onBlur={ev => { if (saisies[cle] != null) appliquerCase(p.id, iso, ev.target.value); }}
                       onKeyDown={ev => { if (ev.key === "Enter") ev.target.blur(); if (ev.key === "Escape") { setSaisies(s => { const n = {...s}; delete n[cle]; return n; }); } }}
-                      style={{width:"100%",height:mois?"100%":(ch?30:52),border:"none",background:"transparent",textAlign:"center",fontFamily:FM,fontWeight:700,fontSize:mois?11:15,color:C.encre,padding:mois?0:"0 2px",minHeight:mois?0:(ch?30:52),outline:"none",boxSizing:"border-box",display:"block"}}/>
+                      style={{width:"100%",height:mois?"100%":(ch||(!l.length&&e!=="futur")?30:52),border:"none",background:"transparent",textAlign:"center",fontFamily:FM,fontWeight:700,fontSize:mois?11:15,color:C.encre,padding:mois?0:"0 2px",minHeight:mois?0:(ch||(!l.length&&e!=="futur")?30:52),outline:"none",boxSizing:"border-box",display:"block"}}/>
                     {!mois && <button onClick={()=>setDetail(ouvert?null:{pid:p.id,iso})} title="Détail : chantier, horaires, pause, logement"
                       style={{position:"absolute",top:1,right:1,border:"none",background:"transparent",cursor:"pointer",fontSize:12,color:C.gris,padding:"0 3px",lineHeight:1}}>⋯</button>}
                     {l.length>0 && l.every(x=>x.valide) && !mois && <span style={{position:"absolute",bottom:2,right:4,fontSize:12,color:C.vert,fontWeight:800,pointerEvents:"none"}}>✓</span>}
@@ -2633,8 +2643,12 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
           <button onClick={()=>setEdit(null)} title="Fermer (Échap)" style={{border:"none",background:"transparent",cursor:"pointer",fontSize:16}}>✕</button>
         </div>
         {edit.vue === "case" && <>
-          {ls.map((x, i) => { const f = edit.f[x.id] || {}; return <div key={x.id} style={{borderTop:i?`1px solid ${C.ligne}`:"none",paddingTop:i?10:0,marginTop:i?10:0}}>
-            <label style={lab}>CHANTIER{ls.length>1?` ${i+1}`:""}</label>
+          {!ls.length && <div style={{fontSize:12,color:"#B03A1E",background:"#FBE0D8",padding:"6px 8px",marginBottom:10}}>Aucune heure pointée ce jour-là. Les heures ajoutées ici sont enregistrées <b>validées</b>, au nom de la direction (oubli de pointage).</div>}
+          {Object.keys(edit.f).map((id, i, cles) => { const f = edit.f[id] || {}; const x = ls.find(y => y.id === id) || {id, valide: true}; return <div key={id} style={{borderTop:i?`1px solid ${C.ligne}`:"none",paddingTop:i?10:0,marginTop:i?10:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+              <label style={lab}>CHANTIER{cles.length>1?` ${i+1}`:""}{f.nouveau?" · NOUVELLE LIGNE":""}</label>
+              {f.nouveau && cles.length>1 && <button onClick={()=>setEdit(e=>{ const n={...e.f}; delete n[id]; return {...e,f:n}; })} title="Retirer cette ligne" style={{border:"none",background:"transparent",cursor:"pointer",color:C.orange,fontSize:12}}>retirer</button>}
+            </div>
             <select value={f.chantier||""} onChange={e=>{ if (e.target.value==="__nouveau") majEdit({vue:"nouveau",nv:{client:"",nom:"",ville:"",pour:x.id}}); else majF(x.id,{chantier:e.target.value}); }} style={{...selectStyle,width:"100%",fontSize:13}}>
               <option value="">— choisir —</option>
               {Object.keys(parClient).sort((a,b)=>a.localeCompare(b)).map(k => <optgroup key={k} label={k}>
@@ -2650,6 +2664,8 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
             </div>
             {f.debut && f.fin && <div style={{fontSize:12,color:C.gris,marginTop:4}}>Soit <b style={{color:C.encre}}>{fmtH(Math.max(0,(_min(f.fin)-_min(f.debut)-(Number(f.pause)||0))/60))}</b>{x.valide?" · validé":" · à valider"}</div>}
           </div>; })}
+          <button onClick={()=>setEdit(e=>({...e,f:{...e.f,["__n"+(Object.keys(e.f).length+1)+"_"+Date.now()]:ligneVierge(e.pid,e.iso)}}))}
+            style={{border:"none",background:"transparent",color:C.bleu,cursor:"pointer",fontSize:12,padding:"8px 0 0",textDecoration:"underline"}}>+ Ajouter une ligne (autre chantier le même jour)</button>
           <div style={{display:"flex",gap:8,marginTop:12}}>
             <Btn onClick={enregistrerEdition}>✓ ENREGISTRER</Btn>
             <Btn variant="ghost" onClick={()=>setEdit(null)}>ANNULER</Btn>
