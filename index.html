@@ -4035,6 +4035,19 @@ function OngletGrille({
     }
     setEdit(null);
   };
+  // SUPPRIMER UNE JOURNÉE (25/11/2026) : toutes les heures de la case, par ex.
+  // un jour férié déclaré à tort. Seule cette personne et ce jour sont touchés.
+  const supprimerJournee = (pid, iso) => {
+    const l = lignes(pid, iso);
+    if (!l.length) return false;
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    const ferie = nomFerie(iso);
+    if (!window.confirm(`Supprimer toutes les heures de ${nom} le ${jourEnClair(iso)}${ferie ? ` (${ferie})` : ""} ?\n\n${l.map(x => `${x.debut}–${x.fin} · ${libelleChantier(chantiers.find(c => c.id === x.chantier))}`).join("\n")}\n\nTotal : ${fmtH(heures(pid, iso))}. Cette suppression est définitive.`)) return false;
+    const cles = new Set(l.map(x => x.id + "|" + x.date + "|" + x.salarie));
+    setPointages(prev => prev.filter(x => !cles.has(x.id + "|" + x.date + "|" + x.salarie)));
+    setMsg(`${nom}, ${jourEnClair(iso)} : heures supprimées (${fmtH(heures(pid, iso))}).`);
+    return true;
+  };
   const clientsConnus = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const ouvrirCorrection = (chId, ligne) => {
     const c = chantiers.find(x => x.id === chId);
@@ -4314,7 +4327,7 @@ function OngletGrille({
       marginBottom: 10,
       lineHeight: 1.6
     }
-  }, "Case sans heures (oubli du chef) : ", /*#__PURE__*/React.createElement("b", null, "+ AJOUTER"), " pour choisir le chantier et les horaires, ou tapez directement dans la case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case supprime ses heures.", /*#__PURE__*/React.createElement("b", null, "Cliquez sur le client / l'adresse"), " d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; ", /*#__PURE__*/React.createElement("b", null, "⋯"), " ouvre le détail complet (logement, lignes). ", /*#__PURE__*/React.createElement("b", null, "📋"), " copie une journée, ", /*#__PURE__*/React.createElement("b", null, "COLLER"), " la recopie dans une autre case (ou Ctrl+C / Ctrl+V dans la case). ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), pressePapier && /*#__PURE__*/React.createElement("div", {
+  }, "Case sans heures (oubli du chef) : ", /*#__PURE__*/React.createElement("b", null, "+ AJOUTER"), " pour choisir le chantier et les horaires, ou tapez directement dans la case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case (ou ", /*#__PURE__*/React.createElement("b", null, "🗑 Supprimer cette journée"), " dans sa fenêtre) supprime ses heures.", /*#__PURE__*/React.createElement("b", null, "Cliquez sur le client / l'adresse"), " d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; ", /*#__PURE__*/React.createElement("b", null, "⋯"), " ouvre le détail complet (logement, lignes). ", /*#__PURE__*/React.createElement("b", null, "📋"), " copie une journée, ", /*#__PURE__*/React.createElement("b", null, "COLLER"), " la recopie dans une autre case (ou Ctrl+C / Ctrl+V dans la case). ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), pressePapier && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 10,
@@ -4979,7 +4992,24 @@ function OngletGrille({
       onClick: () => {
         if (copierCase(edit.pid, edit.iso)) setEdit(null);
       }
-    }, "📋 COPIER"))), edit.vue === "nom" && edit.ch && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    }, "📋 COPIER")), ls.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 10,
+        paddingTop: 10,
+        borderTop: `1px solid ${C.ligne}`
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      variant: "danger",
+      onClick: () => {
+        if (supprimerJournee(edit.pid, edit.iso)) setEdit(null);
+      }
+    }, "🗑 SUPPRIMER CETTE JOURNÉE"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: C.gris,
+        marginTop: 4
+      }
+    }, "Par exemple un jour férié ou une journée déclarés à tort."))), edit.vue === "nom" && edit.ch && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: C.gris,
