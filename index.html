@@ -3842,9 +3842,20 @@ function OngletGrille({
   // fenêtre : chantier, début, fin, pause ; correction du nom du client ou de
   // l'adresse (vaut pour tout le chantier) ; nouveau chantier.
   // Le clic attend un instant : un double-clic reste la validation de la case.
+  // Ligne à créer dans la fenêtre (oubli de pointage du chef, ou chantier en plus).
+  const ligneVierge = (pid, iso) => ({
+    chantier: chantierDefaut(pid, iso),
+    debut: GRILLE_TYPE.debut,
+    fin: GRILLE_TYPE.fin,
+    pause: GRILLE_TYPE.pause,
+    nouveau: true
+  });
   const ouvrirEdition = (pid, iso, el) => {
     const l = lignes(pid, iso);
-    if (!l.length) return;
+    if (iso > auj && !l.length) {
+      setMsg(`${jourEnClair(iso)} n'est pas encore passé : les heures se saisissent une fois la journée faite.`);
+      return;
+    }
     const r = el.getBoundingClientRect(),
       H = window.innerHeight,
       W = window.innerWidth;
@@ -3858,12 +3869,14 @@ function OngletGrille({
       iso,
       pos,
       vue: "case",
-      f: Object.fromEntries(l.map(x => [x.id, {
+      f: l.length ? Object.fromEntries(l.map(x => [x.id, {
         chantier: x.chantier || "",
         debut: x.debut || "",
         fin: x.fin || "",
         pause: Number(x.pause) || 0
-      }])),
+      }])) : {
+        "__n1": ligneVierge(pid, iso)
+      },
       ch: null,
       nv: {
         client: "",
@@ -3921,10 +3934,11 @@ function OngletGrille({
     if (!edit) return;
     const nom = (personnes.find(p => p.id === edit.pid) || {}).nom || edit.pid;
     const ls = lignes(edit.pid, edit.iso),
-      maj = {};
-    for (const x of ls) {
-      const f = edit.f[x.id];
-      if (!f) continue;
+      maj = {},
+      ajouts = [];
+    for (const [id, f] of Object.entries(edit.f)) {
+      const x = ls.find(y => y.id === id);
+      if (!x && !f.nouveau) continue;
       if (!f.chantier) {
         window.alert("Choisissez le chantier.");
         return;
@@ -3939,6 +3953,12 @@ function OngletGrille({
         return;
       }
       if (h > 10 && !window.confirm(`${fmtH(h)} pour ${nom} le ${jourEnClair(edit.iso)} : plus que le maximum légal de 10 h. Enregistrer quand même ?`)) return;
+      if (!x) {
+        ajouts.push(nouvelleLigne(edit.pid, edit.iso, f.debut, f.fin, Math.max(0, Number(f.pause) || 0), f.chantier, {
+          commentaire: ls.length ? "Ajout direction (grille)" : "Oubli de pointage — ajouté par la direction (grille)"
+        }));
+        continue;
+      }
       if (f.chantier !== x.chantier || f.debut !== x.debut || f.fin !== x.fin || (Number(f.pause) || 0) !== (Number(x.pause) || 0)) maj[x.id] = {
         chantier: f.chantier,
         debut: f.debut,
@@ -3946,14 +3966,14 @@ function OngletGrille({
         pause: Math.max(0, Number(f.pause) || 0)
       };
     }
-    if (Object.keys(maj).length) {
-      setPointages(prev => prev.map(p => maj[p.id] ? {
+    if (Object.keys(maj).length || ajouts.length) {
+      setPointages(prev => [...prev.map(p => maj[p.id] ? {
         ...p,
         ...maj[p.id],
         modifiePar: "RH",
         modifieLe: new Date().toISOString()
-      } : p));
-      setMsg(`${nom}, ${jourEnClair(edit.iso)} : pointage modifié.`);
+      } : p), ...ajouts]);
+      setMsg(`${nom}, ${jourEnClair(edit.iso)} : ${ajouts.length && !ls.length ? "heures ajoutées (validées)" : ajouts.length ? "pointage modifié, ligne ajoutée" : "pointage modifié"}.`);
     }
     setEdit(null);
   };
@@ -4188,7 +4208,7 @@ function OngletGrille({
       marginBottom: 10,
       lineHeight: 1.6
     }
-  }, "Tapez dans une case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case supprime ses heures.", /*#__PURE__*/React.createElement("b", null, "Cliquez sur le client / l'adresse"), " d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; ", /*#__PURE__*/React.createElement("b", null, "⋯"), " ouvre le détail complet (logement, lignes). ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), /*#__PURE__*/React.createElement("div", {
+  }, "Case sans heures (oubli du chef) : ", /*#__PURE__*/React.createElement("b", null, "+ AJOUTER"), " pour choisir le chantier et les horaires, ou tapez directement dans la case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case supprime ses heures.", /*#__PURE__*/React.createElement("b", null, "Cliquez sur le client / l'adresse"), " d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; ", /*#__PURE__*/React.createElement("b", null, "⋯"), " ouvre le détail complet (logement, lignes). ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), /*#__PURE__*/React.createElement("div", {
     className: "grille-heures",
     style: {
       background: C.papier,
@@ -4331,7 +4351,26 @@ function OngletGrille({
           color: C.orange,
           whiteSpace: "nowrap"
         }
-      }, "+ ", autres.length, " autre", autres.length > 1 ? "s" : "", " chantier", autres.length > 1 ? "s" : "")), /*#__PURE__*/React.createElement("input", {
+      }, "+ ", autres.length, " autre", autres.length > 1 ? "s" : "", " chantier", autres.length > 1 ? "s" : "")), !mois && !l.length && e !== "futur" && /*#__PURE__*/React.createElement("button", {
+        onClick: ev => {
+          ev.stopPropagation();
+          ouvrirEdition(p.id, iso, ev.currentTarget.closest("td"));
+        },
+        title: "Ajouter des heures (oubli de pointage) : chantier et horaires",
+        style: {
+          display: "block",
+          margin: "4px 16px 0 6px",
+          border: `1px dashed ${e === "manquant" ? "#E55934" : C.gris}`,
+          background: "rgba(255,255,255,.6)",
+          color: e === "manquant" ? "#B03A1E" : C.gris,
+          fontFamily: FM,
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.04em",
+          padding: "3px 6px",
+          cursor: "pointer"
+        }
+      }, "+ AJOUTER"), /*#__PURE__*/React.createElement("input", {
         value: val,
         "aria-label": `${p.nom} ${jourEnClair(iso)}`,
         inputMode: "decimal",
@@ -4361,7 +4400,7 @@ function OngletGrille({
         },
         style: {
           width: "100%",
-          height: mois ? "100%" : ch ? 30 : 52,
+          height: mois ? "100%" : ch || !l.length && e !== "futur" ? 30 : 52,
           border: "none",
           background: "transparent",
           textAlign: "center",
@@ -4370,7 +4409,7 @@ function OngletGrille({
           fontSize: mois ? 11 : 15,
           color: C.encre,
           padding: mois ? 0 : "0 2px",
-          minHeight: mois ? 0 : ch ? 30 : 52,
+          minHeight: mois ? 0 : ch || !l.length && e !== "futur" ? 30 : 52,
           outline: "none",
           boxSizing: "border-box",
           display: "block"
@@ -4577,18 +4616,55 @@ function OngletGrille({
         cursor: "pointer",
         fontSize: 16
       }
-    }, "✕")), edit.vue === "case" && /*#__PURE__*/React.createElement(React.Fragment, null, ls.map((x, i) => {
-      const f = edit.f[x.id] || {};
+    }, "✕")), edit.vue === "case" && /*#__PURE__*/React.createElement(React.Fragment, null, !ls.length && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "#B03A1E",
+        background: "#FBE0D8",
+        padding: "6px 8px",
+        marginBottom: 10
+      }
+    }, "Aucune heure pointée ce jour-là. Les heures ajoutées ici sont enregistrées ", /*#__PURE__*/React.createElement("b", null, "validées"), ", au nom de la direction (oubli de pointage)."), Object.keys(edit.f).map((id, i, cles) => {
+      const f = edit.f[id] || {};
+      const x = ls.find(y => y.id === id) || {
+        id,
+        valide: true
+      };
       return /*#__PURE__*/React.createElement("div", {
-        key: x.id,
+        key: id,
         style: {
           borderTop: i ? `1px solid ${C.ligne}` : "none",
           paddingTop: i ? 10 : 0,
           marginTop: i ? 10 : 0
         }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline"
+        }
       }, /*#__PURE__*/React.createElement("label", {
         style: lab
-      }, "CHANTIER", ls.length > 1 ? ` ${i + 1}` : ""), /*#__PURE__*/React.createElement("select", {
+      }, "CHANTIER", cles.length > 1 ? ` ${i + 1}` : "", f.nouveau ? " · NOUVELLE LIGNE" : ""), f.nouveau && cles.length > 1 && /*#__PURE__*/React.createElement("button", {
+        onClick: () => setEdit(e => {
+          const n = {
+            ...e.f
+          };
+          delete n[id];
+          return {
+            ...e,
+            f: n
+          };
+        }),
+        title: "Retirer cette ligne",
+        style: {
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          color: C.orange,
+          fontSize: 12
+        }
+      }, "retirer")), /*#__PURE__*/React.createElement("select", {
         value: f.chantier || "",
         onChange: e => {
           if (e.target.value === "__nouveau") majEdit({
@@ -4686,7 +4762,24 @@ function OngletGrille({
           color: C.encre
         }
       }, fmtH(Math.max(0, (_min(f.fin) - _min(f.debut) - (Number(f.pause) || 0)) / 60))), x.valide ? " · validé" : " · à valider"));
-    }), /*#__PURE__*/React.createElement("div", {
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setEdit(e => ({
+        ...e,
+        f: {
+          ...e.f,
+          ["__n" + (Object.keys(e.f).length + 1) + "_" + Date.now()]: ligneVierge(e.pid, e.iso)
+        }
+      })),
+      style: {
+        border: "none",
+        background: "transparent",
+        color: C.bleu,
+        cursor: "pointer",
+        fontSize: 12,
+        padding: "8px 0 0",
+        textDecoration: "underline"
+      }
+    }, "+ Ajouter une ligne (autre chantier le même jour)"), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 8,
