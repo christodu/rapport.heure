@@ -3426,6 +3426,7 @@ function VueAdmin({
     pointagesTous: pointages,
     setPointages: setPointages,
     chantiers: chantiers,
+    setChantiers: setChantiers,
     salaries: salaries,
     interimaires: interimaires,
     absences: absences,
@@ -3582,6 +3583,7 @@ function OngletGrille({
   pointagesTous,
   setPointages,
   chantiers,
+  setChantiers,
   salaries,
   interimaires,
   absences,
@@ -3595,6 +3597,9 @@ function OngletGrille({
   const [saisies, setSaisies] = useState({}); // case en cours de frappe → texte
   const [detail, setDetail] = useState(null); // {pid, iso}
   const [msg, setMsg] = useState("");
+  const [edit, setEdit] = useState(null); // fenêtre d'édition d'une case (voir plus bas)
+  const minuterieClic = React.useRef(null);
+  const refEdit = React.useRef(null);
 
   // ── Période affichée ──
   const jours = React.useMemo(() => {
@@ -3832,6 +3837,203 @@ function OngletGrille({
     }
   };
 
+  // ── ÉDITION DIRECTE DANS LE TABLEAU (25/11/2026) ──
+  // Un clic sur le client / l'adresse d'une case ouvre, sur place, une petite
+  // fenêtre : chantier, début, fin, pause ; correction du nom du client ou de
+  // l'adresse (vaut pour tout le chantier) ; nouveau chantier.
+  // Le clic attend un instant : un double-clic reste la validation de la case.
+  const ouvrirEdition = (pid, iso, el) => {
+    const l = lignes(pid, iso);
+    if (!l.length) return;
+    const r = el.getBoundingClientRect(),
+      H = window.innerHeight,
+      W = window.innerWidth;
+    const pos = {
+      left: Math.max(8, Math.min(r.left, W - 372))
+    };
+    if (r.bottom + 420 > H && r.top > H / 2) pos.bottom = H - r.top + 4;else pos.top = r.bottom + 4;
+    setDetail(null);
+    setEdit({
+      pid,
+      iso,
+      pos,
+      vue: "case",
+      f: Object.fromEntries(l.map(x => [x.id, {
+        chantier: x.chantier || "",
+        debut: x.debut || "",
+        fin: x.fin || "",
+        pause: Number(x.pause) || 0
+      }])),
+      ch: null,
+      nv: {
+        client: "",
+        nom: "",
+        ville: "",
+        pour: null
+      }
+    });
+  };
+  const clicCase = (ev, pid, iso) => {
+    ev.stopPropagation();
+    if (ev.detail > 1) {
+      clearTimeout(minuterieClic.current);
+      return;
+    }
+    const el = ev.currentTarget.closest("td");
+    clearTimeout(minuterieClic.current);
+    minuterieClic.current = setTimeout(() => ouvrirEdition(pid, iso, el), 260);
+  };
+  useEffect(() => {
+    if (!edit) return;
+    const dehors = e => {
+      if (refEdit.current && !refEdit.current.contains(e.target)) setEdit(null);
+    };
+    const touche = e => {
+      if (e.key === "Escape") setEdit(null);
+    };
+    const defile = e => {
+      if (!refEdit.current || !refEdit.current.contains(e.target)) setEdit(null);
+    };
+    document.addEventListener("mousedown", dehors);
+    document.addEventListener("keydown", touche);
+    window.addEventListener("scroll", defile, true);
+    return () => {
+      document.removeEventListener("mousedown", dehors);
+      document.removeEventListener("keydown", touche);
+      window.removeEventListener("scroll", defile, true);
+    };
+  }, [!!edit]);
+  const majEdit = champs => setEdit(e => e && {
+    ...e,
+    ...champs
+  });
+  const majF = (id, champs) => setEdit(e => e && {
+    ...e,
+    f: {
+      ...e.f,
+      [id]: {
+        ...e.f[id],
+        ...champs
+      }
+    }
+  });
+  const enregistrerEdition = () => {
+    if (!edit) return;
+    const nom = (personnes.find(p => p.id === edit.pid) || {}).nom || edit.pid;
+    const ls = lignes(edit.pid, edit.iso),
+      maj = {};
+    for (const x of ls) {
+      const f = edit.f[x.id];
+      if (!f) continue;
+      if (!f.chantier) {
+        window.alert("Choisissez le chantier.");
+        return;
+      }
+      if (!/^\d{1,2}:\d{2}$/.test(f.debut) || !/^\d{1,2}:\d{2}$/.test(f.fin)) {
+        window.alert("Début et fin : heures au format 07:30.");
+        return;
+      }
+      const h = (_min(f.fin) - _min(f.debut) - (Number(f.pause) || 0)) / 60;
+      if (h <= 0) {
+        window.alert(`La fin (${f.fin}) doit être après le début (${f.debut}), pause comprise.`);
+        return;
+      }
+      if (h > 10 && !window.confirm(`${fmtH(h)} pour ${nom} le ${jourEnClair(edit.iso)} : plus que le maximum légal de 10 h. Enregistrer quand même ?`)) return;
+      if (f.chantier !== x.chantier || f.debut !== x.debut || f.fin !== x.fin || (Number(f.pause) || 0) !== (Number(x.pause) || 0)) maj[x.id] = {
+        chantier: f.chantier,
+        debut: f.debut,
+        fin: f.fin,
+        pause: Math.max(0, Number(f.pause) || 0)
+      };
+    }
+    if (Object.keys(maj).length) {
+      setPointages(prev => prev.map(p => maj[p.id] ? {
+        ...p,
+        ...maj[p.id],
+        modifiePar: "RH",
+        modifieLe: new Date().toISOString()
+      } : p));
+      setMsg(`${nom}, ${jourEnClair(edit.iso)} : pointage modifié.`);
+    }
+    setEdit(null);
+  };
+  const clientsConnus = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const ouvrirCorrection = chId => {
+    const c = chantiers.find(x => x.id === chId);
+    if (!c) return;
+    majEdit({
+      vue: "nom",
+      ch: {
+        id: c.id,
+        client: clientDe(c),
+        nom: c.nom || "",
+        ville: c.ville === "—" ? "" : c.ville || ""
+      }
+    });
+  };
+  const enregistrerCorrection = () => {
+    const c = edit && edit.ch;
+    if (!c) return;
+    if ((c.client || "").trim().length < 2) {
+      window.alert("Le client est obligatoire.");
+      return;
+    }
+    if ((c.nom || "").trim().length < 2) {
+      window.alert("Adresse / nom du chantier trop court.");
+      return;
+    }
+    setChantiers(prev => prev.map(x => x.id === c.id ? {
+      ...x,
+      client: c.client.trim(),
+      nom: c.nom.trim(),
+      ville: c.ville.trim() || "—"
+    } : x));
+    setMsg(`Chantier corrigé : ${c.client.trim()} — ${c.nom.trim()}${c.ville.trim() ? ", " + c.ville.trim() : ""} (toutes ses heures suivent).`);
+    majEdit({
+      vue: "case",
+      ch: null
+    });
+  };
+  const creerChantier = () => {
+    const n = edit && edit.nv;
+    if (!n) return;
+    if ((n.client || "").trim().length < 2) {
+      window.alert("Le client est obligatoire.");
+      return;
+    }
+    if ((n.nom || "").trim().length < 2) {
+      window.alert("Adresse / nom du chantier trop court.");
+      return;
+    }
+    const c = {
+      id: genId("C"),
+      nom: n.nom.trim(),
+      ville: n.ville.trim() || "—",
+      client: n.client.trim(),
+      couleur: COULEURS_CHANTIER[chantiers.length % COULEURS_CHANTIER.length],
+      actif: true
+    };
+    setChantiers(prev => [...prev, c]);
+    setEdit(e => e && {
+      ...e,
+      vue: "case",
+      f: {
+        ...e.f,
+        [n.pour]: {
+          ...e.f[n.pour],
+          chantier: c.id
+        }
+      },
+      nv: {
+        client: "",
+        nom: "",
+        ville: "",
+        pour: null
+      }
+    });
+    setMsg(`Nouveau chantier créé : ${c.client} — ${c.nom}. Pensez à enregistrer la case.`);
+  };
+
   // ── Détail d'une case ──
   const majLigne = (id, champs) => setPointages(prev => prev.map(p => p.id === id ? {
     ...p,
@@ -3986,7 +4188,7 @@ function OngletGrille({
       marginBottom: 10,
       lineHeight: 1.6
     }
-  }, "Tapez dans une case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case supprime ses heures. Cliquez sur ", /*#__PURE__*/React.createElement("b", null, "⋯"), " pour le chantier, la pause ou le logement. ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), /*#__PURE__*/React.createElement("div", {
+  }, "Tapez dans une case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case supprime ses heures.", /*#__PURE__*/React.createElement("b", null, "Cliquez sur le client / l'adresse"), " d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; ", /*#__PURE__*/React.createElement("b", null, "⋯"), " ouvre le détail complet (logement, lignes). ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), /*#__PURE__*/React.createElement("div", {
     className: "grille-heures",
     style: {
       background: C.papier,
@@ -4067,7 +4269,10 @@ function OngletGrille({
       return /*#__PURE__*/React.createElement("td", {
         key: iso,
         title: titreCase,
-        onDoubleClick: ev => basculerValidation(p.id, iso, ev),
+        onDoubleClick: ev => {
+          clearTimeout(minuterieClic.current);
+          basculerValidation(p.id, iso, ev);
+        },
         style: {
           background: COUL[e],
           borderRight: `1px solid ${C.ligne}`,
@@ -4087,9 +4292,11 @@ function OngletGrille({
           cursor: "default"
         }
       }, mois ? abs.type || "ABS" : libelleAbsence(abs)) : /*#__PURE__*/React.createElement(React.Fragment, null, !mois && ch && /*#__PURE__*/React.createElement("div", {
+        onClick: ev => clicCase(ev, p.id, iso),
+        title: "Cliquer pour modifier : chantier, client, adresse, horaires",
         style: {
           padding: "4px 16px 0 6px",
-          pointerEvents: "none",
+          cursor: "pointer",
           lineHeight: 1.2,
           textAlign: "left",
           fontFamily: FT
@@ -4303,7 +4510,351 @@ function OngletGrille({
       fontSize: 13
     },
     role: "status"
-  }, msg)), detail && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
+  }, msg)), edit && (() => {
+    const ls = lignes(edit.pid, edit.iso);
+    const pers = personnes.find(p => p.id === edit.pid) || {
+      nom: edit.pid
+    };
+    const parClient = {};
+    chantiersTries.forEach(c => {
+      const k = clientDe(c) || "Sans client";
+      (parClient[k] = parClient[k] || []).push(c);
+    });
+    const lab = {
+      fontSize: 10,
+      letterSpacing: "0.08em",
+      color: C.gris,
+      fontWeight: 700,
+      display: "block",
+      marginBottom: 3
+    };
+    const inp = {
+      ...inputStyle,
+      padding: "6px 8px",
+      fontSize: 13
+    };
+    return /*#__PURE__*/React.createElement("div", {
+      ref: refEdit,
+      role: "dialog",
+      "aria-label": "Modifier la case",
+      style: {
+        position: "fixed",
+        zIndex: 50,
+        width: 356,
+        maxHeight: "70vh",
+        overflowY: "auto",
+        background: C.papier,
+        border: `1.5px solid ${C.encre}`,
+        boxShadow: "0 8px 28px rgba(0,0,0,.22)",
+        padding: 14,
+        ...edit.pos
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: FT,
+        fontWeight: 800,
+        fontSize: 14
+      }
+    }, pers.nom), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: C.gris
+      }
+    }, jourEnClair(edit.iso))), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setEdit(null),
+      title: "Fermer (Échap)",
+      style: {
+        border: "none",
+        background: "transparent",
+        cursor: "pointer",
+        fontSize: 16
+      }
+    }, "✕")), edit.vue === "case" && /*#__PURE__*/React.createElement(React.Fragment, null, ls.map((x, i) => {
+      const f = edit.f[x.id] || {};
+      return /*#__PURE__*/React.createElement("div", {
+        key: x.id,
+        style: {
+          borderTop: i ? `1px solid ${C.ligne}` : "none",
+          paddingTop: i ? 10 : 0,
+          marginTop: i ? 10 : 0
+        }
+      }, /*#__PURE__*/React.createElement("label", {
+        style: lab
+      }, "CHANTIER", ls.length > 1 ? ` ${i + 1}` : ""), /*#__PURE__*/React.createElement("select", {
+        value: f.chantier || "",
+        onChange: e => {
+          if (e.target.value === "__nouveau") majEdit({
+            vue: "nouveau",
+            nv: {
+              client: "",
+              nom: "",
+              ville: "",
+              pour: x.id
+            }
+          });else majF(x.id, {
+            chantier: e.target.value
+          });
+        },
+        style: {
+          ...selectStyle,
+          width: "100%",
+          fontSize: 13
+        }
+      }, /*#__PURE__*/React.createElement("option", {
+        value: ""
+      }, "— choisir —"), Object.keys(parClient).sort((a, b) => a.localeCompare(b)).map(k => /*#__PURE__*/React.createElement("optgroup", {
+        key: k,
+        label: k
+      }, parClient[k].map(c => /*#__PURE__*/React.createElement("option", {
+        key: c.id,
+        value: c.id
+      }, c.nom, c.ville && c.ville !== "—" ? `, ${c.ville}` : "")))), f.chantier && !chantiersTries.some(c => c.id === f.chantier) && /*#__PURE__*/React.createElement("option", {
+        value: f.chantier
+      }, libelleChantier(chantiers.find(c => c.id === f.chantier), true)), /*#__PURE__*/React.createElement("option", {
+        value: "__nouveau"
+      }, "+ Nouveau chantier…")), f.chantier && /*#__PURE__*/React.createElement("button", {
+        onClick: () => ouvrirCorrection(f.chantier),
+        style: {
+          border: "none",
+          background: "transparent",
+          color: C.bleu,
+          cursor: "pointer",
+          fontSize: 12,
+          padding: "4px 0",
+          textDecoration: "underline"
+        }
+      }, "✎ Corriger le nom du client ou l'adresse de ce chantier"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 8,
+          marginTop: 6
+        }
+      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+        style: lab
+      }, "DÉBUT"), /*#__PURE__*/React.createElement("input", {
+        type: "time",
+        value: f.debut,
+        onChange: e => majF(x.id, {
+          debut: e.target.value
+        }),
+        style: {
+          ...inp,
+          width: 104
+        }
+      })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+        style: lab
+      }, "FIN"), /*#__PURE__*/React.createElement("input", {
+        type: "time",
+        value: f.fin,
+        onChange: e => majF(x.id, {
+          fin: e.target.value
+        }),
+        style: {
+          ...inp,
+          width: 104
+        }
+      })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+        style: lab
+      }, "PAUSE (MIN)"), /*#__PURE__*/React.createElement("input", {
+        type: "number",
+        min: "0",
+        step: "15",
+        value: f.pause,
+        onChange: e => majF(x.id, {
+          pause: e.target.value
+        }),
+        style: {
+          ...inp,
+          width: 80
+        }
+      }))), f.debut && f.fin && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 12,
+          color: C.gris,
+          marginTop: 4
+        }
+      }, "Soit ", /*#__PURE__*/React.createElement("b", {
+        style: {
+          color: C.encre
+        }
+      }, fmtH(Math.max(0, (_min(f.fin) - _min(f.debut) - (Number(f.pause) || 0)) / 60))), x.valide ? " · validé" : " · à valider"));
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        marginTop: 12
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      onClick: enregistrerEdition
+    }, "✓ ENREGISTRER"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => setEdit(null)
+    }, "ANNULER"))), edit.vue === "nom" && edit.ch && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: C.gris,
+        marginBottom: 10
+      }
+    }, "La correction vaut pour ", /*#__PURE__*/React.createElement("b", null, "les ", (pointagesTous || []).filter(p => p.chantier === edit.ch.id).length, " pointage(s)"), " de ce chantier, passés et à venir."), /*#__PURE__*/React.createElement("label", {
+      style: lab
+    }, "CLIENT *"), /*#__PURE__*/React.createElement("input", {
+      list: "grille-clients",
+      value: edit.ch.client,
+      onChange: e => majEdit({
+        ch: {
+          ...edit.ch,
+          client: e.target.value
+        }
+      }),
+      spellCheck: false,
+      style: {
+        ...inp,
+        width: "100%",
+        marginBottom: 8
+      }
+    }), clientsProches(edit.ch.client, clientsConnus).filter(c => c !== edit.ch.client.trim()).length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: "#B7770D",
+        fontWeight: 700,
+        marginTop: -4,
+        marginBottom: 8
+      }
+    }, "Client proche déjà connu : ", clientsProches(edit.ch.client, clientsConnus).filter(c => c !== edit.ch.client.trim()).join(", ")), /*#__PURE__*/React.createElement("label", {
+      style: lab
+    }, "ADRESSE / NOM DU CHANTIER *"), /*#__PURE__*/React.createElement("input", {
+      value: edit.ch.nom,
+      onChange: e => majEdit({
+        ch: {
+          ...edit.ch,
+          nom: e.target.value
+        }
+      }),
+      spellCheck: false,
+      style: {
+        ...inp,
+        width: "100%",
+        marginBottom: 8
+      }
+    }), /*#__PURE__*/React.createElement("label", {
+      style: lab
+    }, "VILLE"), /*#__PURE__*/React.createElement("input", {
+      value: edit.ch.ville,
+      onChange: e => majEdit({
+        ch: {
+          ...edit.ch,
+          ville: e.target.value
+        }
+      }),
+      spellCheck: false,
+      style: {
+        ...inp,
+        width: "100%"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        marginTop: 12
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      onClick: enregistrerCorrection
+    }, "✓ CORRIGER LE CHANTIER"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => majEdit({
+        vue: "case",
+        ch: null
+      })
+    }, "RETOUR"))), edit.vue === "nouveau" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: C.gris,
+        marginBottom: 10
+      }
+    }, "Nouveau chantier, choisi ensuite pour cette case."), /*#__PURE__*/React.createElement("label", {
+      style: lab
+    }, "CLIENT *"), /*#__PURE__*/React.createElement("input", {
+      list: "grille-clients",
+      value: edit.nv.client,
+      onChange: e => majEdit({
+        nv: {
+          ...edit.nv,
+          client: e.target.value
+        }
+      }),
+      spellCheck: false,
+      style: {
+        ...inp,
+        width: "100%",
+        marginBottom: 8
+      }
+    }), clientsProches(edit.nv.client, clientsConnus).filter(c => c !== edit.nv.client.trim()).length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: "#B7770D",
+        fontWeight: 700,
+        marginTop: -4,
+        marginBottom: 8
+      }
+    }, "Client proche déjà connu : ", clientsProches(edit.nv.client, clientsConnus).filter(c => c !== edit.nv.client.trim()).join(", ")), /*#__PURE__*/React.createElement("label", {
+      style: lab
+    }, "ADRESSE / NOM DU CHANTIER *"), /*#__PURE__*/React.createElement("input", {
+      value: edit.nv.nom,
+      onChange: e => majEdit({
+        nv: {
+          ...edit.nv,
+          nom: e.target.value
+        }
+      }),
+      spellCheck: false,
+      style: {
+        ...inp,
+        width: "100%",
+        marginBottom: 8
+      }
+    }), /*#__PURE__*/React.createElement("label", {
+      style: lab
+    }, "VILLE"), /*#__PURE__*/React.createElement("input", {
+      value: edit.nv.ville,
+      onChange: e => majEdit({
+        nv: {
+          ...edit.nv,
+          ville: e.target.value
+        }
+      }),
+      spellCheck: false,
+      style: {
+        ...inp,
+        width: "100%"
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        marginTop: 12
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      onClick: creerChantier
+    }, "+ CRÉER"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      onClick: () => majEdit({
+        vue: "case"
+      })
+    }, "RETOUR"))), /*#__PURE__*/React.createElement("datalist", {
+      id: "grille-clients"
+    }, clientsConnus.map(c => /*#__PURE__*/React.createElement("option", {
+      key: c,
+      value: c
+    }))));
+  })(), detail && /*#__PURE__*/React.createElement(FormInline, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
