@@ -3431,6 +3431,7 @@ function VueAdmin({
     salaries: salaries,
     interimaires: interimaires,
     absences: absences,
+    setAbsences: setAbsences,
     infoPeriode: infoPeriode,
     onChargerTout: () => onReloadSupabase(true)
   }), onglet === "absences" && /*#__PURE__*/React.createElement(OngletAbsences, {
@@ -3588,6 +3589,7 @@ function OngletGrille({
   salaries,
   interimaires,
   absences,
+  setAbsences,
   infoPeriode,
   onChargerTout
 }) {
@@ -3853,7 +3855,7 @@ function OngletGrille({
   });
   const ouvrirEdition = (pid, iso, el) => {
     const l = lignes(pid, iso);
-    if (iso > auj && !l.length) {
+    if (iso > auj && !l.length && !absenceLe(absences, pid, iso)) {
       setMsg(`${jourEnClair(iso)} n'est pas encore passé : les heures se saisissent une fois la journée faite.`);
       return;
     }
@@ -3884,7 +3886,8 @@ function OngletGrille({
         nom: "",
         ville: "",
         pour: null
-      }
+      },
+      typeAbs: "MAL"
     });
   };
   const clicCase = (ev, pid, iso) => {
@@ -4047,6 +4050,112 @@ function OngletGrille({
     const cles = new Set(l.map(x => x.id + "|" + x.date + "|" + x.salarie));
     setPointages(prev => prev.filter(x => !cles.has(x.id + "|" + x.date + "|" + x.salarie)));
     setMsg(`${nom}, ${jourEnClair(iso)} : heures supprimées (${fmtH(heures(pid, iso))}).`);
+    return true;
+  };
+  // ── FORMATION ET ABSENCE DEPUIS LA GRILLE (26/11/2026) ──
+  // Une journée de FORMATION posée ici compte comme une journée de travail
+  // (horaires types, sur le chantier « FORMATION — Journée de formation »,
+  // créé une fois) avec 1 panier normal pour un salarié.
+  // Une ABSENCE posée ici vaut pour ce seul jour (comme dans l'onglet Absences).
+  const NOM_FORMATION = {
+    client: "FORMATION",
+    nom: "Journée de formation"
+  };
+  const estChantierFormation = c => !!c && _cleNom(clientDe(c)) === _cleNom(NOM_FORMATION.client) && _cleNom(c.nom) === _cleNom(NOM_FORMATION.nom);
+  // Absences sans ce jour : une absence de plusieurs jours est coupée en deux si besoin.
+  const absencesSansCeJour = (liste, pid, iso) => {
+    const res = [];
+    (liste || []).forEach(a => {
+      const fin = a.dateFin || a.dateDebut;
+      if (a.salarie !== pid || !a.dateDebut || iso < a.dateDebut || iso > fin) {
+        res.push(a);
+        return;
+      }
+      if (a.dateDebut < iso) res.push({
+        ...a,
+        dateFin: _isoPlus(iso, -1)
+      });
+      if (fin > iso) res.push({
+        ...a,
+        id: a.dateDebut < iso ? genId("A") : a.id,
+        dateDebut: _isoPlus(iso, 1),
+        dateFin: fin
+      });
+    });
+    return res;
+  };
+  const journeeFormation = (pid, iso) => {
+    const pers = personnes.find(p => p.id === pid) || {},
+      nom = pers.nom || pid;
+    if (iso > auj) {
+      setMsg(`${jourEnClair(iso)} n'est pas encore passé : la formation se note une fois la journée faite.`);
+      return false;
+    }
+    const l = lignes(pid, iso),
+      abs = absenceLe(absences, pid, iso);
+    const avant = [l.length ? `les heures déjà notées (${fmtH(heures(pid, iso))})` : "", abs ? `l'absence « ${libelleAbsence(abs)} »` : ""].filter(Boolean).join(" et ");
+    if (!window.confirm(`${nom}, ${jourEnClair(iso)} : journée de formation ?\n\nComptée comme une journée de travail (${GRILLE_TYPE.debut}–${GRILLE_TYPE.fin}, pause 1 h)${pers._t === "S" ? " avec 1 panier" : ""}.${avant ? `\n\nElle remplace ${avant}.` : ""}`)) return false;
+    let ch = chantiers.find(c => c.actif !== false && estChantierFormation(c)) || chantiers.find(estChantierFormation);
+    if (!ch) {
+      ch = {
+        id: genId("C"),
+        nom: NOM_FORMATION.nom,
+        ville: "—",
+        client: NOM_FORMATION.client,
+        couleur: "#9B5DE5",
+        actif: true
+      };
+      setChantiers(prev => [...prev, ch]);
+    } else if (ch.actif === false) {
+      const id = ch.id;
+      setChantiers(prev => prev.map(c => c.id === id ? {
+        ...c,
+        actif: true
+      } : c));
+    }
+    const ids = new Set(l.map(x => x.id));
+    const ligne = nouvelleLigne(pid, iso, GRILLE_TYPE.debut, GRILLE_TYPE.fin, GRILLE_TYPE.pause, ch.id, {
+      commentaire: "Journée de formation (direction, grille)",
+      ...(pers._t === "S" ? {
+        panier: "N1D0"
+      } : {})
+    });
+    setPointages(prev => [...prev.filter(x => !(ids.has(x.id) && x.salarie === pid && x.date === iso)), ligne]);
+    if (abs) setAbsences(prev => absencesSansCeJour(prev, pid, iso));
+    setMsg(`${nom}, ${jourEnClair(iso)} : 📚 journée de formation (${fmtH(calcHeures(ligne))}${pers._t === "S" ? ", 1 panier" : ""}).`);
+    return true;
+  };
+  const poserAbsence = (pid, iso, code) => {
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    const t = typeAbsence(code),
+      l = lignes(pid, iso),
+      abs = absenceLe(absences, pid, iso);
+    if (l.length && !window.confirm(`${nom}, ${jourEnClair(iso)} : ${t.icone} ${t.label} ?\n\nLes heures déjà notées ce jour-là (${fmtH(heures(pid, iso))}) seront supprimées.`)) return false;
+    const ids = new Set(l.map(x => x.id));
+    if (l.length) setPointages(prev => prev.filter(x => !(ids.has(x.id) && x.salarie === pid && x.date === iso)));
+    setAbsences(prev => [...(abs ? absencesSansCeJour(prev, pid, iso) : prev || []), {
+      id: genId("A"),
+      salarie: pid,
+      dateDebut: iso,
+      dateFin: iso,
+      type: t.code,
+      typeLabel: t.label,
+      typeIcone: t.icone,
+      commentaire: "Posée depuis la grille",
+      saisieParRH: true,
+      saisieDate: new Date().toISOString()
+    }]);
+    setMsg(`${nom}, ${jourEnClair(iso)} : ${t.icone} ${t.label} noté(e).`);
+    return true;
+  };
+  const retirerAbsence = (pid, iso) => {
+    const abs = absenceLe(absences, pid, iso);
+    if (!abs) return false;
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    const plusieurs = (abs.dateFin || abs.dateDebut) !== abs.dateDebut;
+    if (!window.confirm(`Retirer « ${libelleAbsence(abs)} » de ${nom} le ${jourEnClair(iso)} ?${plusieurs ? `\n\nCette absence va du ${jourEnClair(abs.dateDebut)} au ${jourEnClair(abs.dateFin)} : seul ce jour est retiré, les autres jours restent.` : ""}`)) return false;
+    setAbsences(prev => absencesSansCeJour(prev, pid, iso));
+    setMsg(`${nom}, ${jourEnClair(iso)} : absence retirée.`);
     return true;
   };
   const clientsConnus = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -4328,7 +4437,7 @@ function OngletGrille({
       marginBottom: 10,
       lineHeight: 1.6
     }
-  }, "Case sans heures (oubli du chef) : ", /*#__PURE__*/React.createElement("b", null, "+ AJOUTER"), " pour choisir le chantier et les horaires, ou tapez directement dans la case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case (ou ", /*#__PURE__*/React.createElement("b", null, "🗑 Supprimer cette journée"), " dans sa fenêtre) supprime ses heures.", /*#__PURE__*/React.createElement("b", null, "Cliquez sur le client / l'adresse"), " d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; ", /*#__PURE__*/React.createElement("b", null, "⋯"), " ouvre le détail complet (logement, lignes). ", /*#__PURE__*/React.createElement("b", null, "📋"), " copie une journée, ", /*#__PURE__*/React.createElement("b", null, "COLLER"), " la recopie dans une autre case (ou Ctrl+C / Ctrl+V dans la case). ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), pressePapier && /*#__PURE__*/React.createElement("div", {
+  }, "Case sans heures (oubli du chef) : ", /*#__PURE__*/React.createElement("b", null, "+ AJOUTER"), " pour choisir le chantier et les horaires, ou tapez directement dans la case : ", /*#__PURE__*/React.createElement("b", null, "8"), " ou ", /*#__PURE__*/React.createElement("b", null, "7h30"), " (heures travaillées, début 07:30 et pause 1 h ajoutée) ou ", /*#__PURE__*/React.createElement("b", null, "7:30-16:30"), ". Vider une case (ou ", /*#__PURE__*/React.createElement("b", null, "🗑 Supprimer cette journée"), " dans sa fenêtre) supprime ses heures. Dans la fenêtre d'une case : ", /*#__PURE__*/React.createElement("b", null, "📚 Journée de formation"), " (journée de travail avec 1 panier) ou ", /*#__PURE__*/React.createElement("b", null, "journée d'absence"), " (maladie, congé…).", /*#__PURE__*/React.createElement("b", null, "Cliquez sur le client / l'adresse"), " d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; ", /*#__PURE__*/React.createElement("b", null, "⋯"), " ouvre le détail complet (logement, lignes). ", /*#__PURE__*/React.createElement("b", null, "📋"), " copie une journée, ", /*#__PURE__*/React.createElement("b", null, "COLLER"), " la recopie dans une autre case (ou Ctrl+C / Ctrl+V dans la case). ", /*#__PURE__*/React.createElement("b", null, "Double-cliquez sur une case pour la valider"), " (elle passe au vert ; double-cliquez à nouveau pour annuler). Le bouton ", /*#__PURE__*/React.createElement("b", null, "✓"), " d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée ", /*#__PURE__*/React.createElement("b", null, "validée"), ", au nom de la direction."), pressePapier && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 10,
@@ -4452,12 +4561,23 @@ function OngletGrille({
           boxShadow: ouvert ? `inset 0 0 0 2px ${C.encre}` : e === "manquant" && !mois ? "inset 0 0 0 1.5px #E55934" : "none"
         }
       }, abs && !l.length ? /*#__PURE__*/React.createElement("div", {
+        onClick: ev => {
+          ev.stopPropagation();
+          ouvrirEdition(p.id, iso, ev.currentTarget.closest("td"));
+        },
+        title: `${libelleAbsence(abs)} — cliquer pour retirer ou changer`,
         style: {
           fontSize: mois ? 9 : 10,
           fontWeight: 700,
           textAlign: "center",
           color: "#1F6F66",
-          cursor: "default"
+          cursor: "pointer",
+          height: "100%",
+          minHeight: mois ? 32 : 52,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 4px"
         }
       }, mois ? abs.type || "ABS" : libelleAbsence(abs)) : /*#__PURE__*/React.createElement(React.Fragment, null, !mois && ch && /*#__PURE__*/React.createElement("div", {
         onClick: ev => clicCase(ev, p.id, iso),
@@ -4814,203 +4934,288 @@ function OngletGrille({
         cursor: "pointer",
         fontSize: 16
       }
-    }, "✕")), edit.vue === "case" && /*#__PURE__*/React.createElement(React.Fragment, null, !ls.length && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        color: "#B03A1E",
-        background: "#FBE0D8",
-        padding: "6px 8px",
-        marginBottom: 10
-      }
-    }, "Aucune heure pointée ce jour-là. Les heures ajoutées ici sont enregistrées ", /*#__PURE__*/React.createElement("b", null, "validées"), ", au nom de la direction (oubli de pointage)."), Object.keys(edit.f).map((id, i, cles) => {
-      const f = edit.f[id] || {};
-      const x = ls.find(y => y.id === id) || {
-        id,
-        valide: true
-      };
-      return /*#__PURE__*/React.createElement("div", {
-        key: id,
+    }, "✕")), edit.vue === "case" && (() => {
+      const absCase = absenceLe(absences, edit.pid, edit.iso),
+        aVenir = edit.iso > auj;
+      return /*#__PURE__*/React.createElement(React.Fragment, null, absCase && /*#__PURE__*/React.createElement("div", {
         style: {
-          borderTop: i ? `1px solid ${C.ligne}` : "none",
-          paddingTop: i ? 10 : 0,
-          marginTop: i ? 10 : 0
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        style: {
+          fontSize: 12,
+          color: "#1F6F66",
+          background: "#DCEFEC",
+          padding: "6px 8px",
+          marginBottom: 10,
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "baseline"
+          alignItems: "center",
+          gap: 8
         }
-      }, /*#__PURE__*/React.createElement("label", {
-        style: lab
-      }, "CHANTIER", cles.length > 1 ? ` ${i + 1}` : "", f.nouveau ? " · NOUVELLE LIGNE" : ""), f.nouveau && cles.length > 1 && /*#__PURE__*/React.createElement("button", {
-        onClick: () => setEdit(e => {
-          const n = {
-            ...e.f
-          };
-          delete n[id];
-          return {
-            ...e,
-            f: n
-          };
-        }),
-        title: "Retirer cette ligne",
-        style: {
-          border: "none",
-          background: "transparent",
-          cursor: "pointer",
-          color: C.orange,
-          fontSize: 12
-        }
-      }, "retirer")), /*#__PURE__*/React.createElement("select", {
-        value: f.chantier || "",
-        onChange: e => {
-          if (e.target.value === "__nouveau") majEdit({
-            vue: "nouveau",
-            nv: {
-              client: "",
-              nom: "",
-              ville: "",
-              pour: x.id
-            }
-          });else majF(x.id, {
-            chantier: e.target.value
-          });
+      }, /*#__PURE__*/React.createElement("span", null, "Noté : ", /*#__PURE__*/React.createElement("b", null, libelleAbsence(absCase)), (absCase.dateFin || absCase.dateDebut) !== absCase.dateDebut ? ` (du ${jourEnClair(absCase.dateDebut)} au ${jourEnClair(absCase.dateFin)})` : ""), /*#__PURE__*/React.createElement("button", {
+        onClick: () => {
+          if (retirerAbsence(edit.pid, edit.iso)) setEdit(null);
         },
         style: {
-          ...selectStyle,
-          width: "100%",
-          fontSize: 13
+          border: `1px solid #1F6F66`,
+          background: "#fff",
+          color: "#1F6F66",
+          cursor: "pointer",
+          fontSize: 11,
+          fontWeight: 700,
+          padding: "3px 8px",
+          whiteSpace: "nowrap"
         }
-      }, /*#__PURE__*/React.createElement("option", {
-        value: ""
-      }, "— choisir —"), Object.keys(parClient).sort((a, b) => a.localeCompare(b)).map(k => /*#__PURE__*/React.createElement("optgroup", {
-        key: k,
-        label: k
-      }, parClient[k].map(c => /*#__PURE__*/React.createElement("option", {
-        key: c.id,
-        value: c.id
-      }, c.nom, c.ville && c.ville !== "—" ? `, ${c.ville}` : "")))), f.chantier && !chantiersTries.some(c => c.id === f.chantier) && /*#__PURE__*/React.createElement("option", {
-        value: f.chantier
-      }, libelleChantier(chantiers.find(c => c.id === f.chantier), true)), /*#__PURE__*/React.createElement("option", {
-        value: "__nouveau"
-      }, "+ Nouveau chantier…")), f.chantier && /*#__PURE__*/React.createElement("button", {
-        onClick: () => ouvrirCorrection(f.chantier, id),
+      }, "✕ RETIRER CE JOUR")), !aVenir && /*#__PURE__*/React.createElement(React.Fragment, null, !ls.length && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 12,
+          color: "#B03A1E",
+          background: "#FBE0D8",
+          padding: "6px 8px",
+          marginBottom: 10
+        }
+      }, "Aucune heure pointée ce jour-là. Les heures ajoutées ici sont enregistrées ", /*#__PURE__*/React.createElement("b", null, "validées"), ", au nom de la direction (oubli de pointage)."), Object.keys(edit.f).map((id, i, cles) => {
+        const f = edit.f[id] || {};
+        const x = ls.find(y => y.id === id) || {
+          id,
+          valide: true
+        };
+        return /*#__PURE__*/React.createElement("div", {
+          key: id,
+          style: {
+            borderTop: i ? `1px solid ${C.ligne}` : "none",
+            paddingTop: i ? 10 : 0,
+            marginTop: i ? 10 : 0
+          }
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline"
+          }
+        }, /*#__PURE__*/React.createElement("label", {
+          style: lab
+        }, "CHANTIER", cles.length > 1 ? ` ${i + 1}` : "", f.nouveau ? " · NOUVELLE LIGNE" : ""), f.nouveau && cles.length > 1 && /*#__PURE__*/React.createElement("button", {
+          onClick: () => setEdit(e => {
+            const n = {
+              ...e.f
+            };
+            delete n[id];
+            return {
+              ...e,
+              f: n
+            };
+          }),
+          title: "Retirer cette ligne",
+          style: {
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            color: C.orange,
+            fontSize: 12
+          }
+        }, "retirer")), /*#__PURE__*/React.createElement("select", {
+          value: f.chantier || "",
+          onChange: e => {
+            if (e.target.value === "__nouveau") majEdit({
+              vue: "nouveau",
+              nv: {
+                client: "",
+                nom: "",
+                ville: "",
+                pour: x.id
+              }
+            });else majF(x.id, {
+              chantier: e.target.value
+            });
+          },
+          style: {
+            ...selectStyle,
+            width: "100%",
+            fontSize: 13
+          }
+        }, /*#__PURE__*/React.createElement("option", {
+          value: ""
+        }, "— choisir —"), Object.keys(parClient).sort((a, b) => a.localeCompare(b)).map(k => /*#__PURE__*/React.createElement("optgroup", {
+          key: k,
+          label: k
+        }, parClient[k].map(c => /*#__PURE__*/React.createElement("option", {
+          key: c.id,
+          value: c.id
+        }, c.nom, c.ville && c.ville !== "—" ? `, ${c.ville}` : "")))), f.chantier && !chantiersTries.some(c => c.id === f.chantier) && /*#__PURE__*/React.createElement("option", {
+          value: f.chantier
+        }, libelleChantier(chantiers.find(c => c.id === f.chantier), true)), /*#__PURE__*/React.createElement("option", {
+          value: "__nouveau"
+        }, "+ Nouveau chantier…")), f.chantier && /*#__PURE__*/React.createElement("button", {
+          onClick: () => ouvrirCorrection(f.chantier, id),
+          style: {
+            border: "none",
+            background: "transparent",
+            color: C.bleu,
+            cursor: "pointer",
+            fontSize: 12,
+            padding: "4px 0",
+            textDecoration: "underline"
+          }
+        }, "✎ Corriger le nom du client ou l'adresse de ce chantier"), /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            gap: 8,
+            marginTop: 6
+          }
+        }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+          style: lab
+        }, "DÉBUT"), /*#__PURE__*/React.createElement("input", {
+          type: "time",
+          value: f.debut,
+          onChange: e => majF(x.id, {
+            debut: e.target.value
+          }),
+          style: {
+            ...inp,
+            width: 104
+          }
+        })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+          style: lab
+        }, "FIN"), /*#__PURE__*/React.createElement("input", {
+          type: "time",
+          value: f.fin,
+          onChange: e => majF(x.id, {
+            fin: e.target.value
+          }),
+          style: {
+            ...inp,
+            width: 104
+          }
+        })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+          style: lab
+        }, "PAUSE (MIN)"), /*#__PURE__*/React.createElement("input", {
+          type: "number",
+          min: "0",
+          step: "15",
+          value: f.pause,
+          onChange: e => majF(x.id, {
+            pause: e.target.value
+          }),
+          style: {
+            ...inp,
+            width: 80
+          }
+        }))), f.debut && f.fin && /*#__PURE__*/React.createElement("div", {
+          style: {
+            fontSize: 12,
+            color: C.gris,
+            marginTop: 4
+          }
+        }, "Soit ", /*#__PURE__*/React.createElement("b", {
+          style: {
+            color: C.encre
+          }
+        }, fmtH(Math.max(0, (_min(f.fin) - _min(f.debut) - (Number(f.pause) || 0)) / 60))), x.valide ? " · validé" : " · à valider"));
+      }), /*#__PURE__*/React.createElement("button", {
+        onClick: () => setEdit(e => ({
+          ...e,
+          f: {
+            ...e.f,
+            ["__n" + (Object.keys(e.f).length + 1) + "_" + Date.now()]: ligneVierge(e.pid, e.iso)
+          }
+        })),
         style: {
           border: "none",
           background: "transparent",
           color: C.bleu,
           cursor: "pointer",
           fontSize: 12,
-          padding: "4px 0",
+          padding: "8px 0 0",
           textDecoration: "underline"
         }
-      }, "✎ Corriger le nom du client ou l'adresse de ce chantier"), /*#__PURE__*/React.createElement("div", {
+      }, "+ Ajouter une ligne (autre chantier le même jour)"), /*#__PURE__*/React.createElement("div", {
         style: {
           display: "flex",
           gap: 8,
-          marginTop: 6
+          marginTop: 12
         }
-      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-        style: lab
-      }, "DÉBUT"), /*#__PURE__*/React.createElement("input", {
-        type: "time",
-        value: f.debut,
-        onChange: e => majF(x.id, {
-          debut: e.target.value
-        }),
-        style: {
-          ...inp,
-          width: 104
+      }, /*#__PURE__*/React.createElement(Btn, {
+        onClick: enregistrerEdition
+      }, "✓ ENREGISTRER"), /*#__PURE__*/React.createElement(Btn, {
+        variant: "ghost",
+        onClick: () => setEdit(null)
+      }, "ANNULER"), ls.length > 0 && /*#__PURE__*/React.createElement(Btn, {
+        variant: "ghost",
+        onClick: () => {
+          if (copierCase(edit.pid, edit.iso)) setEdit(null);
         }
-      })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-        style: lab
-      }, "FIN"), /*#__PURE__*/React.createElement("input", {
-        type: "time",
-        value: f.fin,
-        onChange: e => majF(x.id, {
-          fin: e.target.value
-        }),
+      }, "📋 COPIER")), ls.length > 0 && /*#__PURE__*/React.createElement("div", {
         style: {
-          ...inp,
-          width: 104
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: `1px solid ${C.ligne}`
         }
-      })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-        style: lab
-      }, "PAUSE (MIN)"), /*#__PURE__*/React.createElement("input", {
-        type: "number",
-        min: "0",
-        step: "15",
-        value: f.pause,
-        onChange: e => majF(x.id, {
-          pause: e.target.value
-        }),
-        style: {
-          ...inp,
-          width: 80
+      }, /*#__PURE__*/React.createElement(Btn, {
+        variant: "danger",
+        onClick: () => {
+          if (supprimerJournee(edit.pid, edit.iso)) setEdit(null);
         }
-      }))), f.debut && f.fin && /*#__PURE__*/React.createElement("div", {
+      }, "🗑 SUPPRIMER CETTE JOURNÉE"), /*#__PURE__*/React.createElement("div", {
         style: {
-          fontSize: 12,
+          fontSize: 11,
           color: C.gris,
           marginTop: 4
         }
-      }, "Soit ", /*#__PURE__*/React.createElement("b", {
+      }, "Par exemple un jour férié ou une journée déclarés à tort.")), /*#__PURE__*/React.createElement("div", {
         style: {
-          color: C.encre
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: `1px solid ${C.ligne}`
         }
-      }, fmtH(Math.max(0, (_min(f.fin) - _min(f.debut) - (Number(f.pause) || 0)) / 60))), x.valide ? " · validé" : " · à valider"));
-    }), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setEdit(e => ({
-        ...e,
-        f: {
-          ...e.f,
-          ["__n" + (Object.keys(e.f).length + 1) + "_" + Date.now()]: ligneVierge(e.pid, e.iso)
+      }, /*#__PURE__*/React.createElement(Btn, {
+        variant: "ghost",
+        onClick: () => {
+          if (journeeFormation(edit.pid, edit.iso)) setEdit(null);
         }
-      })),
-      style: {
-        border: "none",
-        background: "transparent",
-        color: C.bleu,
-        cursor: "pointer",
-        fontSize: 12,
-        padding: "8px 0 0",
-        textDecoration: "underline"
-      }
-    }, "+ Ajouter une ligne (autre chantier le même jour)"), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 8,
-        marginTop: 12
-      }
-    }, /*#__PURE__*/React.createElement(Btn, {
-      onClick: enregistrerEdition
-    }, "✓ ENREGISTRER"), /*#__PURE__*/React.createElement(Btn, {
-      variant: "ghost",
-      onClick: () => setEdit(null)
-    }, "ANNULER"), ls.length > 0 && /*#__PURE__*/React.createElement(Btn, {
-      variant: "ghost",
-      onClick: () => {
-        if (copierCase(edit.pid, edit.iso)) setEdit(null);
-      }
-    }, "📋 COPIER")), ls.length > 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 10,
-        paddingTop: 10,
-        borderTop: `1px solid ${C.ligne}`
-      }
-    }, /*#__PURE__*/React.createElement(Btn, {
-      variant: "danger",
-      onClick: () => {
-        if (supprimerJournee(edit.pid, edit.iso)) setEdit(null);
-      }
-    }, "🗑 SUPPRIMER CETTE JOURNÉE"), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: C.gris,
-        marginTop: 4
-      }
-    }, "Par exemple un jour férié ou une journée déclarés à tort."))), edit.vue === "nom" && edit.ch && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      }, "📚 JOURNÉE DE FORMATION"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: C.gris,
+          marginTop: 4
+        }
+      }, "Comptée comme une journée de travail (", GRILLE_TYPE.debut, "–", GRILLE_TYPE.fin, ", pause 1 h)", (personnes.find(p => p.id === edit.pid) || {})._t === "S" ? " avec 1 panier" : "", "."))), /*#__PURE__*/React.createElement("div", {
+        style: {
+          marginTop: 10,
+          paddingTop: 10,
+          borderTop: `1px solid ${C.ligne}`
+        }
+      }, /*#__PURE__*/React.createElement("label", {
+        style: lab
+      }, absCase ? "CHANGER L'ABSENCE DE CE JOUR" : "JOURNÉE D'ABSENCE"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 8,
+          alignItems: "center"
+        }
+      }, /*#__PURE__*/React.createElement("select", {
+        value: edit.typeAbs || "MAL",
+        onChange: e => majEdit({
+          typeAbs: e.target.value
+        }),
+        style: {
+          ...selectStyle,
+          flex: 1,
+          fontSize: 13
+        }
+      }, TYPES_ABSENCE.filter(t => t.code !== "FOR").map(t => /*#__PURE__*/React.createElement("option", {
+        key: t.code,
+        value: t.code
+      }, t.icone, " ", t.label))), /*#__PURE__*/React.createElement(Btn, {
+        variant: "ghost",
+        onClick: () => {
+          if (poserAbsence(edit.pid, edit.iso, edit.typeAbs || "MAL")) setEdit(null);
+        }
+      }, "NOTER")), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: C.gris,
+          marginTop: 4
+        }
+      }, "Pour ce jour seulement", ls.length ? " ; les heures de la case sont supprimées" : "", ". Plusieurs jours : onglet Absences.")));
+    })(), edit.vue === "nom" && edit.ch && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: C.gris,
