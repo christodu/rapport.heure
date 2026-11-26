@@ -2216,7 +2216,7 @@ function VueAdmin({pointages,setPointages,chantiers,setChantiers,salaries,setSal
         ))}
       </div>
       {onglet==="pointages"  && <OngletPointages auj={auj} absences={absences} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} trouver={trouver} aValider={aValider} valider={valider} validerTout={validerTout} supprPointage={supprPointage}/>}
-      {onglet==="grille"     && <OngletGrille auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} absences={absences} infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)}/>}
+      {onglet==="grille"     && <OngletGrille auj={auj} pointagesTous={pointages} setPointages={setPointages} chantiers={chantiers} setChantiers={setChantiers} salaries={salaries} interimaires={interimaires} absences={absences} setAbsences={setAbsences} infoPeriode={infoPeriode} onChargerTout={()=>onReloadSupabase(true)}/>}
       {onglet==="absences"   && <OngletAbsences absences={absences} setAbsences={setAbsences} salaries={salaries} interimaires={interimaires} pointages={pointages}/>}
       {onglet==="salaries"   && <OngletSalaries salaries={salaries} setSalaries={setSalaries} pointages={pointages} absences={absences}/>}
       {onglet==="interim"    && <OngletInterim annuaire={annuaire} interimaires={interimaires} setInterimaires={setInterimaires} pointages={pointages} setPointages={setPointages} absences={absences} setAbsences={setAbsences} chantiers={chantiers} salaries={salaries}/>}
@@ -2270,7 +2270,7 @@ function lireSaisieGrille(txt) {
   return null;
 }
 
-function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,salaries,interimaires,absences,infoPeriode,onChargerTout}) {
+function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,salaries,interimaires,absences,setAbsences,infoPeriode,onChargerTout}) {
   const [mode,setMode]   = usePersist("chok_grille_mode","semaine");
   const [qui,setQui]     = usePersist("chok_grille_qui","tous");
   const [ref,setRef]     = useState(auj);
@@ -2435,7 +2435,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
   const ligneVierge = (pid, iso) => ({ chantier: chantierDefaut(pid, iso), debut: GRILLE_TYPE.debut, fin: GRILLE_TYPE.fin, pause: GRILLE_TYPE.pause, nouveau: true });
   const ouvrirEdition = (pid, iso, el) => {
     const l = lignes(pid, iso);
-    if (iso > auj && !l.length) { setMsg(`${jourEnClair(iso)} n'est pas encore passé : les heures se saisissent une fois la journée faite.`); return; }
+    if (iso > auj && !l.length && !absenceLe(absences, pid, iso)) { setMsg(`${jourEnClair(iso)} n'est pas encore passé : les heures se saisissent une fois la journée faite.`); return; }
     const r = el.getBoundingClientRect(), H = window.innerHeight, W = window.innerWidth;
     const pos = { left: Math.max(8, Math.min(r.left, W - 372)) };
     if (r.bottom + 420 > H && r.top > H / 2) pos.bottom = H - r.top + 4; else pos.top = r.bottom + 4;
@@ -2443,7 +2443,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
     setEdit({ pid, iso, pos, vue: "case",
       f: l.length ? Object.fromEntries(l.map(x => [x.id, { chantier: x.chantier || "", debut: x.debut || "", fin: x.fin || "", pause: Number(x.pause) || 0 }]))
                   : { "__n1": ligneVierge(pid, iso) },
-      ch: null, nv: { client: "", nom: "", ville: "", pour: null } });
+      ch: null, nv: { client: "", nom: "", ville: "", pour: null }, typeAbs: "MAL" });
   };
   const clicCase = (ev, pid, iso) => {
     ev.stopPropagation();
@@ -2535,6 +2535,62 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
     setMsg(`${nom}, ${jourEnClair(iso)} : heures supprimées (${fmtH(heures(pid, iso))}).`);
     return true;
   };
+  // ── FORMATION ET ABSENCE DEPUIS LA GRILLE (26/11/2026) ──
+  // Une journée de FORMATION posée ici compte comme une journée de travail
+  // (horaires types, sur le chantier « FORMATION — Journée de formation »,
+  // créé une fois) avec 1 panier normal pour un salarié.
+  // Une ABSENCE posée ici vaut pour ce seul jour (comme dans l'onglet Absences).
+  const NOM_FORMATION = { client: "FORMATION", nom: "Journée de formation" };
+  const estChantierFormation = (c) => !!c && _cleNom(clientDe(c)) === _cleNom(NOM_FORMATION.client) && _cleNom(c.nom) === _cleNom(NOM_FORMATION.nom);
+  // Absences sans ce jour : une absence de plusieurs jours est coupée en deux si besoin.
+  const absencesSansCeJour = (liste, pid, iso) => {
+    const res = [];
+    (liste || []).forEach(a => {
+      const fin = a.dateFin || a.dateDebut;
+      if (a.salarie !== pid || !a.dateDebut || iso < a.dateDebut || iso > fin) { res.push(a); return; }
+      if (a.dateDebut < iso) res.push({...a, dateFin: _isoPlus(iso, -1)});
+      if (fin > iso) res.push({...a, id: a.dateDebut < iso ? genId("A") : a.id, dateDebut: _isoPlus(iso, 1), dateFin: fin});
+    });
+    return res;
+  };
+  const journeeFormation = (pid, iso) => {
+    const pers = personnes.find(p => p.id === pid) || {}, nom = pers.nom || pid;
+    if (iso > auj) { setMsg(`${jourEnClair(iso)} n'est pas encore passé : la formation se note une fois la journée faite.`); return false; }
+    const l = lignes(pid, iso), abs = absenceLe(absences, pid, iso);
+    const avant = [l.length ? `les heures déjà notées (${fmtH(heures(pid, iso))})` : "", abs ? `l'absence « ${libelleAbsence(abs)} »` : ""].filter(Boolean).join(" et ");
+    if (!window.confirm(`${nom}, ${jourEnClair(iso)} : journée de formation ?\n\nComptée comme une journée de travail (${GRILLE_TYPE.debut}–${GRILLE_TYPE.fin}, pause 1 h)${pers._t === "S" ? " avec 1 panier" : ""}.${avant ? `\n\nElle remplace ${avant}.` : ""}`)) return false;
+    let ch = chantiers.find(c => c.actif !== false && estChantierFormation(c)) || chantiers.find(estChantierFormation);
+    if (!ch) { ch = { id: genId("C"), nom: NOM_FORMATION.nom, ville: "—", client: NOM_FORMATION.client, couleur: "#9B5DE5", actif: true }; setChantiers(prev => [...prev, ch]); }
+    else if (ch.actif === false) { const id = ch.id; setChantiers(prev => prev.map(c => c.id === id ? {...c, actif: true} : c)); }
+    const ids = new Set(l.map(x => x.id));
+    const ligne = nouvelleLigne(pid, iso, GRILLE_TYPE.debut, GRILLE_TYPE.fin, GRILLE_TYPE.pause, ch.id,
+      { commentaire: "Journée de formation (direction, grille)", ...(pers._t === "S" ? { panier: "N1D0" } : {}) });
+    setPointages(prev => [...prev.filter(x => !(ids.has(x.id) && x.salarie === pid && x.date === iso)), ligne]);
+    if (abs) setAbsences(prev => absencesSansCeJour(prev, pid, iso));
+    setMsg(`${nom}, ${jourEnClair(iso)} : 📚 journée de formation (${fmtH(calcHeures(ligne))}${pers._t === "S" ? ", 1 panier" : ""}).`);
+    return true;
+  };
+  const poserAbsence = (pid, iso, code) => {
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    const t = typeAbsence(code), l = lignes(pid, iso), abs = absenceLe(absences, pid, iso);
+    if (l.length && !window.confirm(`${nom}, ${jourEnClair(iso)} : ${t.icone} ${t.label} ?\n\nLes heures déjà notées ce jour-là (${fmtH(heures(pid, iso))}) seront supprimées.`)) return false;
+    const ids = new Set(l.map(x => x.id));
+    if (l.length) setPointages(prev => prev.filter(x => !(ids.has(x.id) && x.salarie === pid && x.date === iso)));
+    setAbsences(prev => [...(abs ? absencesSansCeJour(prev, pid, iso) : (prev || [])),
+      { id: genId("A"), salarie: pid, dateDebut: iso, dateFin: iso, type: t.code, typeLabel: t.label, typeIcone: t.icone,
+        commentaire: "Posée depuis la grille", saisieParRH: true, saisieDate: new Date().toISOString() }]);
+    setMsg(`${nom}, ${jourEnClair(iso)} : ${t.icone} ${t.label} noté(e).`);
+    return true;
+  };
+  const retirerAbsence = (pid, iso) => {
+    const abs = absenceLe(absences, pid, iso); if (!abs) return false;
+    const nom = (personnes.find(p => p.id === pid) || {}).nom || pid;
+    const plusieurs = (abs.dateFin || abs.dateDebut) !== abs.dateDebut;
+    if (!window.confirm(`Retirer « ${libelleAbsence(abs)} » de ${nom} le ${jourEnClair(iso)} ?${plusieurs ? `\n\nCette absence va du ${jourEnClair(abs.dateDebut)} au ${jourEnClair(abs.dateFin)} : seul ce jour est retiré, les autres jours restent.` : ""}`)) return false;
+    setAbsences(prev => absencesSansCeJour(prev, pid, iso));
+    setMsg(`${nom}, ${jourEnClair(iso)} : absence retirée.`);
+    return true;
+  };
   const clientsConnus = [...new Set(chantiers.map(clientDe).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const ouvrirCorrection = (chId, ligne) => {
     const c = chantiers.find(x => x.id === chId); if (!c) return;
@@ -2617,7 +2673,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
         Seules les heures depuis le {new Date(infoPeriode.depuis+"T12:00:00").toLocaleDateString("fr-FR")} sont chargées : cette période peut être incomplète.{" "}
         {onChargerTout && <a href="#" onClick={e=>{e.preventDefault();onChargerTout();}}>Charger tout l'historique</a>}</div>}
       <div style={{fontSize:12,color:C.gris,marginBottom:10,lineHeight:1.6}}>
-        Case sans heures (oubli du chef) : <b>+ AJOUTER</b> pour choisir le chantier et les horaires, ou tapez directement dans la case : <b>8</b> ou <b>7h30</b> (heures travaillées, début 07:30 et pause 1 h ajoutée) ou <b>7:30-16:30</b>. Vider une case (ou <b>🗑 Supprimer cette journée</b> dans sa fenêtre) supprime ses heures.
+        Case sans heures (oubli du chef) : <b>+ AJOUTER</b> pour choisir le chantier et les horaires, ou tapez directement dans la case : <b>8</b> ou <b>7h30</b> (heures travaillées, début 07:30 et pause 1 h ajoutée) ou <b>7:30-16:30</b>. Vider une case (ou <b>🗑 Supprimer cette journée</b> dans sa fenêtre) supprime ses heures. Dans la fenêtre d'une case : <b>📚 Journée de formation</b> (journée de travail avec 1 panier) ou <b>journée d'absence</b> (maladie, congé…).
         <b>Cliquez sur le client / l'adresse</b> d'une case pour changer le chantier, les horaires, ou corriger le nom du client ou de l'adresse ; <b>⋯</b> ouvre le détail complet (logement, lignes). <b>📋</b> copie une journée, <b>COLLER</b> la recopie dans une autre case (ou Ctrl+C / Ctrl+V dans la case). <b>Double-cliquez sur une case pour la valider</b> (elle passe au vert ; double-cliquez à nouveau pour annuler).
         Le bouton <b>✓</b> d'une ligne valide toute sa semaine. Toute saisie faite ici est enregistrée <b>validée</b>, au nom de la direction.
       </div>
@@ -2658,7 +2714,8 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
                   style={{background:COUL[e],borderRight:`1px solid ${C.ligne}`,padding:0,position:"relative",height:mois?32:52,verticalAlign:"top",
                     borderLeft:coulCh?`${mois?3:5}px solid ${coulCh}`:undefined,
                     boxShadow:ouvert?`inset 0 0 0 2px ${C.encre}`:e==="manquant"&&!mois?"inset 0 0 0 1.5px #E55934":"none"}}>
-                  {abs && !l.length ? <div style={{fontSize:mois?9:10,fontWeight:700,textAlign:"center",color:"#1F6F66",cursor:"default"}}>{mois ? (abs.type||"ABS") : libelleAbsence(abs)}</div> : <>
+                  {abs && !l.length ? <div onClick={ev => { ev.stopPropagation(); ouvrirEdition(p.id, iso, ev.currentTarget.closest("td")); }} title={`${libelleAbsence(abs)} — cliquer pour retirer ou changer`}
+                    style={{fontSize:mois?9:10,fontWeight:700,textAlign:"center",color:"#1F6F66",cursor:"pointer",height:"100%",minHeight:mois?32:52,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{mois ? (abs.type||"ABS") : libelleAbsence(abs)}</div> : <>
                     {!mois && ch && <div onClick={ev => clicCase(ev, p.id, iso)} title="Cliquer pour modifier : chantier, client, adresse, horaires" style={{padding:"4px 16px 0 6px",cursor:"pointer",lineHeight:1.2,textAlign:"left",fontFamily:FT}}>
                       {clientDe(ch) && <div style={{fontSize:11.5,fontWeight:800,color:C.encre,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{clientDe(ch)}</div>}
                       <div style={{fontSize:11,fontWeight:600,color:"#3A372F",marginTop:1,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{ch.nom||"—"}{ch.ville&&ch.ville!=="—"?`, ${ch.ville}`:""}</div>
@@ -2728,7 +2785,12 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
           <div><div style={{fontFamily:FT,fontWeight:800,fontSize:14}}>{pers.nom}</div><div style={{fontSize:12,color:C.gris}}>{jourEnClair(edit.iso)}</div></div>
           <button onClick={()=>setEdit(null)} title="Fermer (Échap)" style={{border:"none",background:"transparent",cursor:"pointer",fontSize:16}}>✕</button>
         </div>
-        {edit.vue === "case" && <>
+        {edit.vue === "case" && (() => { const absCase = absenceLe(absences, edit.pid, edit.iso), aVenir = edit.iso > auj; return <>
+          {absCase && <div style={{fontSize:12,color:"#1F6F66",background:"#DCEFEC",padding:"6px 8px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span>Noté : <b>{libelleAbsence(absCase)}</b>{(absCase.dateFin||absCase.dateDebut)!==absCase.dateDebut?` (du ${jourEnClair(absCase.dateDebut)} au ${jourEnClair(absCase.dateFin)})`:""}</span>
+            <button onClick={()=>{ if (retirerAbsence(edit.pid, edit.iso)) setEdit(null); }} style={{border:`1px solid #1F6F66`,background:"#fff",color:"#1F6F66",cursor:"pointer",fontSize:11,fontWeight:700,padding:"3px 8px",whiteSpace:"nowrap"}}>✕ RETIRER CE JOUR</button>
+          </div>}
+          {!aVenir && <>
           {!ls.length && <div style={{fontSize:12,color:"#B03A1E",background:"#FBE0D8",padding:"6px 8px",marginBottom:10}}>Aucune heure pointée ce jour-là. Les heures ajoutées ici sont enregistrées <b>validées</b>, au nom de la direction (oubli de pointage).</div>}
           {Object.keys(edit.f).map((id, i, cles) => { const f = edit.f[id] || {}; const x = ls.find(y => y.id === id) || {id, valide: true}; return <div key={id} style={{borderTop:i?`1px solid ${C.ligne}`:"none",paddingTop:i?10:0,marginTop:i?10:0}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
@@ -2761,7 +2823,22 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
             <Btn variant="danger" onClick={()=>{ if (supprimerJournee(edit.pid, edit.iso)) setEdit(null); }}>🗑 SUPPRIMER CETTE JOURNÉE</Btn>
             <div style={{fontSize:11,color:C.gris,marginTop:4}}>Par exemple un jour férié ou une journée déclarés à tort.</div>
           </div>}
-        </>}
+          <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.ligne}`}}>
+            <Btn variant="ghost" onClick={()=>{ if (journeeFormation(edit.pid, edit.iso)) setEdit(null); }}>📚 JOURNÉE DE FORMATION</Btn>
+            <div style={{fontSize:11,color:C.gris,marginTop:4}}>Comptée comme une journée de travail ({GRILLE_TYPE.debut}–{GRILLE_TYPE.fin}, pause 1 h){(personnes.find(p=>p.id===edit.pid)||{})._t==="S"?" avec 1 panier":""}.</div>
+          </div>
+          </>}
+          <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.ligne}`}}>
+            <label style={lab}>{absCase ? "CHANGER L'ABSENCE DE CE JOUR" : "JOURNÉE D'ABSENCE"}</label>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <select value={edit.typeAbs||"MAL"} onChange={e=>majEdit({typeAbs:e.target.value})} style={{...selectStyle,flex:1,fontSize:13}}>
+                {TYPES_ABSENCE.filter(t=>t.code!=="FOR").map(t=><option key={t.code} value={t.code}>{t.icone} {t.label}</option>)}
+              </select>
+              <Btn variant="ghost" onClick={()=>{ if (poserAbsence(edit.pid, edit.iso, edit.typeAbs||"MAL")) setEdit(null); }}>NOTER</Btn>
+            </div>
+            <div style={{fontSize:11,color:C.gris,marginTop:4}}>Pour ce jour seulement{ls.length?" ; les heures de la case sont supprimées":""}. Plusieurs jours : onglet Absences.</div>
+          </div>
+        </>; })()}
         {edit.vue === "nom" && edit.ch && <>
           <div style={{fontSize:12,color:C.gris,marginBottom:10}}>Ce chantier est utilisé par <b>{(pointagesTous||[]).filter(p=>p.chantier===edit.ch.id).length} pointage(s)</b>. Choisissez en bas : corriger <b>seulement cette case</b>, ou <b>toutes</b> ses heures.</div>
           <label style={lab}>CLIENT *</label>
