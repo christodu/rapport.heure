@@ -3660,6 +3660,15 @@ function OngletGrille({
   }))].filter(p => !cherche.trim() || _cleNom(p.nom).includes(_cleNom(cherche))).sort((a, b) => comparerNoms(a.nom, b.nom));
   const lignes = (pid, iso) => parCase[pid + "|" + iso] || [];
   const heures = (pid, iso) => lignes(pid, iso).reduce((s, p) => s + calcHeures(p), 0);
+  // HEURES DE NUIT (26/11/2026) : entre 20 h et 6 h, comme sur le rapport.
+  const nuitLigne = p => {
+    try {
+      return p && p.debut && p.fin ? calcHNuit(p) : 0;
+    } catch (_) {
+      return 0;
+    }
+  };
+  const nuit = (pid, iso) => lignes(pid, iso).reduce((s, p) => s + nuitLigne(p), 0);
   const etat = (pid, iso) => {
     const l = lignes(pid, iso);
     if (l.length) return l.every(p => p.valide) ? "valide" : "attente";
@@ -4513,6 +4522,7 @@ function OngletGrille({
   }, "RAPIDE"))), /*#__PURE__*/React.createElement("tbody", null, personnes.map(p => {
     const tot = jours.reduce((s, iso) => s + heures(p.id, iso), 0);
     const sup = mois ? 0 : Math.max(0, tot - 35);
+    const totNuit = jours.reduce((s, iso) => s + nuit(p.id, iso), 0);
     const enAttente = aValiderDe(p.id);
     return /*#__PURE__*/React.createElement("tr", {
       key: p.id,
@@ -4540,7 +4550,8 @@ function OngletGrille({
       const ch = l[0] ? chantiers.find(c => c.id === l[0].chantier) : null;
       const val = saisies[cle] != null ? saisies[cle] : l.length ? _fmtCase(heures(p.id, iso)) : "";
       const ouvert = detail && detail.pid === p.id && detail.iso === iso;
-      const titreCase = l.length ? l.map(x => `${x.debut}–${x.fin} · ${libelleChantier(chantiers.find(c => c.id === x.chantier))}${x.valide ? "" : " (à valider)"}`).join("\n") : abs ? libelleAbsence(abs) : nomFerie(iso) || jourEnClair(iso);
+      const hNuit = l.length ? nuit(p.id, iso) : 0;
+      const titreCase = l.length ? l.map(x => `${x.debut}–${x.fin} · ${libelleChantier(chantiers.find(c => c.id === x.chantier))}${nuitLigne(x) > 0 ? ` · 🌙 ${fmtH(nuitLigne(x))} de nuit` : ""}${x.valide ? "" : " (à valider)"}`).join("\n") : abs ? libelleAbsence(abs) : nomFerie(iso) || jourEnClair(iso);
       const coulCh = ch && ch.couleur ? ch.couleur : null;
       const autres = l.length > 1 ? l.slice(1).map(x => chantiers.find(c => c.id === x.chantier)).filter(Boolean) : [];
       return /*#__PURE__*/React.createElement("td", {
@@ -4619,7 +4630,27 @@ function OngletGrille({
           color: C.orange,
           whiteSpace: "nowrap"
         }
-      }, "+ ", autres.length, " autre", autres.length > 1 ? "s" : "", " chantier", autres.length > 1 ? "s" : "")), !mois && !l.length && e !== "futur" && /*#__PURE__*/React.createElement("button", {
+      }, "+ ", autres.length, " autre", autres.length > 1 ? "s" : "", " chantier", autres.length > 1 ? "s" : ""), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: "2px 5px",
+          marginTop: 2,
+          fontFamily: FM,
+          fontSize: 10,
+          fontWeight: 600,
+          color: "#5A5548"
+        }
+      }, /*#__PURE__*/React.createElement("span", null, l.map(x => `${x.debut}–${x.fin}`).join(" · ")), hNuit > 0 && /*#__PURE__*/React.createElement("span", {
+        style: {
+          background: "#3D2A6E",
+          color: "#fff",
+          fontWeight: 800,
+          padding: "0 4px",
+          whiteSpace: "nowrap"
+        }
+      }, "🌙 ", fmtH(hNuit), " nuit"))), !mois && !l.length && e !== "futur" && /*#__PURE__*/React.createElement("button", {
         onClick: ev => {
           ev.stopPropagation();
           ouvrirEdition(p.id, iso, ev.currentTarget.closest("td"));
@@ -4710,7 +4741,17 @@ function OngletGrille({
           padding: "0 3px",
           lineHeight: 1
         }
-      }, "⋯"), l.length > 0 && l.every(x => x.valide) && !mois && /*#__PURE__*/React.createElement("span", {
+      }, "⋯"), mois && hNuit > 0 && /*#__PURE__*/React.createElement("span", {
+        title: `${fmtH(hNuit)} de nuit`,
+        style: {
+          position: "absolute",
+          top: 0,
+          left: 1,
+          fontSize: 9,
+          lineHeight: 1,
+          pointerEvents: "none"
+        }
+      }, "🌙"), l.length > 0 && l.every(x => x.valide) && !mois && /*#__PURE__*/React.createElement("span", {
         style: {
           position: "absolute",
           bottom: 2,
@@ -4774,7 +4815,14 @@ function OngletGrille({
         color: C.orange,
         fontWeight: 600
       }
-    }, "+", fmtH(sup), " sup.")), !mois && /*#__PURE__*/React.createElement("td", {
+    }, "+", fmtH(sup), " sup."), totNuit > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "#3D2A6E",
+        fontWeight: 700,
+        whiteSpace: "nowrap"
+      }
+    }, "🌙 ", fmtH(totNuit), " nuit")), !mois && /*#__PURE__*/React.createElement("td", {
       style: {
         padding: "4px 6px"
       }
@@ -4858,7 +4906,13 @@ function OngletGrille({
       background: COUL[k],
       border: k === "manquant" ? "1.5px solid #E55934" : `1px solid ${C.ligne}`
     }
-  }), l)), !mois && /*#__PURE__*/React.createElement("span", null, "Au-delà de 35 h dans la semaine : heures sup. en orange.")), msg && /*#__PURE__*/React.createElement("div", {
+  }), l)), !mois && /*#__PURE__*/React.createElement("span", null, "Au-delà de 35 h dans la semaine : heures sup. en orange."), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", {
+    style: {
+      background: "#3D2A6E",
+      color: "#fff",
+      padding: "0 4px"
+    }
+  }, "🌙"), " heures de nuit (entre 20 h et 6 h)")), msg && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: "9px 12px",
