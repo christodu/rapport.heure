@@ -2318,6 +2318,9 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
 
   const lignes = (pid, iso) => parCase[pid + "|" + iso] || [];
   const heures = (pid, iso) => lignes(pid, iso).reduce((s, p) => s + calcHeures(p), 0);
+  // HEURES DE NUIT (26/11/2026) : entre 20 h et 6 h, comme sur le rapport.
+  const nuitLigne = (p) => { try { return p && p.debut && p.fin ? calcHNuit(p) : 0; } catch (_) { return 0; } };
+  const nuit = (pid, iso) => lignes(pid, iso).reduce((s, p) => s + nuitLigne(p), 0);
   const etat = (pid, iso) => {
     const l = lignes(pid, iso);
     if (l.length) return l.every(p => p.valide) ? "valide" : "attente";
@@ -2696,6 +2699,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
           {personnes.map(p => {
             const tot = jours.reduce((s, iso) => s + heures(p.id, iso), 0);
             const sup = mois ? 0 : Math.max(0, tot - 35);
+            const totNuit = jours.reduce((s, iso) => s + nuit(p.id, iso), 0);
             const enAttente = aValiderDe(p.id);
             return <tr key={p.id} style={{borderBottom:`1px solid ${C.ligne}`}}>
               <td style={nomS}><div style={{fontFamily:FT,fontWeight:700,fontSize:13}}>{p.nom}</div>
@@ -2706,7 +2710,8 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
                 const ch = l[0] ? chantiers.find(c => c.id === l[0].chantier) : null;
                 const val = saisies[cle] != null ? saisies[cle] : (l.length ? _fmtCase(heures(p.id, iso)) : "");
                 const ouvert = detail && detail.pid === p.id && detail.iso === iso;
-                const titreCase = l.length ? l.map(x => `${x.debut}–${x.fin} · ${libelleChantier(chantiers.find(c => c.id === x.chantier))}${x.valide?"":" (à valider)"}`).join("\n")
+                const hNuit = l.length ? nuit(p.id, iso) : 0;
+                const titreCase = l.length ? l.map(x => `${x.debut}–${x.fin} · ${libelleChantier(chantiers.find(c => c.id === x.chantier))}${nuitLigne(x) > 0 ? ` · 🌙 ${fmtH(nuitLigne(x))} de nuit` : ""}${x.valide?"":" (à valider)"}`).join("\n")
                   : abs ? libelleAbsence(abs) : (nomFerie(iso) || jourEnClair(iso));
                 const coulCh = ch && ch.couleur ? ch.couleur : null;
                 const autres = l.length > 1 ? l.slice(1).map(x => chantiers.find(c => c.id === x.chantier)).filter(Boolean) : [];
@@ -2720,6 +2725,10 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
                       {clientDe(ch) && <div style={{fontSize:11.5,fontWeight:800,color:C.encre,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{clientDe(ch)}</div>}
                       <div style={{fontSize:11,fontWeight:600,color:"#3A372F",marginTop:1,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",wordBreak:"break-word"}}>{ch.nom||"—"}{ch.ville&&ch.ville!=="—"?`, ${ch.ville}`:""}</div>
                       {autres.length>0 && <div style={{fontSize:9.5,fontWeight:700,color:C.orange,whiteSpace:"nowrap"}}>+ {autres.length} autre{autres.length>1?"s":""} chantier{autres.length>1?"s":""}</div>}
+                      <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"2px 5px",marginTop:2,fontFamily:FM,fontSize:10,fontWeight:600,color:"#5A5548"}}>
+                        <span>{l.map(x => `${x.debut}–${x.fin}`).join(" · ")}</span>
+                        {hNuit > 0 && <span style={{background:"#3D2A6E",color:"#fff",fontWeight:800,padding:"0 4px",whiteSpace:"nowrap"}}>🌙 {fmtH(hNuit)} nuit</span>}
+                      </div>
                     </div>}
                     {!mois && !l.length && e !== "futur" && <button onClick={ev => { ev.stopPropagation(); ouvrirEdition(p.id, iso, ev.currentTarget.closest("td")); }}
                       title="Ajouter des heures (oubli de pointage) : chantier et horaires"
@@ -2736,6 +2745,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
                       style={{width:"100%",height:mois?"100%":(ch||(!l.length&&e!=="futur")?30:52),border:"none",background:"transparent",textAlign:"center",fontFamily:FM,fontWeight:700,fontSize:mois?11:15,color:C.encre,padding:mois?0:"0 2px",minHeight:mois?0:(ch||(!l.length&&e!=="futur")?30:52),outline:"none",boxSizing:"border-box",display:"block"}}/>
                     {!mois && <button onClick={()=>setDetail(ouvert?null:{pid:p.id,iso})} title="Détail : chantier, horaires, pause, logement"
                       style={{position:"absolute",top:1,right:1,border:"none",background:"transparent",cursor:"pointer",fontSize:12,color:C.gris,padding:"0 3px",lineHeight:1}}>⋯</button>}
+                    {mois && hNuit > 0 && <span title={`${fmtH(hNuit)} de nuit`} style={{position:"absolute",top:0,left:1,fontSize:9,lineHeight:1,pointerEvents:"none"}}>🌙</span>}
                     {l.length>0 && l.every(x=>x.valide) && !mois && <span style={{position:"absolute",bottom:2,right:4,fontSize:12,color:C.vert,fontWeight:800,pointerEvents:"none"}}>✓</span>}
                     {!mois && (l.length>0 || (pressePapier && e !== "futur")) && <div style={{display:"flex",gap:4,alignItems:"center",height:16,padding:"0 18px 2px 3px"}}>
                       {l.length>0 && <button onClick={ev=>{ev.stopPropagation();copierCase(p.id,iso);}} title="Copier cette journée (chantier et horaires) pour la coller ailleurs"
@@ -2747,7 +2757,8 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
                 </td>;
               })}
               <td style={{textAlign:"center",fontWeight:700,borderRight:`1px solid ${C.ligne}`,padding:"0 6px"}}>{fmtH(tot)}
-                {sup>0 && <div style={{fontSize:10,color:C.orange,fontWeight:600}}>+{fmtH(sup)} sup.</div>}</td>
+                {sup>0 && <div style={{fontSize:10,color:C.orange,fontWeight:600}}>+{fmtH(sup)} sup.</div>}
+                {totNuit>0 && <div style={{fontSize:10,color:"#3D2A6E",fontWeight:700,whiteSpace:"nowrap"}}>🌙 {fmtH(totNuit)} nuit</div>}</td>
               {!mois && <td style={{padding:"4px 6px"}}><div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"center"}}>
                 <button onClick={()=>semaineType(p)} title="Remplir les jours vides (lun → ven) en horaires types 07:30–16:30, pause 1 h, sur son dernier chantier" style={btnMini}>TYPE</button>
                 <button onClick={()=>copierPrecedente(p)} title="Recopier la semaine précédente sur les jours vides" style={btnMini}>S-1</button>
@@ -2768,6 +2779,7 @@ function OngletGrille({auj,pointagesTous,setPointages,chantiers,setChantiers,sal
         {[["valide","Validé"],["attente","À valider"],["manquant","Jour ouvré passé sans heures"],["absence","Absence / congé"],["ferie","Férié"],["weekend","Samedi / dimanche"]].map(([k,l]) =>
           <span key={k} style={{display:"inline-flex",alignItems:"center",gap:5}}><i style={{width:12,height:12,display:"inline-block",background:COUL[k],border:k==="manquant"?"1.5px solid #E55934":`1px solid ${C.ligne}`}}/>{l}</span>)}
         {!mois && <span>Au-delà de 35 h dans la semaine : heures sup. en orange.</span>}
+        <span><b style={{background:"#3D2A6E",color:"#fff",padding:"0 4px"}}>🌙</b> heures de nuit (entre 20 h et 6 h)</span>
       </div>
       {msg && <div style={{marginTop:10,padding:"9px 12px",background:C.papier,border:`1px solid ${C.ligne}`,fontSize:13}} role="status">{msg}</div>}
     </Section>
